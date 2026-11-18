@@ -6,15 +6,19 @@ import {
 } from "./game_commands.js";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
 
-function GameResults({ results, repertoires }) {
+function GameResults({ results, repertoires, history = false }) {
   return (
     <ul className="game-results">
-      {results.map(result => {
+      {results.map((result, index) => {
         const repertoire = repertoires.find(item => item.id === result.repertoire_id);
         const source = Object.hasOwn(sourceNames, result.source) ? sourceNames[result.source] : "Game";
         const gameLink = `${source} game`;
+        // Reports can repeat a comparison and legacy receipts may omit its ID.
+        const key = history && result.comparison_id
+          ? result.comparison_id
+          : JSON.stringify([result.comparison_id, index]);
         return (
-          <li key={JSON.stringify([result.source, result.game_id, result.repertoire_id, result.learner])}>
+          <li key={key}>
             <div>
               {result.url
                 ? <a href={result.url} target="_blank" rel="noopener noreferrer">{gameLink}</a>
@@ -307,7 +311,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           </>
         )}
         {history ? history.results.length > 0
-          ? <GameResults results={history.results} repertoires={repertoires ?? []} />
+          ? <GameResults history results={history.results} repertoires={repertoires ?? []} />
           : <p>No games recorded yet.</p>
           : !historyError && <p role="status">Loading game evidence…</p>}
       </Surface>
