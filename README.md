@@ -1,6 +1,8 @@
 # Tempo UI
 
-Run `npm ci` and `npm run build` here. The host serves `dist/index.html` and the bundled `dist/assets/`. The UI installs its locked Core package from `vendor/`, so a sibling Core checkout is unnecessary. The Core package contains corresponding sources and notices for the bundled board and pieces.
+In an assembled workspace, run `make build-ui` from its root. In a standalone
+source checkout, run `npm ci` and `npm run build` here. The build uses Python 3
+to check its destinations against the Mac managed installation. The host serves `dist/index.html` and the bundled `dist/assets/`. The UI installs its locked Core package from `vendor/`, so a sibling Core checkout is unnecessary. The Core package contains corresponding sources and notices for the bundled board and pieces.
 
 The matched Tempo server accepts v4 JSON commands at `/api/study` and `/api/repertoires`. `study_controller.js` validates study replies, persists an exact mutation before delivery, and recovers it with the same submission ID on reload. With no pending command, the backend chooses or resumes the current durable activity.
 
