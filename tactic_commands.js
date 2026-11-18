@@ -1,6 +1,5 @@
 import { commandRecovery, postCommand } from "./content_transport.js";
-import { validateStudyView } from "./validate_study_view.js";
-import { freeze, string } from "./wire_values.js";
+import { freeze, string, validateErrorView } from "./wire_values.js";
 
 export const tacticRecovery = commandRecovery("tempo-tactics-recovery-v4");
 
@@ -55,7 +54,7 @@ function validateRow(row) {
 export function validateTacticReply(reply, command) {
   if (!reply || typeof reply !== "object" || reply.schema_version !== 4)
     throw new TypeError("Expected a tactic reply with schema_version 4");
-  if (reply.status === "error") return validateStudyView(reply);
+  if (reply.status === "error") return validateErrorView(reply);
   if (command === "preview" && reply.status === "tactics_preview" && Array.isArray(reply.rows)) {
     const rows = reply.rows.map(validateRow);
     if (new Set(rows.map((row) => row.record)).size !== rows.length)

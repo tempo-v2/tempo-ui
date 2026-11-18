@@ -1,34 +1,15 @@
-/** Validate version 4 replies without making grading or scheduling decisions. */
-import { freeze, string } from "./wire_values.js";
+/** Validate version 5 replies without making grading or scheduling decisions. */
+import { boolean, freeze, object, string, validateErrorView } from "./wire_values.js";
 
 const ASSESSMENTS = new Set([null, "good", "again"]);
 const ATTEMPT_STATUSES = new Set(["ready", "complete", "abandoned"]);
 const ACTIVITIES = new Set(["teach", "test", "practice"]);
 const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
 
-function object(value, keys, name) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError(`${name} must be an object`);
-  }
-  const actual = Object.keys(value);
-  if (
-    actual.length !== keys.length ||
-    keys.some((key) => !Object.hasOwn(value, key))
-  ) {
-    throw new TypeError(`${name} has missing or unexpected fields`);
-  }
-}
-
 function integer(value, minimum, name) {
   if (!Number.isSafeInteger(value) || value < minimum) {
     throw new TypeError(`${name} must be a safe integer >= ${minimum}`);
   }
-  return value;
-}
-
-function boolean(value, name) {
-  if (typeof value !== "boolean")
-    throw new TypeError(`${name} must be a boolean`);
   return value;
 }
 
@@ -45,9 +26,9 @@ export function validateStudyView(value) {
   if (
     value === null ||
     typeof value !== "object" ||
-    value.schema_version !== 4
+    value.schema_version !== 5
   ) {
-    throw new TypeError("Expected a Study wire view with schema_version 4");
+    throw new TypeError("Expected a Study wire view with schema_version 5");
   }
   if (value.status === "empty") {
     const optionalFlags = ["can_practice_tactics", "can_learn_more_tactics"];
@@ -62,7 +43,7 @@ export function validateStudyView(value) {
     const outstanding = integer(value.outstanding, 0, "outstanding");
     if (done && outstanding) throw new TypeError("Done conflicts with outstanding work");
     return freeze({
-      schema_version: 4,
+      schema_version: 5,
       status: "empty",
       dataset_id: string(value.dataset_id, "dataset_id", true),
       done,
@@ -75,20 +56,7 @@ export function validateStudyView(value) {
       ])),
     });
   }
-  if (value.status === "error") {
-    object(
-      value,
-      ["schema_version", "status", "code", "message", "retryable"],
-      "error view",
-    );
-    return freeze({
-      schema_version: 4,
-      status: "error",
-      code: string(value.code, "code", true),
-      message: string(value.message, "message"),
-      retryable: boolean(value.retryable, "retryable"),
-    });
-  }
+  if (value.status === "error") return validateErrorView(value);
   if (!ATTEMPT_STATUSES.has(value.status))
     throw new TypeError("Unknown Study view status");
   object(
@@ -109,7 +77,7 @@ export function validateStudyView(value) {
       "legal_moves",
       "in_check",
       "activity",
-      ...["lesson", "repertoire_name"].filter((key) => Object.hasOwn(value, key)),
+      ...["lesson", "exercise_name"].filter((key) => Object.hasOwn(value, key)),
     ],
     "attempt view",
   );
@@ -153,8 +121,8 @@ export function validateStudyView(value) {
     throw new TypeError("Terminal legal moves must be empty");
 
   const context = {};
-  if (Object.hasOwn(value, "repertoire_name"))
-    context.repertoire_name = string(value.repertoire_name, "repertoire_name", true);
+  if (Object.hasOwn(value, "exercise_name"))
+    context.exercise_name = string(value.exercise_name, "exercise_name", true);
   if (value.lesson) {
     const lesson = value.lesson;
     const keys = ["move_uci", "move_san", "comments"];
@@ -206,7 +174,7 @@ export function validateStudyView(value) {
   if (prompt && prompt.fen !== value.display_fen)
     throw new TypeError("Prompt and display FEN differ");
   return freeze({
-    schema_version: 4,
+    schema_version: 5,
     activity: value.activity,
     ...context,
     display_fen: string(value.display_fen, "display_fen", true),

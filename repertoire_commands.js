@@ -1,7 +1,5 @@
-import { validateStudyView } from "./validate_study_view.js";
-import { freeze, string } from "./wire_values.js";
-
 import { commandRecovery, postCommand } from "./content_transport.js";
+import { freeze, string, validateErrorView } from "./wire_values.js";
 
 const recovery = commandRecovery("tempo-repertoire-recovery-v4");
 export const readPendingRepertoireCommand = recovery.load;
@@ -30,7 +28,7 @@ function count(value, field) {
 export function validateRepertoireReply(reply, command) {
   if (!reply || typeof reply !== "object" || reply.schema_version !== 4)
     throw new TypeError("Expected a repertoire reply with schema_version 4");
-  if (reply.status === "error") return validateStudyView(reply);
+  if (reply.status === "error") return validateErrorView(reply);
   if (reply.status === "preview" && command === "preview") {
     return freeze({
       status: reply.status,

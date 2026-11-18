@@ -13,6 +13,7 @@ import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 const REPLY_DELAY_MS = 200;
 const NEXT_EXERCISE_DELAY_MS = 500;
 
+// Reply versions can change independently of the pending command format.
 const storage = {
   load: () =>
     JSON.parse(sessionStorage.getItem("tempo-study-recovery-v4") || "null"),
