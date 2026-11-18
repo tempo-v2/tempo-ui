@@ -29,14 +29,33 @@ export function validateRepertoireReply(reply, command) {
   if (!reply || typeof reply !== "object" || reply.schema_version !== 4)
     throw new TypeError("Expected a repertoire reply with schema_version 4");
   if (reply.status === "error") return validateErrorView(reply);
-  if (reply.status === "preview" && command === "preview") {
+  if (command === "read_document") {
+    if (reply.status !== "document" || !["white", "black"].includes(reply.learner_color))
+      throw new TypeError("Invalid repertoire document");
+    const document = reply.document;
+    if (!document || !["available", "unavailable"].includes(document.status))
+      throw new TypeError("Invalid repertoire document availability");
+    return freeze({
+      status: "document",
+      dataset_id: string(reply.dataset_id, "dataset_id", true),
+      repertoire_id: string(reply.repertoire_id, "repertoire_id", true),
+      name: string(reply.name, "name", true),
+      learner_color: reply.learner_color,
+      revision: count(reply.revision, "revision"),
+      document: document.status === "available"
+        ? { status: "available", pgn: string(document.pgn, "pgn", true) }
+        : { status: "unavailable" },
+    });
+  }
+  const isPreview = command === "preview" || command === "edit_preview";
+  if (reply.status === "preview" && isPreview) {
     return freeze({
       status: reply.status,
       token: string(reply.token, "token", true),
       ...Object.fromEntries(COUNT_FIELDS.map((field) => [field, count(reply[field], field)])),
     });
   }
-  if (reply.status !== "repertoires" || command === "preview" || !Array.isArray(reply.repertoires))
+  if (reply.status !== "repertoires" || isPreview || !Array.isArray(reply.repertoires))
     throw new TypeError("Invalid repertoire list");
   return freeze({
     status: reply.status,
