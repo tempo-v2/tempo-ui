@@ -5,11 +5,11 @@ import { turnFromFen } from "./StudyBoard.jsx";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
 import { sendTacticCommand, tacticRecovery } from "./tactic_commands.js";
 
-function PreviewBoard({ fen, record }) {
+function PreviewBoard({ fen, orientation, record }) {
   const side = turnFromFen(fen);
   return (
     <div className="capture-board">
-      <Board fen={fen} orientation={side} turn={side} check={false}
+      <Board fen={fen} orientation={orientation} turn={side} check={false}
         mode="select" readOnly positionIdentity={`preview-${record}-${fen}`} positionRevision={0}
         ariaLabel="Tactic solver preview" />
     </div>
@@ -62,7 +62,7 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
           Select tactic {row.record + 1} for capture
         </label>
       )}
-      {fen && <PreviewBoard fen={fen} record={row.record} />}
+      {fen && <PreviewBoard fen={fen} orientation={turnFromFen(!dirty && row.replay ? row.replay.start_fen : fen)} record={row.record} />}
       {row.status === "valid" && !dirty && row.replay && (
         <MoveTrail line={row.replay} index={cursor} onInspect={setCursor} />
       )}
