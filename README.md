@@ -16,3 +16,8 @@ Run `npm test` for the wire and controller scenarios.
 `TacticsCapturePage.jsx` previews every pasted or uploaded PGN record and saves only selected valid rows. For a complete game, choose the variation and first and last solution moves. The server shows the normalized solver position and solution before capture. The same recovery convention keeps an unresolved capture separate from any editable PGN.
 
 After required Study is complete, the UI offers practice from introduced tactics and an explicit increase to today's tactics allowance when those actions are available.
+
+Run the repertoire editor browser check from the assembled workspace with
+`node tempo-ui/test/repertoire_editor_browser.mjs`. It uses Chrome and a
+disposable SQLite database through the guarded Make launcher. Make Playwright
+available to Node or set `TEMPO_PLAYWRIGHT` to its installed module path.

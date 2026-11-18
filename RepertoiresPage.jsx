@@ -20,6 +20,29 @@ function PreviewSummary({ preview }) {
   );
 }
 
+function documentAddress(dataset_id, repertoire_id) {
+  return { dataset_id, repertoire_id };
+}
+
+async function currentDocument(address) {
+  const reply = await sendRepertoireCommand({ command: "read_document", ...address });
+  if (reply.status === "error") throw new Error(reply.message);
+  if (reply.dataset_id !== address.dataset_id || reply.repertoire_id !== address.repertoire_id)
+    throw new Error("The reply belongs to a different repertoire.");
+  return reply;
+}
+
+function downloadDocument(reply) {
+  const file = new Blob([reply.document.pgn], { type: "application/x-chess-pgn" });
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  const name = reply.name.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  link.href = url;
+  link.download = `${name || "repertoire"}.pgn`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function RepertoiresPage({ onStudy }) {
   const [catalog, setCatalog] = useState(null);
   const [destination, setDestination] = useState("");
@@ -34,32 +57,145 @@ export function RepertoiresPage({ onStudy }) {
   const [pending, setPending] = useState(null);
   const [issue, setIssue] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [editor, setEditor] = useState(null);
+  const [documentBusy, setDocumentBusy] = useState(false);
+  const [refresh, setRefresh] = useState(null);
+  const [cleanupNeeded, setCleanupNeeded] = useState(false);
+  const [recoveryBlocked, setRecoveryBlocked] = useState(false);
   const inFlight = useRef(false);
   const fileRead = useRef(0);
+  const documentRead = useRef(0);
   const repertoire = catalog?.repertoires.find((item) => item.id === destination);
-  const locked = busy || !!pending;
+  const locked = busy || !!pending || cleanupNeeded || recoveryBlocked || !!refresh;
+  const dirty = !refresh && editor?.current?.document.status === "available"
+    && editor.text !== editor.current.document.pgn;
 
-  async function request(command, durable = false) {
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  function discardDraft() {
+    return !dirty || window.confirm("Discard your unsaved repertoire edits?");
+  }
+
+  function closeEditor() {
+    ++documentRead.current;
+    setDocumentBusy(false);
+    setEditor(null);
+    setPreview(null);
+    setIssue(null);
+  }
+
+  async function readDocument(address, download = false) {
+    const read = ++documentRead.current;
+    setDocumentBusy(true);
+    setIssue(null);
+    try {
+      const reply = await currentDocument(address);
+      if (documentRead.current !== read) return;
+      if (download) {
+        if (reply.document.status === "unavailable")
+          throw new Error("There is no verified current PGN. Upload a complete replacement to establish it.");
+        downloadDocument(reply);
+      } else {
+        setEditor({ address, current: reply, text: reply.document.pgn ?? "", stale: false });
+      }
+    } catch (error) {
+      if (documentRead.current === read) setIssue(error.message);
+    } finally {
+      if (documentRead.current === read) setDocumentBusy(false);
+    }
+  }
+
+  function openEditor(item) {
+    if (!discardDraft()) return;
+    ++fileRead.current;
+    setPreview(null);
+    const address = documentAddress(catalog.dataset_id, item.id);
+    setEditor({ address, current: null, text: "", stale: false });
+    readDocument(address);
+  }
+
+  function reloadEditor() {
+    if (!discardDraft()) return;
+    setPreview(null);
+    readDocument(editor.address);
+  }
+
+  function clearRecovery() {
+    try {
+      savePendingRepertoireCommand(null);
+      setCleanupNeeded(false);
+    } catch {
+      setCleanupNeeded(true);
+    }
+  }
+
+  async function refreshCurrent(next) {
+    try {
+      if (next.list) {
+        const reply = await sendRepertoireCommand({ command: "list" });
+        if (reply.status === "error") throw new Error(reply.message);
+        setCatalog(reply);
+        next = { ...next, list: false };
+        setRefresh(next);
+      }
+      if (next.address) {
+        const current = await currentDocument(next.address);
+        setEditor({ address: next.address, current, text: current.document.pgn ?? "", stale: false });
+      }
+      setRefresh(null);
+    } catch (error) {
+      setIssue(error.message || "The current repertoire could not be loaded.");
+    }
+  }
+
+  async function retryRefresh() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setIssue(null);
+    try {
+      await refreshCurrent(refresh);
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function request(command, { durable = false, stored = false } = {}) {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setIssue(null);
     setNotice(null);
     try {
-      if (durable) {
-        savePendingRepertoireCommand(command);
+      if (durable && !stored) {
+        try {
+          savePendingRepertoireCommand(command);
+        } catch {
+          setIssue("Tempo could not store this command for recovery. It was not sent.");
+          return;
+        }
         setPending(command);
       }
       const reply = await sendRepertoireCommand(command);
       if (durable && (reply.status !== "error" || !reply.retryable)) {
-        savePendingRepertoireCommand(null);
         setPending(null);
+        clearRecovery();
       }
       if (reply.status === "error") {
         if (command.command === "save" && !reply.retryable) setPreview(null);
+        if (editor && ["stale_draft", "stale_preview", "stale_dataset"].includes(reply.code))
+          setEditor({ ...editor, stale: true });
         setIssue(reply.message);
-        // A stale dataset can't take another write. Refresh the available destinations.
-        if (reply.code === "stale_dataset" && !reply.retryable) {
+        if (reply.code === "stale_dataset" && !reply.retryable && !editor) {
           setDestination("");
           const current = await sendRepertoireCommand({ command: "list" });
           if (current.status !== "error") setCatalog(current);
@@ -67,20 +203,25 @@ export function RepertoiresPage({ onStudy }) {
         return;
       }
       if (reply.status === "preview") {
-        setPreview({ reply, input: command });
-      } else {
-        setCatalog(reply);
-        if (command.command === "save") {
-          setNotice("Repertoire saved.");
-          setPreview(null);
+        const { base_revision, ...input } = command;
+        setPreview({ reply, input, editing: command.command === "edit_preview" });
+      } else if (durable) {
+        setNotice(command.command === "save" ? "Repertoire saved." : "Repertoire renamed.");
+        setPreview(null);
+        setRename(null);
+        if (command.command === "save" && !editor) {
           setSelectedFile("");
           setPgn("");
           setName("");
-        } else if (command.command === "rename") {
-          setNotice("Repertoire renamed.");
-          setRename(null);
-          setPreview(null);
         }
+        const openDocument = command.command === "save" && editor
+          && command.dataset_id === editor.address.dataset_id
+          && command.repertoire_id === editor.address.repertoire_id;
+        const next = { list: true, address: openDocument ? editor.address : null };
+        setRefresh(next);
+        await refreshCurrent(next);
+      } else {
+        setCatalog(reply);
       }
     } catch (error) {
       setIssue(error.message || "Delivery uncertain.");
@@ -90,14 +231,29 @@ export function RepertoiresPage({ onStudy }) {
     }
   }
 
-  useEffect(() => {
+  function resumeRecovery() {
     try {
       const recover = readPendingRepertoireCommand();
-      request(recover || { command: "list" }, !!recover);
-    } catch (error) {
-      setIssue(error.message);
+      setRecoveryBlocked(false);
+      if (recover) {
+        setPending(recover);
+        request(recover, { durable: true, stored: true });
+      } else {
+        request({ command: "list" });
+      }
+    } catch {
+      setRecoveryBlocked(true);
+      setIssue("Tempo could not read its saved repertoire command. Retry before making changes.");
       setBusy(false);
     }
+  }
+
+  useEffect(() => {
+    resumeRecovery();
+    return () => {
+      ++documentRead.current;
+      ++fileRead.current;
+    };
   }, []);
 
   async function readFile(file, selection) {
@@ -134,15 +290,37 @@ export function RepertoiresPage({ onStudy }) {
     });
   }
 
+  function previewEdit(event) {
+    event.preventDefault();
+    if (!editor.current || editor.stale || !editor.text.trim()) return;
+    setPreview(null);
+    request({
+      command: "edit_preview",
+      ...editor.address,
+      name: editor.current.name,
+      learner_color: editor.current.learner_color,
+      pgn: editor.text,
+      base_revision: editor.current.revision,
+    });
+  }
+
   return (
     <main className="tempo-core repertoire-page">
       <PageHeader title="Repertoires" actions={
-        <Button disabled={locked} onClick={onStudy}>Study</Button>
+        <Button disabled={locked} onClick={() => {
+          if (discardDraft()) onStudy();
+        }}>Study</Button>
       } />
-      {(issue || notice) && (
-        <StatusNotice kind={issue ? "error" : undefined}>{issue ?? notice}</StatusNotice>
-      )}
-      {pending && <Button pending={busy} onClick={() => request(pending, true)}>Retry save</Button>}
+      {notice && <StatusNotice>{notice}</StatusNotice>}
+      {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
+      {cleanupNeeded && <>
+        <StatusNotice kind="error">Tempo could not clear its saved recovery command.</StatusNotice>
+        <Button disabled={busy} onClick={clearRecovery}>Retry clearing recovery</Button>
+      </>}
+      {refresh && <Button pending={busy} onClick={retryRefresh}>Retry reload</Button>}
+      {recoveryBlocked && <Button onClick={resumeRecovery}>Retry reading recovery</Button>}
+      {pending && <Button pending={busy}
+        onClick={() => request(pending, { durable: true, stored: true })}>Retry save</Button>}
       {!catalog && !locked && (
         <Button onClick={() => request({ command: "list" })}>Reload repertoires</Button>
       )}
@@ -156,7 +334,16 @@ export function RepertoiresPage({ onStudy }) {
                 {catalog.repertoires.map((item) => (
                   <li key={item.id}>
                     <div><strong>{item.name}</strong> <span className="repertoire-details">· {item.learner_color} · {item.positions} positions</span></div>
-                    {rename?.id === item.id ? (
+                    <div className="actions">
+                      <Button disabled={locked} onClick={() => openEditor(item)}>
+                        Edit<span className="visually-hidden"> {item.name}</span>
+                      </Button>
+                      <Button disabled={locked || documentBusy} onClick={() =>
+                        readDocument(documentAddress(catalog.dataset_id, item.id), true)}>
+                        Download PGN<span className="visually-hidden"> for {item.name}</span>
+                      </Button>
+                    </div>
+                    {!editor && (rename?.id === item.id ? (
                       <form className="actions" onSubmit={(event) => {
                         event.preventDefault();
                         request({
@@ -164,7 +351,7 @@ export function RepertoiresPage({ onStudy }) {
                           dataset_id: catalog.dataset_id,
                           repertoire_id: item.id,
                           name: rename.name.trim(),
-                        }, true);
+                        }, { durable: true });
                       }}>
                         <label>New name <input required disabled={locked} value={rename.name}
                           onChange={(event) => setRename({ id: item.id, name: event.target.value })} /></label>
@@ -175,19 +362,55 @@ export function RepertoiresPage({ onStudy }) {
                       <Button disabled={locked} onClick={() => setRename({ id: item.id, name: item.name })}>
                         Rename<span className="visually-hidden"> {item.name}</span>
                       </Button>
-                    )}
+                    ))}
                   </li>
                 ))}
               </ul>
             </Surface>
           )}
 
-          <Surface>
+          {editor ? (
+            <Surface>
+              <h2>Edit repertoire{editor.current ? `: ${editor.current.name}` : ""}</h2>
+              {documentBusy && <p role="status">Loading current PGN…</p>}
+              {!documentBusy && editor.current?.document.status === "unavailable" && (
+                <>
+                  <p>There is no verified current PGN for this repertoire. Upload a complete replacement to establish it.</p>
+                  <Button disabled={locked} onClick={() => {
+                    setDestination(editor.address.repertoire_id);
+                    closeEditor();
+                  }}>Upload replacement</Button>
+                </>
+              )}
+              {editor.current?.document.status === "available" && (
+                <form className="repertoire-form" onSubmit={previewEdit}>
+                  <p>This document replaces the entire repertoire. Omitted lines will retire.</p>
+                  <label>Repertoire PGN
+                    <textarea rows={14} value={editor.text} disabled={locked || documentBusy}
+                      onChange={(event) => {
+                        setEditor({ ...editor, text: event.target.value });
+                        setPreview(null);
+                      }} />
+                  </label>
+                  <Button type="submit" disabled={locked || documentBusy || editor.stale || !dirty || !editor.text.trim()}>
+                    Preview changes
+                  </Button>
+                </form>
+              )}
+              <div className="actions">
+                <Button disabled={locked || documentBusy} onClick={reloadEditor}>Reload current PGN</Button>
+                <Button disabled={locked} onClick={() => {
+                  if (discardDraft()) closeEditor();
+                }}>Cancel edit</Button>
+              </div>
+            </Surface>
+          ) : <Surface>
             <h2>Import PGN</h2>
             <form className="repertoire-form" onSubmit={previewImport}>
               {catalog.repertoires.length > 0 && (
                 <label>Destination
                   <select disabled={locked} value={destination} onChange={(event) => {
+                    ++fileRead.current;
                     setDestination(event.target.value);
                     setPreview(null);
                   }}>
@@ -204,6 +427,7 @@ export function RepertoiresPage({ onStudy }) {
                 <div className="repertoire-fields">
                   <label>Repertoire name
                     <input disabled={locked} required value={name} onChange={(event) => {
+                      ++fileRead.current;
                       setName(event.target.value);
                       setPreview(null);
                     }} />
@@ -251,7 +475,7 @@ export function RepertoiresPage({ onStudy }) {
                 </Button>
               </div>
             </form>
-          </Surface>
+          </Surface>}
           {preview && (
             <Surface>
               <h2>{preview.input.repertoire_id ? "Replace" : "Create"} {preview.input.name}</h2>
@@ -261,8 +485,8 @@ export function RepertoiresPage({ onStudy }) {
                 ...preview.input,
                 command: "save",
                 token: preview.reply.token,
-              }, true)}>
-                {preview.input.repertoire_id ? "Replace repertoire" : "Create repertoire"}
+              }, { durable: true })}>
+                {preview.editing ? "Save repertoire" : preview.input.repertoire_id ? "Replace repertoire" : "Create repertoire"}
               </Button>
             </Surface>
           )}
