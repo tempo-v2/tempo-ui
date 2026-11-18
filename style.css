@@ -237,3 +237,54 @@ body {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+.capture-row {
+  border-top: 1px solid #d9ddd3;
+  margin-top: 1rem;
+  padding: 1rem 0;
+}
+
+.capture-row h3 {
+  font-size: 1.05rem;
+  margin: 0 0 0.75rem;
+}
+
+.capture-check {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.capture-board {
+  width: min(100%, 19rem);
+  margin: 0.75rem 0;
+}
+
+.capture-selection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.capture-selection label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.capture-selection select {
+  border: 1px solid #a3a99f;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  max-width: 100%;
+  padding: 0.4rem;
+}
+
+.study-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}

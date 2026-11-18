@@ -1,33 +1,22 @@
 import { validateStudyView } from "./validate_study_view.js";
 import { freeze, string } from "./wire_values.js";
 
-const STORAGE_KEY = "tempo-repertoire-recovery-v4";
+import { commandRecovery, postCommand } from "./content_transport.js";
 
-export function readPendingRepertoireCommand() {
-  return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "null");
-}
+const recovery = commandRecovery("tempo-repertoire-recovery-v4");
+export const readPendingRepertoireCommand = recovery.load;
+export const savePendingRepertoireCommand = recovery.save;
 
 export function hasPendingRepertoireCommand() {
   try {
-    return !!readPendingRepertoireCommand();
+    return !!recovery.load();
   } catch {
     return false;
   }
 }
 
-export function savePendingRepertoireCommand(command) {
-  if (command) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(command));
-  else sessionStorage.removeItem(STORAGE_KEY);
-}
-
 export async function sendRepertoireCommand(command) {
-  const response = await fetch("/api/repertoires", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(command),
-  });
-  if (!response.ok) throw new Error(`Server returned ${response.status}`);
-  return validateRepertoireReply(await response.json(), command.command);
+  return validateRepertoireReply(await postCommand("/api/repertoires", command), command.command);
 }
 
 const COUNT_FIELDS = ["positions", "routes", "added", "removed", "changed", "affected_learning"];

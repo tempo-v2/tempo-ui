@@ -59,6 +59,9 @@ export interface EmptyView {
   readonly outstanding: number;
   readonly repertoire_remaining: number;
   readonly tactics_remaining: number;
+  readonly can_practice_tactics?: boolean;
+  readonly can_learn_more_tactics?: boolean;
+  readonly learn_more_count?: number;
 }
 /** Whether to retain a command for retry is supplied by the application. */
 export interface ErrorView {

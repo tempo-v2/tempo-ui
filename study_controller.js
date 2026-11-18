@@ -61,6 +61,12 @@ export function createStudyController({
       notify();
     }
   }
+  async function deliver(command) {
+    const reply = await send(command);
+    if (command.command === "learn_more_tactics" && reply.status === "empty" && !reply.done)
+      return begin(() => ({ command: "next" }));
+    return reply;
+  }
   function begin(build, durable = false) {
     if (busy) return Promise.resolve(null);
     if (storageUnavailable) {
@@ -75,7 +81,7 @@ export function createStudyController({
         storage.save({ pending: command });
         pending = command;
       }
-      return send(command);
+      return deliver(command);
     } catch (error) {
       issue = refreshRequired ? "refresh" : error.message;
       notify();
@@ -101,7 +107,7 @@ export function createStudyController({
         notify();
         return Promise.reject(new Error(issue));
       }
-      return pending ? send(pending) : begin(() => ({ command: "next" }));
+      return pending ? deliver(pending) : begin(() => ({ command: "next" }));
     },
     next: () => begin(() => ({ command: "next" })),
     resume: (attemptId) =>
@@ -127,12 +133,23 @@ export function createStudyController({
     giveUp: () => begin(() => attemptCommand("give_up"), true),
     skip: () => begin(() => attemptCommand("skip"), true),
     resumeSkipped: () => begin(() => ({ command: "resume_skipped" })),
+    studyStatus: () => begin(() => ({ command: "study_status" })),
+    practiceTactics: () => begin(() => ({ command: "practice_tactics" })),
+    learnMoreTactics: () => begin(() => {
+      if (view?.status !== "empty" || !view.done || !view.can_learn_more_tactics)
+        throw new Error("Complete the required study before increasing today's tactics allowance");
+      return {
+        command: "learn_more_tactics",
+        dataset_id: view.dataset_id,
+        submission_id: string(makeSubmissionId(), "submission_id", true),
+      };
+    }, true),
     abandon: () => begin(() => attemptCommand("abandon"), true),
     retry: () =>
       busy
         ? Promise.resolve(null)
         : pending
-          ? send(pending)
+          ? deliver(pending)
           : Promise.reject(
               new Error("There is no unresolved command to retry"),
             ),

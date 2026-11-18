@@ -10,7 +10,8 @@ export interface AttemptCommandBase {
 }
 export type StudyCommand =
   | { readonly command: "next" }
-  | { readonly command: "resume_skipped" }
+  | { readonly command: "resume_skipped" | "practice_tactics" | "study_status" }
+  | { readonly command: "learn_more_tactics"; readonly dataset_id: string; readonly submission_id: string }
   | { readonly command: "resume"; readonly attempt_id: string }
   | (AttemptCommandBase & {
       readonly command: "answer" | "acknowledge";

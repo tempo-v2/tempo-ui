@@ -5,6 +5,7 @@ export function StudyActions({ view, state, actions, reproduced, stopped }) {
   const recoveryBlocked = state.issue?.startsWith("Recovery storage");
   if (!view && (!state.issue || recoveryBlocked) && !state.canRetry) return null;
   const disabled = state.busy || recoveryBlocked;
+  const moreTactics = view?.learn_more_count ?? 10;
   return (
     <div className="actions">
       {state.canRetry ? (
@@ -30,10 +31,18 @@ export function StudyActions({ view, state, actions, reproduced, stopped }) {
           <Button variant="primary" disabled={disabled} onClick={actions.resumeSkipped}>Resume skipped</Button>
           <Button disabled={disabled} onClick={actions.stop}>Stop</Button>
         </>
+      ) : view?.status === "empty" ? (
+        <>
+          {view.can_practice_tactics && <Button disabled={disabled} onClick={actions.practiceTactics}>Practice tactics</Button>}
+          {view.can_learn_more_tactics && (
+            <Button disabled={disabled} onClick={actions.learnMoreTactics}>
+              Learn {moreTactics} more {moreTactics === 1 ? "tactic" : "tactics"} today
+            </Button>
+          )}
+          <Button disabled={disabled} onClick={actions.next}>Check again</Button>
+        </>
       ) : (
-        <Button variant="primary" disabled={disabled} onClick={actions.next}>
-          {view?.status === "empty" ? "Check again" : "Next"}
-        </Button>
+        <Button variant="primary" disabled={disabled} onClick={actions.next}>Next</Button>
       )}
     </div>
   );

@@ -50,9 +50,13 @@ export function validateStudyView(value) {
     throw new TypeError("Expected a Study wire view with schema_version 4");
   }
   if (value.status === "empty") {
+    const optionalFlags = ["can_practice_tactics", "can_learn_more_tactics"];
+    const optionalFields = [...optionalFlags, "learn_more_count"]
+      .filter((key) => Object.hasOwn(value, key));
     object(value, [
       "schema_version", "status", "dataset_id",
       "done", "outstanding", "repertoire_remaining", "tactics_remaining",
+      ...optionalFields,
     ], "empty view");
     const done = boolean(value.done, "done");
     const outstanding = integer(value.outstanding, 0, "outstanding");
@@ -65,6 +69,10 @@ export function validateStudyView(value) {
       outstanding,
       repertoire_remaining: integer(value.repertoire_remaining, 0, "repertoire_remaining"),
       tactics_remaining: integer(value.tactics_remaining, 0, "tactics_remaining"),
+      ...Object.fromEntries(optionalFields.map((key) => [
+        key,
+        key === "learn_more_count" ? integer(value[key], 0, key) : boolean(value[key], key),
+      ])),
     });
   }
   if (value.status === "error") {

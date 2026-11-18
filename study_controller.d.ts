@@ -3,7 +3,7 @@ import type { StudyCommand } from "./study_command.js";
 
 export type MutationCommand = Extract<
   StudyCommand,
-  { command: "answer" | "abandon" | "acknowledge" | "skip" | "give_up" }
+  { command: "answer" | "abandon" | "acknowledge" | "skip" | "give_up" | "learn_more_tactics" }
 >;
 export interface RecoveryEnvelope {
   readonly pending: MutationCommand | null;
@@ -34,6 +34,9 @@ export interface StudyController {
   skip(): Promise<StudyView | null>;
   giveUp(): Promise<StudyView | null>;
   resumeSkipped(): Promise<StudyView | null>;
+  studyStatus(): Promise<StudyView | null>;
+  practiceTactics(): Promise<StudyView | null>;
+  learnMoreTactics(): Promise<StudyView | null>;
   abandon(): Promise<StudyView | null>;
   retry(): Promise<StudyView | null>;
 }

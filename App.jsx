@@ -5,6 +5,8 @@ import { identity } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
 import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
+import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
+import { hasPendingTacticCommand } from "./tactic_commands.js";
 
 const REPLY_DELAY_MS = 200;
 const NEXT_PUZZLE_DELAY_MS = 500;
@@ -26,10 +28,16 @@ const transport = {
     return response.json();
   },
 };
+function initialPage() {
+  if (hasPendingRepertoireCommand()) return "repertoires";
+  if (hasPendingTacticCommand()) return "capture";
+  return "study";
+}
+
 export function App() {
   const [model, setModel] = useState({ view: null, state: { busy: false } }),
     [choice, setChoice] = useState(null),
-    [repertoires, setRepertoires] = useState(hasPendingRepertoireCommand),
+    [page, setPage] = useState(initialPage),
     [stopped, setStopped] = useState(false),
     [guided, setGuided] = useState(null);
   const board = useRef(null),
@@ -67,7 +75,7 @@ export function App() {
       },
     });
   useEffect(() => {
-    if (!repertoires) controller.current.start().catch(() => {});
+    if (page === "study") controller.current.start().catch(() => {});
     return () => clearTimeout(replyTimer.current);
   }, []);
   useEffect(() => {
@@ -87,7 +95,7 @@ export function App() {
   }, [model.view, model.state.canRetry, model.state.busy]);
 
   const { view, state } = model;
-  const showSuccess = !repertoires && !stopped && view?.status === "complete" &&
+  const showSuccess = page === "study" && !stopped && view?.status === "complete" &&
     view.activity !== "teach" && !view.repertoire_name && view.feedback?.correct &&
     !state.busy && !state.canRetry && !state.issue && advanced.current !== view;
   useEffect(() => {
@@ -113,16 +121,19 @@ export function App() {
       const skipped = await controller.current.skip();
       if (skipped?.status === "abandoned") await controller.current.next();
     }),
-    stop: () => {
+    stop: run(async () => {
       setGuided(null);
       setStopped(true);
-    },
+      await controller.current.studyStatus();
+    }),
     continue: run(async () => {
       await controller.current.next();
       setStopped(false);
     }),
     giveUp: run(() => controller.current.giveUp()),
     resumeSkipped: run(() => controller.current.resumeSkipped()),
+    practiceTactics: run(() => controller.current.practiceTactics()),
+    learnMoreTactics: run(() => controller.current.learnMoreTactics()),
     acknowledge: run(() => controller.current.acknowledge(guided?.uci)),
     retry: run(() => controller.current.retry()),
     refresh: run(() => controller.current.refresh()),
@@ -198,13 +209,15 @@ export function App() {
     board.current?.previewPromotion(origin.base.slice(2), promotionRoles[role].toLowerCase());
     submit(v, origin.base + role);
   }
-  if (repertoires)
-    return <RepertoiresPage onStudy={() => {
-      setRepertoires(false);
-      setStopped(false);
-      setGuided(null);
-      controller.current.next().catch(() => {});
-    }} />;
+  function goTo(nextPage) {
+    setGuided(null);
+    setStopped(false);
+    setPage(nextPage);
+    if (nextPage === "study") controller.current.start().catch(() => {});
+  }
+  if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;
+  if (page === "capture")
+    return <TacticsCapturePage datasetId={view?.dataset_id} onStudy={() => goTo("study")} />;
 
   return (
     <StudyPage
@@ -214,10 +227,8 @@ export function App() {
       actions={actions}
       guided={guided?.view === view ? guided : null}
       stopped={stopped}
-      onRepertoires={() => {
-        setGuided(null);
-        setRepertoires(true);
-      }}
+      onRepertoires={() => goTo("repertoires")}
+      onTacticCapture={() => goTo("capture")}
       boardRef={board}
       choice={choice}
       onMove={onMove}

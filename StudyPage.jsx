@@ -15,6 +15,7 @@ export function StudyPage({
   guided,
   stopped,
   onRepertoires,
+  onTacticCapture,
   boardRef,
   choice,
   onMove,
@@ -49,15 +50,20 @@ export function StudyPage({
       )}
       <aside className="study-panel" aria-label="Study information">
         <PageHeader title="Study" actions={
-          <Button disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
-            Repertoires
-          </Button>
+          <div className="study-navigation">
+            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
+              Repertoires
+            </Button>
+            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onTacticCapture}>
+              Capture tactics
+            </Button>
+          </div>
         } />
         <Surface>
           {stopped ? (
             <>
               <p>Study paused.</p>
-              {view?.outstanding > 0 && <p>{view.outstanding} remaining today.</p>}
+              {view?.status === "empty" && <p>{view.outstanding} remaining today.</p>}
             </>
           ) : (
             <>
@@ -65,7 +71,7 @@ export function StudyPage({
                 {view?.status === "ready" &&
                   (turnFromFen(view.display_fen) === "white" ? "White to move" : "Black to move")}
               </div>
-              {attempt && <p>{view.repertoire_name ?? "Tactics"}</p>}
+              {attempt && <p>{view.repertoire_name ?? (view.activity === "practice" ? "Tactics practice" : "Tactics")}</p>}
               {lesson && (
                 <div className="lesson">
                   <h2>Learn this move</h2>
@@ -84,9 +90,12 @@ export function StudyPage({
               {view?.status === "abandoned" && <p>Exercise skipped.</p>}
               {view?.status === "empty" && (
                 <StatusNotice>
-                  {view.done ? "Done for today." : `${view.outstanding} remaining today.`}
+                  <div>{view.done ? "Done for today." : `${view.outstanding} remaining today.`}</div>
                   {view.done && view.repertoire_remaining > 0 && (
                     <p>No more repertoire positions are available. Unused opening introductions: {view.repertoire_remaining}.</p>
+                  )}
+                  {view.done && view.tactics_remaining > 0 && (
+                    <p>No more tactics are available. Unused tactic introductions: {view.tactics_remaining}.</p>
                   )}
                 </StatusNotice>
               )}
