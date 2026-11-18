@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Board, Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { MoveTrail } from "./MoveTrail.jsx";
 import { turnFromFen } from "./StudyBoard.jsx";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
 import { sendTacticCommand, tacticRecovery } from "./tactic_commands.js";
@@ -17,8 +18,14 @@ function PreviewBoard({ fen, record }) {
   );
 }
 
+function notation({ san, fen_before: fen }) {
+  const fields = fen.split(" ");
+  return `${fields[5]}${fields[1] === "b" ? "..." : "."} ${san}`;
+}
+
 function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy }) {
   const appliedRoute = selection?.route ?? (row.routes.length === 1 ? row.routes[0].route : "");
+  const [cursor, setCursor] = useState(0);
   const [route, setRoute] = useState(appliedRoute);
   const [start, setStart] = useState(selection?.start ?? "");
   const [end, setEnd] = useState(selection?.end ?? "");
@@ -27,13 +34,13 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
   const shown = moves[start === "" ? 0 : start]?.fen_before;
   const dirty = route !== appliedRoute || start !== (selection?.start ?? "") ||
     end !== (selection?.end ?? "") || setup !== (selection?.setup_plies ?? "");
+  useEffect(() => { onDraft(dirty); }, [dirty]);
   const segmentValid = start !== "" && end !== "" && end > start;
   const canApply = (route !== "" || setup !== "") &&
     (start === "" && end === "" || segmentValid);
   const fen = row.status === "valid" && row.solver_fen && !dirty
-    ? row.solver_fen : shown;
+    ? row.replay?.moves[cursor - 1]?.fen ?? row.replay?.start_fen ?? row.solver_fen : shown;
   function selectRoute(event) {
-    onDraft();
     setRoute(event.target.value === "" ? "" : Number(event.target.value));
     setStart("");
     setEnd("");
@@ -58,8 +65,8 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
         </label>
       )}
       {fen && <PreviewBoard fen={fen} record={row.record} />}
-      {row.status === "valid" && !dirty && (
-        <p>Solution ({row.solution.length} {row.solution.length === 1 ? "move" : "moves"}) {row.solution.join(" ")}</p>
+      {row.status === "valid" && !dirty && row.replay && (
+        <MoveTrail line={row.replay} index={cursor} onInspect={setCursor} />
       )}
       {row.routes.length > 0 && (
         <details open={row.status === "selection_required" || undefined}>
@@ -79,22 +86,20 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
               <>
                 <label>First solution move
                   <select value={start} disabled={busy} onChange={(event) => {
-                    onDraft();
                     setStart(event.target.value === "" ? "" : Number(event.target.value));
                     setEnd("");
                   }}>
                     <option value="">Choose starting move</option>
-                    {moves.map(({ san }, index) => <option key={index} value={index}>{index + 1}. {san}</option>)}
+                    {moves.map((move, index) => <option key={index} value={index}>{notation(move)}</option>)}
                   </select>
                 </label>
                 <label>Last solution move
                   <select value={end} disabled={busy || start === ""} onChange={(event) => {
-                    onDraft();
                     setEnd(event.target.value === "" ? "" : Number(event.target.value));
                   }}>
                     <option value="">Choose ending move</option>
-                    {moves.map(({ san }, index) => index >= start && (
-                      <option key={index} value={index + 1}>{index + 1}. {san}</option>
+                    {moves.map((move, index) => index >= start && (
+                      <option key={index} value={index + 1}>{notation(move)}</option>
                     ))}
                   </select>
                 </label>
@@ -102,7 +107,6 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
             )}
             <label>Setup before solution
               <select value={setup} disabled={busy || start !== ""} onChange={(event) => {
-                onDraft();
                 setSetup(event.target.value === "" ? "" : Number(event.target.value));
               }}>
                 <option value="">Use PGN convention</option>
@@ -118,19 +122,24 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
   );
 }
 
-export function TacticsCapturePage({ datasetId, onStudy }) {
+export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
   const [dataset, setDataset] = useState(datasetId);
   const [pgn, setPgn] = useState("");
   const [preview, setPreview] = useState(null);
   const [selected, setSelected] = useState([]);
+  const [dirtyRows, setDirtyRows] = useState([]);
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
   const [issue, setIssue] = useState(null);
   const [notice, setNotice] = useState(null);
   const file = useRef(null);
+  const textarea = useRef(null);
+  const generation = useRef(0);
+  const saveGeneration = useRef(null);
   const fileRead = useRef(0);
   const inFlight = useRef(false);
   const locked = busy || !!pending;
+  const validRows = preview?.rows.filter(row => row.status === "valid" && !dirtyRows.includes(row.record)) ?? [];
 
   async function loadDataset() {
     const reply = await sendRepertoireCommand({ command: "list" });
@@ -143,7 +152,9 @@ export function TacticsCapturePage({ datasetId, onStudy }) {
     inFlight.current = true;
     setBusy(true);
     setIssue(null);
-    setNotice(null);
+    if (command.command === "save") setNotice(null);
+    const requestedGeneration = generation.current;
+    if (durable && command !== pending) saveGeneration.current = requestedGeneration;
     try {
       if (durable) {
         tacticRecovery.save(command);
@@ -156,16 +167,24 @@ export function TacticsCapturePage({ datasetId, onStudy }) {
       }
       if (reply.status === "error") {
         setIssue(reply.message);
-        if (!reply.retryable && command.command === "save") setPreview(null);
+        if (!reply.retryable && command.command === "save" && saveGeneration.current === generation.current) setPreview(null);
         if (reply.code === "stale_dataset" && !reply.retryable) await loadDataset();
       } else if (reply.status === "tactics_preview") {
+        if (requestedGeneration !== generation.current) return;
         setPreview({ input: command, ...reply });
-        setSelected([]);
+        setSelected(previous => previous.filter(record => {
+          if (preview?.input.pgn !== command.pgn) return false;
+          const before = preview.rows.find(row => row.record === record);
+          const after = reply.rows.find(row => row.record === record);
+          return before?.capture_identity && before.capture_identity === after?.capture_identity &&
+            after.status === "valid";
+        }));
       } else {
-        setPreview(null);
-        setSelected([]);
-        setPgn("");
-        if (file.current) file.current.value = "";
+        if (saveGeneration.current === generation.current) {
+          changePgn("");
+          if (file.current) file.current.value = "";
+          textarea.current?.focus();
+        }
         setNotice({
           message: reply.count === 1 ? "One tactic saved." : `${reply.count} tactics saved.`,
           alternateSolutions: reply.alternate_solutions,
@@ -195,6 +214,8 @@ export function TacticsCapturePage({ datasetId, onStudy }) {
   }, []);
 
   function changePgn(value) {
+    ++generation.current;
+    setDirtyRows([]);
     setPreview(null);
     setSelected([]);
     setPgn(value);
@@ -241,7 +262,10 @@ export function TacticsCapturePage({ datasetId, onStudy }) {
 
   return (
     <main className="tempo-core repertoire-page tactic-capture">
-      <PageHeader title="Capture tactics" actions={<Button disabled={locked} onClick={onStudy}>Study</Button>} />
+      <PageHeader title="Capture tactics" actions={<div className="actions">
+        <Button disabled={locked} onClick={onStudy}>Study</Button>
+        {onTactics && <Button disabled={locked} onClick={onTactics}>Tactics</Button>}
+      </div>} />
       {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
       {notice && (
         <StatusNotice>
@@ -261,7 +285,7 @@ export function TacticsCapturePage({ datasetId, onStudy }) {
               onChange={(event) => chooseFile(event.target.files[0])} />
           </label>
           <label>Or paste PGN
-            <textarea disabled={locked} rows={7} value={pgn} onChange={(event) => {
+            <textarea ref={textarea} rows={7} value={pgn} onChange={(event) => {
               ++fileRead.current;
               changePgn(event.target.value);
             }} />
@@ -272,13 +296,24 @@ export function TacticsCapturePage({ datasetId, onStudy }) {
       {preview && (
         <Surface>
           <h2>Preview tactics</h2>
-          {preview.rows.map((row) => (
-            <CaptureRow key={`${preview.token}/${row.record}`} row={row} busy={locked}
-              selection={preview.input.selections?.find(({ record }) => record === row.record)}
+          <div className="actions">
+            <Button disabled={locked || !validRows.length}
+              onClick={() => setSelected(validRows.map(row => row.record))}>Select all valid</Button>
+            <Button disabled={locked || !selected.length} onClick={() => setSelected([])}>Clear selection</Button>
+          </div>
+          {preview.rows.map((row) => {
+            const selection = preview.input.selections?.find(({ record }) => record === row.record);
+            return <CaptureRow key={`${row.record}/${JSON.stringify(selection ?? null)}`} row={row} busy={locked}
+              selection={selection}
               checked={selected.includes(row.record)} onSelect={() => toggleRecord(row.record)}
-              onDraft={() => setSelected((previous) => previous.filter((record) => record !== row.record))}
-              onApply={updateSelection} />
-          ))}
+              onDraft={dirty => {
+                setDirtyRows(previous => dirty
+                  ? (previous.includes(row.record) ? previous : [...previous, row.record])
+                  : previous.filter(record => record !== row.record));
+                if (dirty) setSelected(previous => previous.filter(record => record !== row.record));
+              }}
+              onApply={updateSelection} />;
+          })}
           <Button variant="primary" disabled={locked || !selected.length} onClick={() => request({
             ...preview.input,
             command: "save",

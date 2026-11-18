@@ -322,3 +322,72 @@ body {
   gap: 0.5rem 1rem;
   margin-top: 0.75rem;
 }
+
+.board-preferences {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.board-preferences label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.shortcut-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 1rem;
+}
+
+.shortcut-list dd {
+  margin: 0;
+}
+
+.study-progress h2 {
+  font-size: 1rem;
+  margin-block: 0 0.4rem;
+}
+.study-progress dl {
+  margin-block: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+.study-progress dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.move-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  max-height: 9rem;
+  overflow-y: auto;
+}
+
+.move-trail h3 {
+  font-size: 1rem;
+  margin-block-end: 0.35rem;
+}
+
+.tactic-results {
+  list-style: none;
+  padding: 0;
+}
+
+.tactic-results li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgb(127 127 127 / 25%);
+}
+
+.tactic-collection .capture-board {
+  margin-block: 1rem;
+}

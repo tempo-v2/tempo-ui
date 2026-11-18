@@ -1,6 +1,10 @@
 import React from "react";
 import { Button, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
 import { StudyBoard, turnFromFen } from "./StudyBoard.jsx";
+import { MoveTrail } from "./MoveTrail.jsx";
+import { StudyProgress } from "./StudyProgress.jsx";
+import { StudyOutcome } from "./StudyOutcome.jsx";
+import { BoardPreferences } from "./BoardPreferences.jsx";
 import { MoveFeedback } from "./MoveFeedback.jsx";
 import { StudyActions } from "./StudyActions.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
@@ -15,12 +19,19 @@ export function StudyPage({
   guided,
   stopped,
   onRepertoires,
-  onTacticCapture,
-  onTacticSettings,
+  onTactics,
   boardRef,
   choice,
   onMove,
   onRejectedMove,
+  prefs,
+  flipped,
+  historyIndex,
+  onInspect,
+  onFlip,
+  dialog,
+  setDialog,
+  onPrefsChange,
   soundEnabled,
   onSoundChange,
   onChoose,
@@ -35,11 +46,15 @@ export function StudyPage({
           <StudyBoard
             ref={boardRef}
             view={view}
+            prefs={prefs}
+            flipped={flipped}
+            historyFen={historyIndex === null ? undefined : historyIndex === 0
+              ? view.history.start_fen : view.history.moves[historyIndex - 1]?.fen}
             locked={
               state.busy ||
               state.canRetry ||
               state.issue === "refresh" ||
-              !!choice || !!guided?.uci
+              historyIndex !== null || !!choice || !!dialog || !!guided?.uci
             }
             retainMoveOnLock={keepMove || !!choice || !!guided?.uci}
             onMove={onMove}
@@ -59,18 +74,20 @@ export function StudyPage({
             <Button disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
               Repertoires
             </Button>
-            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onTacticSettings}>
-              Tactics settings
-            </Button>
-            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onTacticCapture}>
-              Capture tactics
+            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onTactics}>
+              Tactics
             </Button>
           </div>
         } />
-        <label className="board-sound-toggle">
-          <input type="checkbox" checked={soundEnabled} onChange={event => onSoundChange(event.target.checked)} />
-          Board sounds
-        </label>
+        <div className="actions">
+          {attempt && <Button disabled={!!choice} onClick={onFlip}>Flip board</Button>}
+          <Button aria-pressed={soundEnabled} onClick={() => onSoundChange(!soundEnabled)}>
+            {soundEnabled ? "Mute board" : "Unmute board"}
+          </Button>
+          <Button onClick={() => setDialog("preferences")}>Board preferences</Button>
+          <Button onClick={() => setDialog("help")}>Shortcuts</Button>
+        </div>
+        <StudyProgress view={view} stopped={stopped} />
         <Surface>
           {stopped ? (
             <>
@@ -83,22 +100,19 @@ export function StudyPage({
                 {view?.status === "ready" &&
                   (turnFromFen(view.display_fen) === "white" ? "White to move" : "Black to move")}
               </div>
-              {attempt && <p>{view.repertoire_name ?? (view.activity === "practice" ? "Tactics practice" : "Tactics")}</p>}
+              {attempt && <p>{({ teach: "Teach", test: "Test", practice: "Practice" })[view.activity]} · {view.repertoire_name ?? "Tactics"}
+                {!view.repertoire_name && view.prompt && ` · Move ${view.prompt.decision_index + 1} of ${view.prompt.decision_count}`}</p>}
               {lesson && (
                 <div className="lesson">
                   <h2>Learn this move</h2>
                   <p>Play <strong>{lesson.move_san}</strong> on the board.</p>
                   {lesson.comments.map((comment, index) => <p key={index}>{comment}</p>)}
                   {guided && (guided.uci
-                    ? <p role="status">Move reproduced. Acknowledge to complete the lesson.</p>
+                    ? <p role="status">Move reproduced. Continue to save the lesson.</p>
                     : <StatusNotice>Follow the arrow and try {lesson.move_san}.</StatusNotice>)}
                 </div>
               )}
-              {view?.status === "complete" && !showSuccess && (
-                <p role="status">{view.activity === "teach"
-                  ? "Lesson complete. Your first review is due tomorrow."
-                  : view.assessment === "again" ? "Review recorded as Again." : "Review complete."}</p>
-              )}
+              {!showSuccess && <StudyOutcome view={view} />}
               {view?.status === "abandoned" && <p>Exercise skipped.</p>}
               {view?.status === "empty" && (
                 <StatusNotice>
@@ -112,6 +126,9 @@ export function StudyPage({
                 </StatusNotice>
               )}
               <MoveFeedback view={view} />
+              {view?.history && <MoveTrail line={view.history} index={historyIndex}
+                onInspect={onInspect} disabled={state.busy || state.canRetry || !!choice || !!dialog}
+                onReturn={() => onInspect(null)} />}
             </>
           )}
           {view?.status === "error" && (
@@ -120,11 +137,13 @@ export function StudyPage({
           {state.issue && state.issue !== "refresh" && (
             <StatusNotice kind="error">{state.issue}</StatusNotice>
           )}
-          {!showSuccess && !advancing && (
+          {!advancing && historyIndex === null && (
             <StudyActions view={view} state={state} actions={actions} reproduced={!!guided?.uci} stopped={stopped} />
           )}
         </Surface>
       </aside>
+      <BoardPreferences dialog={dialog} onClose={() => setDialog(null)} prefs={prefs}
+        onChange={onPrefsChange} soundEnabled={soundEnabled} onSoundChange={onSoundChange} />
       <PromotionChooser
         choice={choice}
         onChoose={onChoose}

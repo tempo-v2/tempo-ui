@@ -23,6 +23,10 @@ export type Feedback = {
   | { readonly correct: false; readonly correction_uci: string }
 );
 /** Server identities copied into later answer/abandon commands. */
+export interface RevealedLine {
+  readonly start_fen: string;
+  readonly moves: readonly { readonly notation: string; readonly fen: string }[];
+}
 export interface AttemptViewBase {
   readonly schema_version: 4;
   readonly display_fen: string;
@@ -38,6 +42,7 @@ export interface AttemptViewBase {
   readonly assessment: Assessment;
   readonly activity: Activity;
   readonly repertoire_name?: string;
+  readonly history?: RevealedLine;
 }
 /** Use the prompt to render the current decision and accept a user move. */
 export interface ReadyView extends AttemptViewBase {

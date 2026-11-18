@@ -41,8 +41,9 @@ export function replyCue(fen, uci, autoplay) {
   }
 }
 
-export function createBoardSounds() {
+export function createBoardSounds(initialVolume = 0.72) {
   let enabled = true;
+  let volume = initialVolume;
   try {
     enabled = window.localStorage.getItem(preferenceKey) !== "false";
   } catch { /* Use the in-memory preference if storage is unavailable. */ }
@@ -70,7 +71,7 @@ export function createBoardSounds() {
         try {
           const audio = new Audio();
           audio.preload = "auto";
-          audio.volume = 0.72;
+          audio.volume = volume;
           await new Promise(resolve => {
             const deadline = setTimeout(finish, preloadDeadlineMs);
             function finish() {
@@ -111,6 +112,10 @@ export function createBoardSounds() {
   }
 
   return {
+    setVolume(value) {
+      volume = Math.max(0, Math.min(1, value));
+      for (const player of players.values()) player.audio.volume = volume;
+    },
     get enabled() { return enabled; },
     setEnabled(value) {
       enabled = value;

@@ -22,7 +22,7 @@ export function createStudyController({
       "Recovery storage is unavailable. Restore storage access and reload this page.";
   }
   const notify = () =>
-    render(view, { busy, canRetry: !!pending && !busy, issue });
+    render(view, { busy, canRetry: !!pending && !busy, retryingNext: pending?.command === "next", issue });
   async function send(command) {
     busy = true;
     pending = command;
@@ -63,6 +63,12 @@ export function createStudyController({
   }
   async function deliver(command) {
     const reply = await send(command);
+    if (command.command === "acknowledge" && reply.status === "complete" && reply.activity === "teach") {
+      // The acknowledged result stays visible if acquisition fails. Its caller
+      // still receives the accepted result and retries only the pending Next.
+      await begin(() => ({ command: "next" })).catch(() => {});
+      return reply;
+    }
     if (command.command === "learn_more_tactics" && reply.status === "empty" && !reply.done)
       return begin(() => ({ command: "next" }));
     return reply;
@@ -100,7 +106,7 @@ export function createStudyController({
     };
   }
   return Object.freeze({
-    getState: () => ({ view, busy, canRetry: !!pending && !busy, issue }),
+    getState: () => ({ view, busy, canRetry: !!pending && !busy, retryingNext: pending?.command === "next", issue }),
     start: () => {
       if (busy) return Promise.resolve(null);
       if (storageUnavailable) {

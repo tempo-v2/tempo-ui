@@ -5,10 +5,15 @@ import { identity } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
 import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
+import { TacticsCollectionPage } from "./TacticsCollectionPage.jsx";
+import { signalStudyChange } from "./study_presence.js";
 import { TacticSettingsPage } from "./TacticSettingsPage.jsx";
 import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
 import { hasPendingTacticCommand } from "./tactic_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
+
+import { celebratesTactic } from "./StudyOutcome.jsx";
+import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
 
 const REPLY_DELAY_MS = 200;
 const NEXT_PUZZLE_DELAY_MS = 500;
@@ -21,12 +26,14 @@ const storage = {
 };
 const transport = {
   async send(command) {
+    if (command.command !== "study_status") signalStudyChange();
     const response = await fetch("/api/study", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
     });
     if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    if (command.command !== "study_status") signalStudyChange();
     return response.json();
   },
 };
@@ -42,7 +49,11 @@ export function App() {
     [page, setPage] = useState(initialPage),
     [stopped, setStopped] = useState(false),
     [guided, setGuided] = useState(null);
-  const [sounds] = useState(createBoardSounds);
+  const [prefs, setPrefs] = useState(loadBoardPreferences);
+  const [flipped, setFlipped] = useState(false);
+  const [history, setHistory] = useState(null);
+  const [dialog, setDialog] = useState(null);
+  const [sounds] = useState(() => createBoardSounds(prefs.volume));
   const [soundEnabled, setSoundEnabled] = useState(sounds.enabled);
   const studyVisit = useRef(0);
   const board = useRef(null),
@@ -50,7 +61,8 @@ export function App() {
     choiceRef = useRef(null),
     preview = useRef(null),
     replyTimer = useRef(null),
-    advanced = useRef(null);
+    advanced = useRef(null),
+    pausedAdvance = useRef(null);
   if (!controller.current)
     controller.current = createStudyController({
       transport,
@@ -107,14 +119,15 @@ export function App() {
   }, [model.view, model.state.canRetry, model.state.busy]);
 
   const { view, state } = model;
-  const showSuccess = page === "study" && !stopped && view?.status === "complete" &&
-    view.activity !== "teach" && !view.repertoire_name && view.feedback?.correct &&
-    !state.busy && !state.canRetry && !state.issue && advanced.current !== view;
+  const inspecting = history?.view === view;
+  useEffect(() => { setHistory(null); }, [view]);
+  const showSuccess = page === "study" && !stopped && !dialog && !inspecting && celebratesTactic(view) &&
+    !state.busy && !state.canRetry && !state.issue && advanced.current !== view && pausedAdvance.current !== view;
   useEffect(() => {
     if (!showSuccess) return;
     const timer = setTimeout(() => {
       const current = controller.current.getState();
-      if (current.view !== view || current.busy || current.canRetry || current.issue) return;
+      if (current.view !== view || current.busy || current.canRetry || current.issue || pausedAdvance.current === view) return;
       advanced.current = view;
       controller.current.next().catch(() => {});
     }, NEXT_PUZZLE_DELAY_MS);
@@ -130,26 +143,77 @@ export function App() {
   const actions = {
     next: run(() => controller.current.next()),
     skip: run(async () => {
+      pausedAdvance.current = view;
       const skipped = await controller.current.skip();
       if (skipped?.status === "abandoned") await controller.current.next();
     }),
     stop: run(async () => {
+      pausedAdvance.current = view;
       setGuided(null);
       setStopped(true);
       await controller.current.studyStatus();
     }),
     continue: run(async () => {
-      await controller.current.next();
-      setStopped(false);
+      const next = await controller.current.next();
+      if (next && next.status !== "error") setStopped(false);
     }),
     giveUp: run(() => controller.current.giveUp()),
     resumeSkipped: run(() => controller.current.resumeSkipped()),
     practiceTactics: run(() => controller.current.practiceTactics()),
     learnMoreTactics: run(() => controller.current.learnMoreTactics()),
     acknowledge: run(() => controller.current.acknowledge(guided?.uci)),
-    retry: run(() => controller.current.retry()),
+    retry: run(async () => {
+      const retryingNext = controller.current.getState().retryingNext;
+      const result = await controller.current.retry();
+      if (retryingNext && result && result.status !== "error") setStopped(false);
+    }),
     refresh: run(() => controller.current.refresh()),
   };
+  function openDialog(value) {
+    if (value) pausedAdvance.current = view;
+    setDialog(value);
+  }
+  function inspect(index) {
+    if (index !== null) pausedAdvance.current = view;
+    board.current?.clearInput();
+    setHistory(index === null ? null : { view, index });
+  }
+  const onFlip = () => {
+    board.current?.clearInput();
+    setFlipped(value => !value);
+  };
+  useEffect(() => {
+    if (page !== "study") return;
+    function shortcut(event) {
+      if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey ||
+          event.ctrlKey || event.metaKey || (event.shiftKey && event.key !== "?") ||
+          event.target?.closest?.("input, textarea, select, [contenteditable], a") ||
+          choiceRef.current || dialog) return;
+      const current = controller.current.getState();
+      if (event.key === "?") openDialog("help");
+      else if (event.key.toLowerCase() === "f" && view?.attempt_id && !stopped) onFlip();
+      else if (view?.history && !stopped && !current.busy && !current.canRetry &&
+          ["ArrowLeft", "ArrowRight", "Home", "End", "r", "R"].includes(event.key)) {
+        const end = view.history.moves.length;
+        const index = inspecting ? history.index : end;
+        if (event.key.toLowerCase() === "r") inspect(null);
+        else if (event.key === "Home") inspect(0);
+        else if (event.key === "End") inspect(end);
+        else if (event.key === "ArrowLeft") inspect(Math.max(0, index - 1));
+        else inspect(Math.min(end, index + 1));
+      }
+      else if (event.key === "Enter" && !event.target?.closest?.("button") && current.view === view && !current.busy &&
+          !current.canRetry && !current.issue && !stopped && !showSuccess && !inspecting) {
+        if (view?.status === "ready" && view.activity === "teach" && guided?.view === view && guided.uci)
+          actions.acknowledge();
+        else if (["complete", "abandoned"].includes(view?.status)) actions.next();
+        else return;
+      } else return;
+      event.preventDefault();
+    }
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  });
   function submit(view, uci) {
     if (sounds.enabled) sounds.play(learnerCue(view.display_fen, uci));
     if (view.activity === "teach") {
@@ -171,6 +235,7 @@ export function App() {
     if (
       !v ||
       v.status !== "ready" ||
+      dialog || inspecting ||
       state.busy ||
       state.canRetry ||
       state.issue === "refresh" ||
@@ -218,6 +283,7 @@ export function App() {
       choiceRef.current !== origin ||
       !v ||
       v.status !== "ready" ||
+      dialog ||
       state.busy ||
       state.canRetry ||
       state.issue === "refresh" ||
@@ -232,7 +298,12 @@ export function App() {
     submit(v, origin.base + role);
   }
   function goTo(nextPage) {
+    pausedAdvance.current = view;
     studyVisit.current += 1;
+    setDialog(null);
+    setHistory(null);
+    choiceRef.current = null;
+    setChoice(null);
     sounds.cancel();
     setGuided(null);
     setStopped(false);
@@ -240,9 +311,11 @@ export function App() {
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
   if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;
+  if (page === "tactics") return <TacticsCollectionPage onStudy={() => goTo("study")}
+    onCapture={() => goTo("capture")} onSettings={() => goTo("tactic-settings")} />;
   if (page === "tactic-settings") return <TacticSettingsPage onStudy={() => goTo("study")} />;
   if (page === "capture")
-    return <TacticsCapturePage datasetId={view?.dataset_id} onStudy={() => goTo("study")} />;
+    return <TacticsCapturePage datasetId={view?.dataset_id} onStudy={() => goTo("study")} onTactics={() => goTo("tactics")} />;
 
   return (
     <StudyPage
@@ -253,12 +326,24 @@ export function App() {
       guided={guided?.view === view ? guided : null}
       stopped={stopped}
       onRepertoires={() => goTo("repertoires")}
-      onTacticCapture={() => goTo("capture")}
-      onTacticSettings={() => goTo("tactic-settings")}
+      onTactics={() => goTo("tactics")}
       boardRef={board}
       choice={choice}
       onMove={onMove}
       onRejectedMove={onRejectedMove}
+      prefs={prefs}
+      flipped={flipped}
+      historyIndex={inspecting ? history.index : null}
+      onInspect={inspect}
+      onFlip={onFlip}
+      dialog={dialog}
+      setDialog={openDialog}
+      onPrefsChange={changes => {
+        const next = { ...prefs, ...changes };
+        setPrefs(next);
+        saveBoardPreferences(next);
+        sounds.setVolume(next.volume);
+      }}
       soundEnabled={soundEnabled}
       onSoundChange={enabled => {
         sounds.setEnabled(enabled);
