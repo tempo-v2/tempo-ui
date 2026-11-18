@@ -1,0 +1,239 @@
+body {
+  margin: 0;
+  background: #f5f4ef;
+  color: #22251f;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.study-layout {
+  --page-padding: clamp(0.75rem, 2vw, 2rem);
+  --coordinate-gutter: 1.375rem;
+  box-sizing: border-box;
+  padding: var(--page-padding);
+}
+
+.study-board {
+  position: relative;
+  min-width: 0;
+  width: min(
+    calc(100% - var(--coordinate-gutter)),
+    calc(100dvh - 2 * var(--page-padding) - var(--coordinate-gutter))
+  );
+  padding-left: var(--coordinate-gutter);
+  padding-bottom: var(--coordinate-gutter);
+  justify-self: start;
+  align-self: center;
+}
+
+.study-panel {
+  min-width: 0;
+  width: 100%;
+  max-width: 32rem;
+}
+
+.study-panel .training-header {
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.study-panel .ui-surface {
+  padding: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.puzzle-turn {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.puzzle-turn:empty {
+  display: none;
+}
+
+.actions {
+  display: flex;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.status-notice {
+  padding: 0.75rem;
+  margin-top: 0.875rem;
+  background: #dce3d8;
+  border-radius: 0.375rem;
+}
+
+.status-notice.error {
+  background: #f0dbd4;
+}
+
+.puzzle-success {
+  position: absolute;
+  inset: 0 0 var(--coordinate-gutter) var(--coordinate-gutter);
+  display: grid;
+  place-items: center;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.puzzle-success > [aria-hidden] {
+  display: grid;
+  place-items: center;
+  width: 4rem;
+  height: 4rem;
+  background: #344737;
+  color: white;
+  border-radius: 50%;
+  font-size: 2.5rem;
+  font-weight: 700;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (min-width: 48rem) {
+  .study-layout.has-board {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(15rem, 27vw, 23rem);
+    gap: var(--page-padding);
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .study-layout.has-board .study-panel {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 47.999rem) {
+  .study-board {
+    width: min(
+      calc(100% - var(--coordinate-gutter)),
+      max(12rem, calc(100dvh - 2 * var(--page-padding) - 5rem))
+    );
+  }
+
+  .study-panel {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.5rem;
+  }
+
+  .study-layout.has-board .training-header {
+    order: 1;
+    margin: 0.75rem 0 0;
+  }
+}
+
+.lesson h2,
+.repertoire-page h2 {
+  font-size: 1.125rem;
+  margin: 0;
+}
+
+.lesson {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #d9ddd3;
+}
+
+.lesson p,
+.repertoire-details {
+  color: #494f44;
+}
+
+.repertoire-page {
+  width: min(100% - 2rem, 48rem);
+  margin: 1.5rem auto;
+  display: grid;
+  gap: 1rem;
+}
+
+.repertoire-page .ui-surface {
+  padding: 1rem;
+}
+
+.repertoire-form,
+.repertoire-form label {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.repertoire-form {
+  margin-top: 1rem;
+  gap: 1rem;
+}
+
+.repertoire-form .actions {
+  margin-top: 0;
+}
+
+.repertoire-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.repertoire-form input,
+.repertoire-form select,
+.repertoire-form textarea,
+.repertoire-list input {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #a3a99f;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+
+.repertoire-form textarea {
+  resize: vertical;
+  font-family: ui-monospace, monospace;
+}
+
+.repertoire-list {
+  list-style-type: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.repertoire-list li {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #d9ddd3;
+  padding: 0.65rem 0;
+}
+
+.repertoire-list li .actions {
+  align-items: center;
+  margin-top: 0;
+}
+
+.content-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.45rem 1rem;
+  max-width: 24rem;
+}
+
+.content-preview dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
