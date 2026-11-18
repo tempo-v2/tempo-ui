@@ -12,7 +12,7 @@ import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
 import { hasPendingTacticCommand } from "./tactic_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
-import { celebratesTactic } from "./StudyOutcome.jsx";
+import { canAutoAdvanceTactic } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
 
 const REPLY_DELAY_MS = 200;
@@ -121,10 +121,10 @@ export function App() {
   const { view, state } = model;
   const inspecting = history?.view === view;
   useEffect(() => { setHistory(null); }, [view]);
-  const showSuccess = page === "study" && !stopped && !dialog && !inspecting && celebratesTactic(view) &&
+  const autoAdvance = page === "study" && !stopped && !dialog && !inspecting && canAutoAdvanceTactic(view) &&
     !state.busy && !state.canRetry && !state.issue && advanced.current !== view && pausedAdvance.current !== view;
   useEffect(() => {
-    if (!showSuccess) return;
+    if (!autoAdvance) return;
     const timer = setTimeout(() => {
       const current = controller.current.getState();
       if (current.view !== view || current.busy || current.canRetry || current.issue || pausedAdvance.current === view) return;
@@ -132,7 +132,7 @@ export function App() {
       controller.current.next().catch(() => {});
     }, NEXT_PUZZLE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [showSuccess, view]);
+  }, [autoAdvance, view]);
 
   const run = (fn) => () => {
     if (replyTimer.current !== null) return;
@@ -203,7 +203,7 @@ export function App() {
         else inspect(Math.min(end, index + 1));
       }
       else if (event.key === "Enter" && !event.target?.closest?.("button") && current.view === view && !current.busy &&
-          !current.canRetry && !current.issue && !stopped && !showSuccess && !inspecting) {
+          !current.canRetry && !current.issue && !stopped && !autoAdvance && !inspecting) {
         if (view?.status === "ready" && view.activity === "teach" && guided?.view === view && guided.uci)
           actions.acknowledge();
         else if (["complete", "abandoned"].includes(view?.status)) actions.next();
@@ -320,7 +320,7 @@ export function App() {
   return (
     <StudyPage
       {...model}
-      showSuccess={showSuccess}
+      showSuccess={autoAdvance && view.activity === "test"}
       advancing={state.busy && advanced.current === view}
       actions={actions}
       guided={guided?.view === view ? guided : null}

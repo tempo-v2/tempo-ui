@@ -1,7 +1,7 @@
 import React from "react";
 
-export function celebratesTactic(view) {
-  return view?.status === "complete" && view.activity === "test" &&
+export function canAutoAdvanceTactic(view) {
+  return view?.status === "complete" && ["test", "practice"].includes(view.activity) &&
     !view.repertoire_name && view.assessment === "good";
 }
 
