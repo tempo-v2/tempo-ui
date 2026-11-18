@@ -391,3 +391,36 @@ body {
 .tactic-collection .capture-board {
   margin-block: 1rem;
 }
+
+.games-page fieldset {
+  display: grid;
+  gap: 1rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+.game-source-note {
+  margin: 0;
+}
+
+.game-results {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.game-results li {
+  border-top: 1px solid #d9ddd3;
+  padding-block: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.game-results p {
+  margin: 0.35rem 0 0;
+}
+
+.game-result-effect {
+  color: #494f44;
+}
