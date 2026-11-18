@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
   readPendingRepertoireCommand,
   savePendingRepertoireCommand,
@@ -52,6 +52,7 @@ export function RepertoiresPage({ onStudy }) {
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState("");
   const [rename, setRename] = useState(null);
+  const [reset, setReset] = useState(null);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(true);
   const [pending, setPending] = useState(null);
@@ -143,6 +144,11 @@ export function RepertoiresPage({ onStudy }) {
         const reply = await sendRepertoireCommand({ command: "list" });
         if (reply.status === "error") throw new Error(reply.message);
         setCatalog(reply);
+        if (next.reset) {
+          const item = reply.dataset_id === next.reset.dataset_id &&
+            reply.repertoires.find(({ id }) => id === next.reset.repertoire_id);
+          if (item) setNotice(`Progress reset for ${item.name}.`);
+        }
         next = { ...next, list: false };
         setRefresh(next);
       }
@@ -205,6 +211,12 @@ export function RepertoiresPage({ onStudy }) {
       if (reply.status === "preview") {
         const { base_revision, ...input } = command;
         setPreview({ reply, input, editing: command.command === "edit_preview" });
+      } else if (reply.status === "progress_reset") {
+        const item = catalog?.repertoires.find(({ id }) => id === reply.repertoire_id);
+        setNotice(item ? `Progress reset for ${item.name}.` : "Repertoire progress reset.");
+        const next = { list: true, reset: reply };
+        setRefresh(next);
+        await refreshCurrent(next);
       } else if (durable) {
         setNotice(command.command === "save" ? "Repertoire saved." : "Repertoire renamed.");
         setPreview(null);
@@ -320,7 +332,9 @@ export function RepertoiresPage({ onStudy }) {
       {refresh && <Button pending={busy} onClick={retryRefresh}>Retry reload</Button>}
       {recoveryBlocked && <Button onClick={resumeRecovery}>Retry reading recovery</Button>}
       {pending && <Button pending={busy}
-        onClick={() => request(pending, { durable: true, stored: true })}>Retry save</Button>}
+        onClick={() => request(pending, { durable: true, stored: true })}>
+        {pending.command === "reset_progress" ? "Retry reset" : "Retry save"}
+      </Button>}
       {!catalog && !locked && (
         <Button onClick={() => request({ command: "list" })}>Reload repertoires</Button>
       )}
@@ -341,6 +355,9 @@ export function RepertoiresPage({ onStudy }) {
                       <Button disabled={locked || documentBusy} onClick={() =>
                         readDocument(documentAddress(catalog.dataset_id, item.id), true)}>
                         Download PGN<span className="visually-hidden"> for {item.name}</span>
+                      </Button>
+                      <Button disabled={locked || !!editor} onClick={() => setReset(item)}>
+                        Reset progress<span className="visually-hidden"> for {item.name}</span>
                       </Button>
                     </div>
                     {!editor && (rename?.id === item.id ? (
@@ -492,6 +509,23 @@ export function RepertoiresPage({ onStudy }) {
           )}
         </>
       )}
+      <Dialog open={!!reset} title={`Reset progress for ${reset?.name ?? "this repertoire"}?`}
+        onClose={() => setReset(null)}>
+        <p>This erases the repertoire’s Study history and review schedule.
+          Its positions become new again. The PGN and imported games are kept.</p>
+        <div className="actions">
+          <Button onClick={() => setReset(null)}>Cancel</Button>
+          <Button variant="danger" disabled={locked} onClick={() => {
+            const address = documentAddress(catalog.dataset_id, reset.id);
+            setReset(null);
+            request({
+              command: "reset_progress",
+              ...address,
+              command_id: crypto.randomUUID(),
+            }, { durable: true });
+          }}>Reset progress</Button>
+        </div>
+      </Dialog>
     </main>
   );
 }
