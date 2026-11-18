@@ -3,6 +3,7 @@ import { createStudyController } from "./study_controller.js";
 import { StudyPage } from "./StudyPage.jsx";
 import { identity } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
+import { GamesPage } from "./GamesPage.jsx";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
 import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
 import { TacticsCollectionPage } from "./TacticsCollectionPage.jsx";
@@ -314,6 +315,7 @@ export function App() {
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
+  if (page === "games") return <GamesPage onStudy={() => goTo("study")} onRepertoires={() => goTo("repertoires")} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;
   if (page === "tactics") return <TacticsCollectionPage onStudy={() => goTo("study")}
     onCapture={() => goTo("capture")} onSettings={() => goTo("tactic-settings")} />;
@@ -331,6 +333,7 @@ export function App() {
       stopped={stopped}
       onRepertoires={() => goTo("repertoires")}
       onTactics={() => goTo("tactics")}
+      onGames={() => goTo("games")}
       boardRef={board}
       choice={choice}
       onMove={onMove}

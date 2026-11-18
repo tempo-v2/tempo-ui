@@ -20,6 +20,7 @@ export function StudyPage({
   stopped,
   onRepertoires,
   onTactics,
+  onGames,
   boardRef,
   choice,
   onMove,
@@ -76,6 +77,9 @@ export function StudyPage({
             </Button>
             <Button disabled={state.busy || state.canRetry || !!choice} onClick={onTactics}>
               Tactics
+            </Button>
+            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onGames}>
+              Games
             </Button>
           </div>
         } />
