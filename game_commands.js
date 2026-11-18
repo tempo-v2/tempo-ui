@@ -66,6 +66,7 @@ function gameReport(reply) {
     fetched: count(reply.fetched, "fetched"),
     new_games: count(reply.new_games, "new_games"),
     duplicates: count(reply.duplicates, "duplicates"),
+    opposite_color_skipped: count(reply.opposite_color_skipped ?? 0, "opposite_color_skipped"),
     matches: count(reply.matches, "matches"),
     deviations: count(reply.deviations, "deviations"),
     errors: reply.errors.map(error => string(error, "game error", true)),
@@ -113,12 +114,13 @@ export async function readGameJob(signal) {
   switch (reply.status) {
     case "idle":
     case "running":
-      return { status: reply.status };
+      return { status: reply.status, commandId: reply.command_id ?? null };
     case "complete":
-      return { status: "complete", report: gameReport(reply.report) };
+      return { status: "complete", commandId: reply.command_id ?? null, report: gameReport(reply.report) };
     case "failed":
       return {
         status: "failed",
+        commandId: reply.command_id ?? null,
         error: string(reply.error, "refresh error", true),
         report: reply.report ? gameReport(reply.report) : null,
       };

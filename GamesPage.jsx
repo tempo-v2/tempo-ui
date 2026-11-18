@@ -25,6 +25,8 @@ function GameResults({ results, repertoires }) {
               )}
             </div>
             <p className="game-result-effect">{gameEffects[result.effect]}</p>
+            {result.occurrence_end_ms === null && result.source === "pgn" &&
+              <p>Precise game finish time unavailable.</p>}
             {result.first_deviation_ply !== null && (
               <p><strong>First learner deviation on half-move {result.first_deviation_ply}</strong></p>
             )}
@@ -43,6 +45,9 @@ function GameReport({ report, importing, repertoires }) {
         <dt>{importing ? "Games read" : "Games fetched"}</dt><dd>{report.fetched}</dd>
         <dt>New games</dt><dd>{report.new_games}</dd>
         <dt>Duplicates</dt><dd>{report.duplicates}</dd>
+        {report.opposite_color_skipped > 0 && (
+          <><dt>Skipped for opposite color</dt><dd>{report.opposite_color_skipped}</dd></>
+        )}
         <dt>Matched positions</dt><dd>{report.matches}</dd>
         <dt>Learner deviations</dt><dd>{report.deviations}</dd>
       </dl>
@@ -57,9 +62,18 @@ function GameReport({ report, importing, repertoires }) {
   );
 }
 
+const pendingKey = "tempo.games.pending.v1";
+
+function pendingGame() {
+  try { return JSON.parse(sessionStorage.getItem(pendingKey)); }
+  catch { return null; }
+}
+
 export function GamesPage({ onStudy, onRepertoires }) {
   const [source, setSource] = useState("lichess");
   const [repertoires, setRepertoires] = useState(null);
+  const [dataset, setDataset] = useState(null);
+  const [pending, setPending] = useState(pendingGame);
   const [catalogError, setCatalogError] = useState("");
   const [history, setHistory] = useState(null);
   const [historyError, setHistoryError] = useState("");
@@ -88,7 +102,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
     setCatalogError("");
     sendRepertoireCommand({ command: "list" }).then(reply => {
       if (reply.status === "error") throw new Error(reply.message);
-      if (current) setRepertoires(reply.repertoires);
+      if (current) {
+        setRepertoires(reply.repertoires);
+        setDataset(reply.dataset_id);
+      }
     }).catch(error => {
       if (current) setCatalogError(error.message || "Could not load repertoires.");
     });
@@ -128,21 +145,68 @@ export function GamesPage({ onStudy, onRepertoires }) {
     };
   }, [jobRevision]);
 
-  async function submit(event) {
-    event.preventDefault();
-    if (inFlight.current || !job || refreshing || jobError) return;
-    const form = new FormData(event.currentTarget);
+  function remember(command) {
+    setPending(command);
+    try {
+      if (command) sessionStorage.setItem(pendingKey, JSON.stringify(command));
+      else sessionStorage.removeItem(pendingKey);
+    } catch { /* Keep the command in memory when the browser limits storage. */ }
+  }
+
+  async function deliver(command, signal) {
+    remember(command);
+    if (command.kind === "import") {
+      const result = await importGamePgn(command.payload, signal);
+      if (signal.aborted) return;
+      setImportReport(result);
+      setHistoryRevision(revision => revision + 1);
+      remember(null);
+    } else {
+      await refreshGames(command.payload, signal);
+      if (signal.aborted) return;
+      setJob({ status: "running" });
+      setJobRevision(revision => revision + 1);
+    }
+  }
+
+  useEffect(() => {
+    if (pending?.kind === "refresh" && job?.status === "complete" &&
+        job.commandId === pending.payload.command_id) remember(null);
+  }, [job, pending]);
+
+  async function run(build) {
+    if (inFlight.current || !job || jobError) return;
     const signal = lifecycle.current.signal;
     inFlight.current = true;
     setBusy(true);
     setIssue("");
     setImportReport(null);
     try {
+      const command = await build();
+      if (!signal.aborted) await deliver(command, signal);
+    } catch (error) {
+      if (!signal.aborted) {
+        setIssue(error.message || "Could not process these games.");
+        setHistoryRevision(revision => revision + 1);
+        setJobRevision(revision => revision + 1);
+      }
+    } finally {
+      inFlight.current = false;
+      if (!signal.aborted) setBusy(false);
+    }
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    if (pending || refreshing) return;
+    const form = new FormData(event.currentTarget);
+    void run(async () => {
       const repertoire_id = form.get("repertoire");
-      if (!repertoires?.some(item => item.id === repertoire_id))
+      if (!dataset || !repertoires?.some(item => item.id === repertoire_id))
         throw new Error("Choose the repertoire to compare against.");
       const learner = form.get("learner").trim();
       if (!learner) throw new Error("Enter the learner’s account name.");
+      const identity = { command_id: crypto.randomUUID(), dataset_id: dataset, repertoire_id };
       if (importing) {
         const file = form.get("file");
         if (file.size > maxGameCommandBytes) throw new Error("Choose a PGN file under 2 MiB.");
@@ -150,31 +214,11 @@ export function GamesPage({ onStudy, onRepertoires }) {
         if (!pgn.trim()) throw new Error("Choose a PGN file or paste a completed game.");
         if (file.size && form.get("pgn").trim())
           throw new Error("Choose either a PGN file or pasted PGN.");
-        if (signal.aborted) return;
-        const result = await importGamePgn({ learner, repertoire_id, pgn }, signal);
-        if (signal.aborted) return;
-        setImportReport(result);
-        setHistoryRevision(revision => revision + 1);
-      } else {
-        const range = utcDateRange(form.get("from"), form.get("to"));
-        await refreshGames({ source, account: learner, repertoire_id, ...range }, signal);
-        if (signal.aborted) return;
-        setJob({ status: "running" });
-        setJobRevision(value => value + 1);
+        return { kind: "import", payload: { ...identity, learner, pgn } };
       }
-    } catch (error) {
-      if (!signal.aborted) {
-        setIssue(error.message || "Could not process these games.");
-        if (importing) setHistoryRevision(revision => revision + 1);
-        else {
-          setJob(null);
-          setJobRevision(value => value + 1);
-        }
-      }
-    } finally {
-      inFlight.current = false;
-      if (!signal.aborted) setBusy(false);
-    }
+      const range = utcDateRange(form.get("from"), form.get("to"));
+      return { kind: "refresh", payload: { ...identity, source, account: learner, ...range } };
+    });
   }
 
   const now = new Date();
@@ -190,7 +234,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
         )}
         <form className="repertoire-form" onSubmit={submit}>
-          <fieldset disabled={busy || refreshing || !repertoires?.length}>
+          <fieldset disabled={busy || !!pending || refreshing || !repertoires?.length}>
             <div className="repertoire-fields">
               <label>Source <select value={source} onChange={event => setSource(event.target.value)}>
                 {Object.entries(sourceNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
@@ -228,6 +272,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
           </fieldset>
         </form>
         {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
+        {pending && !busy && !refreshing && (
+          <div className="actions">
+            <Button disabled={!job || !!jobError} onClick={() => void run(() => pending)}>Retry same request</Button>
+            <Button onClick={() => { remember(null); setIssue(""); }}>Dismiss pending request</Button>
+          </div>
+        )}
         {jobError && <StatusNotice kind="error">{jobError}</StatusNotice>}
         {refreshing && !jobError && <p role="status">Refreshing games. You can return to Study while this runs.</p>}
         {(catalogError || jobError) && (
