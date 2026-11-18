@@ -68,7 +68,7 @@ body {
   background: #f0dbd4;
 }
 
-.puzzle-success {
+.exercise-success {
   position: absolute;
   inset: 0 0 var(--coordinate-gutter) var(--coordinate-gutter);
   display: grid;
@@ -77,7 +77,7 @@ body {
   pointer-events: none;
 }
 
-.puzzle-success > [aria-hidden] {
+.exercise-success > [aria-hidden] {
   display: grid;
   place-items: center;
   width: 4rem;

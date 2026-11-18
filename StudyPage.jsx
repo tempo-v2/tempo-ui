@@ -46,9 +46,9 @@ export function StudyPage({
             onRejectedMove={onRejectedMove}
           />
           {showSuccess && (
-            <div className="puzzle-success" role="status">
+            <div className="exercise-success" role="status">
               <span aria-hidden="true">✓</span>
-              <span className="visually-hidden">Puzzle solved</span>
+              <span className="visually-hidden">Exercise complete</span>
             </div>
           )}
         </div>
