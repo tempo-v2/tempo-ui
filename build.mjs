@@ -1,5 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { copyFile, mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
+execFileSync("python3", ["-B", fileURLToPath(new URL("./tools/development_guard.py", import.meta.url))], { stdio: "inherit" });
 await rm("dist", { recursive: true, force: true });
 await mkdir("dist/assets", { recursive: true });
 const chessLicense = await readFile("node_modules/chess.js/LICENSE", "utf8");
