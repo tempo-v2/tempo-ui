@@ -6,8 +6,6 @@ import {
   sendRepertoireCommand,
 } from "./repertoire_commands.js";
 
-// Also checked by the server. Check the size before loading a large local file.
-const MAX_PGN_BYTES = 256 * 1024;
 
 function PreviewSummary({ preview }) {
   return (
@@ -108,10 +106,6 @@ export function RepertoiresPage({ onStudy }) {
     setSelectedFile(selection);
     setPgn("");
     if (!file) return;
-    if (file.size > MAX_PGN_BYTES) {
-      setIssue("Each PGN file must be 256 KiB or smaller.");
-      return;
-    }
     try {
       const text = await file.text();
       if (fileRead.current !== intent) return;
@@ -128,10 +122,6 @@ export function RepertoiresPage({ onStudy }) {
     setPreview(null);
     if (!pgn.trim()) {
       setIssue("Choose a PGN file or paste PGN text.");
-      return;
-    }
-    if (new TextEncoder().encode(pgn).length > MAX_PGN_BYTES) {
-      setIssue("Each PGN must be 256 KiB or smaller.");
       return;
     }
     request({
