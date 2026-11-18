@@ -21,8 +21,15 @@ export function createStudyController({
     issue =
       "Recovery storage is unavailable. Restore storage access and reload this page.";
   }
-  const notify = () =>
-    render(view, { busy, canRetry: !!pending && !busy, issue });
+  const renderState = () => ({
+    busy,
+    canRetry: !!pending && !busy,
+    retryingNext: pending?.command === "next",
+    refreshRequired,
+    storageUnavailable,
+    issue,
+  });
+  const notify = () => render(view, renderState());
   async function send(command) {
     busy = true;
     pending = command;
@@ -31,7 +38,7 @@ export function createStudyController({
     try {
       const response = validateStudyView(await transport.send(command));
       if (response.status === "error" && response.retryable) {
-        issue = refreshRequired ? "refresh" : response.message;
+        issue = response.message;
         return response;
       }
       // Leave the original command in memory and storage if resolution cannot be saved.
@@ -44,7 +51,7 @@ export function createStudyController({
           "stale_dataset",
           "unknown_attempt",
         ].includes(response.code);
-        issue = refreshRequired ? "refresh" : response.message;
+        issue = response.message;
       } else {
         view = response;
         refreshRequired = false;
@@ -52,9 +59,7 @@ export function createStudyController({
       }
       return response;
     } catch (error) {
-      issue = refreshRequired
-        ? "refresh"
-        : error.message || "Delivery uncertain";
+      issue = error.message || "Delivery uncertain";
       throw error;
     } finally {
       busy = false;
@@ -63,8 +68,14 @@ export function createStudyController({
   }
   async function deliver(command) {
     const reply = await send(command);
-    if (command.command === "learn_more_tactics" && reply.status === "empty" && !reply.done)
-      return begin(() => ({ command: "next" }));
+    if (
+      (command.command === "acknowledge" && reply.status === "complete" && reply.activity === "teach") ||
+      (command.command === "learn_more_tactics" && reply.status === "empty" && !reply.done)
+    ) {
+      // Keep the accepted result even if acquiring the next exercise fails.
+      await begin(() => ({ command: "next" })).catch(() => {});
+      return reply;
+    }
     return reply;
   }
   function begin(build, durable = false) {
@@ -83,7 +94,7 @@ export function createStudyController({
       }
       return deliver(command);
     } catch (error) {
-      issue = refreshRequired ? "refresh" : error.message;
+      issue = error.message;
       notify();
       return Promise.reject(error);
     }
@@ -100,7 +111,7 @@ export function createStudyController({
     };
   }
   return Object.freeze({
-    getState: () => ({ view, busy, canRetry: !!pending && !busy, issue }),
+    getState: () => ({ view, ...renderState() }),
     start: () => {
       if (busy) return Promise.resolve(null);
       if (storageUnavailable) {

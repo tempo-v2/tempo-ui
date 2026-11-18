@@ -35,6 +35,18 @@ function validateRow(row) {
     throw new TypeError("Invalid solver position or solution");
   }
   if (row.status === "valid") result.solution = [...row.solution];
+  if (row.capture_identity != null) result.capture_identity = string(row.capture_identity, "capture identity", true);
+  if (row.replay != null) {
+    if (!Array.isArray(row.replay.moves) || row.replay.moves.length !== result.solution?.length)
+      throw new TypeError("Invalid capture replay");
+    result.replay = {
+      start_fen: string(row.replay.start_fen, "replay start", true),
+      moves: row.replay.moves.map(({ notation, fen }) => ({
+        notation: string(notation, "replay move", true),
+        fen: string(fen, "replay position", true),
+      })),
+    };
+  }
   if (row.routes != null && !Array.isArray(row.routes)) throw new TypeError("Invalid variation list");
   result.routes = (row.routes ?? []).map((route) => {
     if (!Array.isArray(route?.moves)) throw new TypeError("Invalid game variation");
