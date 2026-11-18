@@ -26,7 +26,7 @@ let application;
 let browser;
 
 async function start() {
-  application = spawn("make", ["start", `TEMPO_DB=${database}`, `TEMPO_PORT=${port}`], {
+  application = spawn("make", ["start-dev", `TEMPO_DB=${database}`, `TEMPO_PORT=${port}`], {
     detached: true, stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise((resolve, reject) => {

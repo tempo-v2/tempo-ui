@@ -109,11 +109,12 @@ export function StudyPage({
                 {view.prompt && ` · Move ${view.prompt.decision_index + 1} of ${view.prompt.decision_count}`}</p>}
               {lesson && (
                 <div className="lesson">
+                  {view.corrective_repair && <strong>Game correction</strong>}
                   <h2>Learn this move</h2>
                   <p>Play <strong>{lesson.move_san}</strong> on the board.</p>
                   {lesson.comments.map((comment, index) => <p key={index}>{comment}</p>)}
                   {guided && (guided.uci
-                    ? <p role="status">Move reproduced. Continue to save the lesson.</p>
+                    ? <p role="status">Move reproduced. Continue to save {view.corrective_repair ? "the repair" : "the lesson"}.</p>
                     : <StatusNotice>Follow the arrow and try {lesson.move_san}.</StatusNotice>)}
                 </div>
               )}
@@ -122,6 +123,9 @@ export function StudyPage({
               {view?.status === "empty" && (
                 <StatusNotice>
                   <div>{view.done ? "Done for today." : `${view.outstanding} remaining today.`}</div>
+                  {view.corrective_recalls_remaining > 0 && (
+                    <p>{view.corrective_recalls_remaining} corrective {view.corrective_recalls_remaining === 1 ? "recall" : "recalls"} still to complete.</p>
+                  )}
                   {view.done && view.repertoire_remaining > 0 && (
                     <p>No more repertoire positions are available. Unused opening introductions: {view.repertoire_remaining}.</p>
                   )}

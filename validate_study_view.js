@@ -32,7 +32,7 @@ export function validateStudyView(value) {
   }
   if (value.status === "empty") {
     const optionalFlags = ["can_practice_tactics", "can_learn_more_tactics"];
-    const optionalFields = [...optionalFlags, "learn_more_count"]
+    const optionalFields = [...optionalFlags, "learn_more_count", "corrective_recalls_remaining"]
       .filter((key) => Object.hasOwn(value, key));
     object(value, [
       "schema_version", "status", "dataset_id",
@@ -52,7 +52,7 @@ export function validateStudyView(value) {
       tactics_remaining: integer(value.tactics_remaining, 0, "tactics_remaining"),
       ...Object.fromEntries(optionalFields.map((key) => [
         key,
-        key === "learn_more_count" ? integer(value[key], 0, key) : boolean(value[key], key),
+        optionalFlags.includes(key) ? boolean(value[key], key) : integer(value[key], 0, key),
       ])),
     });
   }
@@ -77,7 +77,7 @@ export function validateStudyView(value) {
       "legal_moves",
       "in_check",
       "activity",
-      ...["lesson", "exercise_name", "history"].filter((key) => Object.hasOwn(value, key)),
+      ...["lesson", "exercise_name", "history", "corrective_repair"].filter((key) => Object.hasOwn(value, key)),
     ],
     "attempt view",
   );
@@ -121,6 +121,10 @@ export function validateStudyView(value) {
     throw new TypeError("Terminal legal moves must be empty");
 
   const context = {};
+  if (Object.hasOwn(value, "corrective_repair")) {
+    if (value.activity !== "teach") throw new TypeError("A corrective repair must be guided");
+    context.corrective_repair = boolean(value.corrective_repair, "corrective_repair");
+  }
   if (Object.hasOwn(value, "history")) {
     object(value.history, ["start_fen", "moves"], "revealed history");
     if (!Array.isArray(value.history.moves) || !value.history.moves.length)

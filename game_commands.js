@@ -11,6 +11,8 @@ export const sourceNames = Object.freeze({
 });
 
 export const gameEffects = Object.freeze({
+  again_applied: "Game Again recorded. Repair is ready in Study.",
+  choice_required: "Choose a repertoire for the correction",
   recorded_only: "Recorded only",
   requested_review: "Study Test requested",
   already_addressed: "Already addressed in Study",
@@ -39,7 +41,7 @@ function gameResults(results) {
       source: string(result.source, "source", true),
       game_id: string(result.game_id, "game_id", true),
       url: safeGameLink(result.url),
-      repertoire_id: string(result.repertoire_id, "repertoire_id", true),
+      repertoire_id: string(result.repertoire_id, "repertoire_id"),
       learner: string(result.learner, "learner", true),
       matches: count(result.matches, "matches"),
       deviations: count(result.deviations, "deviations"),
@@ -48,6 +50,17 @@ function gameResults(results) {
       opponent_deviations: count(result.opponent_deviations, "opponent_deviations"),
       occurrence_end_ms: result.occurrence_end_ms == null
         ? null : count(result.occurrence_end_ms, "occurrence_end_ms"),
+      choices: (result.choices ?? []).map(choice => ({
+        ply: count(choice.ply, "choice ply"),
+        candidates: choice.candidates.map(candidate => ({
+          repertoire_id: string(candidate.repertoire_id, "choice repertoire", true),
+          target_id: string(candidate.target_id, "choice target", true),
+        })),
+      })),
+      disagreements: (result.disagreements ?? []).map(item => ({
+        repertoire_id: string(item.repertoire_id, "disagreement repertoire", true),
+        plies: item.plies.map(ply => count(ply, "disagreement ply")),
+      })),
       effect,
     };
   });
@@ -137,6 +150,14 @@ export async function refreshGames(payload, signal) {
 
 export async function importGamePgn(payload, signal) {
   return gameReport(await request("/import", payload, signal));
+}
+
+export async function chooseGameCorrection(payload, signal) {
+  return gameReport(await request("/choose", payload, signal));
+}
+
+export async function reprocessGames(payload, signal) {
+  return gameReport(await request("/reprocess", payload, signal));
 }
 
 export function utcDateRange(first, last) {
