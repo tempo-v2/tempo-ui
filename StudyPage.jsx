@@ -16,9 +16,13 @@ export function StudyPage({
   stopped,
   onRepertoires,
   onTacticCapture,
+  onTacticSettings,
   boardRef,
   choice,
   onMove,
+  onRejectedMove,
+  soundEnabled,
+  onSoundChange,
   onChoose,
   onCancel,
 }) {
@@ -39,6 +43,7 @@ export function StudyPage({
             }
             retainMoveOnLock={keepMove || !!choice || !!guided?.uci}
             onMove={onMove}
+            onRejectedMove={onRejectedMove}
           />
           {showSuccess && (
             <div className="puzzle-success" role="status">
@@ -54,11 +59,18 @@ export function StudyPage({
             <Button disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
               Repertoires
             </Button>
+            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onTacticSettings}>
+              Tactics settings
+            </Button>
             <Button disabled={state.busy || state.canRetry || !!choice} onClick={onTacticCapture}>
               Capture tactics
             </Button>
           </div>
         } />
+        <label className="board-sound-toggle">
+          <input type="checkbox" checked={soundEnabled} onChange={event => onSoundChange(event.target.checked)} />
+          Board sounds
+        </label>
         <Surface>
           {stopped ? (
             <>
@@ -95,7 +107,7 @@ export function StudyPage({
                     <p>No more repertoire positions are available. Unused opening introductions: {view.repertoire_remaining}.</p>
                   )}
                   {view.done && view.tactics_remaining > 0 && (
-                    <p>No more tactics are available. Unused tactic introductions: {view.tactics_remaining}.</p>
+                    <p>No more new tactics match your settings. Unused tactic introductions: {view.tactics_remaining}.</p>
                   )}
                 </StatusNotice>
               )}

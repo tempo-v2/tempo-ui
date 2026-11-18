@@ -169,6 +169,7 @@ export function TacticsCapturePage({ datasetId, onStudy }) {
         setNotice({
           message: reply.count === 1 ? "One tactic saved." : `${reply.count} tactics saved.`,
           alternateSolutions: reply.alternate_solutions,
+          readyForReview: reply.ready_for_review,
         });
       }
     } catch (error) {
@@ -245,6 +246,9 @@ export function TacticsCapturePage({ datasetId, onStudy }) {
       {notice && (
         <StatusNotice>
           {notice.message}
+          {notice.readyForReview > 0 && <p>{notice.readyForReview === 1
+            ? "One tactic is ready for review in Study."
+            : `${notice.readyForReview} tactics are ready for review in Study.`}</p>}
           {notice.alternateSolutions > 0 && <p>{notice.alternateSolutions} saved tactics have another solution at the same position.</p>}
         </StatusNotice>
       )}
