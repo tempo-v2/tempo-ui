@@ -140,6 +140,8 @@ test("unavailable recovery storage blocks startup and mutation", async () => {
   await assert.rejects(ui.start(), /Recovery storage/);
   await assert.rejects(ui.next(), /Recovery storage/);
   assert.match(observed.issue, /Recovery storage/);
+  assert.equal(observed.storageUnavailable, true);
+  assert.equal(observed.refreshRequired, false);
   assert.equal(sends, 0);
 });
 test("concurrent startup does not replay twice", async () => {
@@ -176,7 +178,7 @@ test("stale revision blocks repeated mutations until refresh succeeds", async ()
     schema_version: 5,
     status: "error",
     code: "stale_revision",
-    message: "stale",
+    message: "",
     retryable: false,
   };
   const ui = createStudyController({
@@ -192,11 +194,13 @@ test("stale revision blocks repeated mutations until refresh succeeds", async ()
   });
   await ui.start();
   await ui.answer("e2e4");
+  assert.equal(ui.getState().issue, "");
   await assert.rejects(ui.abandon(), /refresh/);
   await assert.rejects(ui.abandon(), /refresh/);
-  assert.equal(ui.getState().issue, "refresh");
+  assert.equal(ui.getState().refreshRequired, true);
   assert.equal(commands.length, 2);
   await ui.refresh();
+  assert.equal(ui.getState().refreshRequired, false);
   await ui.abandon();
   assert.equal(commands.at(-1).command, "abandon");
 });

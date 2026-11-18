@@ -77,7 +77,7 @@ export function validateStudyView(value) {
       "legal_moves",
       "in_check",
       "activity",
-      ...["lesson", "exercise_name"].filter((key) => Object.hasOwn(value, key)),
+      ...["lesson", "exercise_name", "history"].filter((key) => Object.hasOwn(value, key)),
     ],
     "attempt view",
   );
@@ -121,6 +121,21 @@ export function validateStudyView(value) {
     throw new TypeError("Terminal legal moves must be empty");
 
   const context = {};
+  if (Object.hasOwn(value, "history")) {
+    object(value.history, ["start_fen", "moves"], "revealed history");
+    if (!Array.isArray(value.history.moves) || !value.history.moves.length)
+      throw new TypeError("Expected a played move in history");
+    context.history = {
+      start_fen: string(value.history.start_fen, "start position", true),
+      moves: value.history.moves.map((move) => {
+        object(move, ["notation", "fen"], "revealed move");
+        return {
+          notation: string(move.notation, "move notation", true),
+          fen: string(move.fen, "revealed position", true),
+        };
+      }),
+    };
+  }
   if (Object.hasOwn(value, "exercise_name"))
     context.exercise_name = string(value.exercise_name, "exercise_name", true);
   if (value.lesson) {

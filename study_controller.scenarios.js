@@ -207,7 +207,14 @@ test("lesson acknowledgement replays the reproduced move with no recall grade", 
     },
     transport: {
       async send(command) {
-        if (command.command === "next") return ready({ activity: "teach", lesson });
+        if (command.command === "next") {
+          if (requests.length >= 2) {
+            requests.push(command);
+            if (requests.length === 3) throw new Error("next reply lost");
+            return ready();
+          }
+          return ready({ activity: "teach", lesson });
+        }
         requests.push(command);
         if (requests.length === 1) throw new Error("acknowledgement reply lost");
         return complete({ activity: "teach", assessment: null });
@@ -223,11 +230,19 @@ test("lesson acknowledgement replays the reproduced move with no recall grade", 
   await assert.rejects(controller.acknowledge("e2e4"), /reply lost/);
   assert.deepEqual(saved.pending.answer, { uci: "e2e4" });
   controller = create();
-  await controller.start();
+  const accepted = await controller.start();
+  assert.equal(accepted.status, "complete");
+  assert.equal(controller.getState().retryingNext, true);
   assert.deepEqual(requests[0], requests[1]);
   assert.equal(requests[1].submission_id, "lesson-1");
+  assert.equal(controller.getState().view.activity, "teach");
+  assert.equal(controller.getState().view.status, "complete");
   assert.equal(controller.getState().view.assessment, null);
   assert.equal(saved.pending, null);
+  await controller.retry();
+  assert.equal(requests[2], requests[3]);
+  assert.equal(requests[3].command, "next");
+  assert.equal(controller.getState().view.status, "ready");
 });
 
 test("an uncertain extra tactics allowance replays its exact command before asking for Next", async () => {

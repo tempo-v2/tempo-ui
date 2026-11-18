@@ -2,15 +2,15 @@ import React from "react";
 import { Button } from "@tempo-v2/core-components";
 
 export function StudyActions({ view, state, actions, reproduced, stopped }) {
-  const recoveryBlocked = state.issue?.startsWith("Recovery storage");
-  if (!view && (!state.issue || recoveryBlocked) && !state.canRetry) return null;
+  const recoveryBlocked = state.storageUnavailable;
+  if (!view && (state.busy || recoveryBlocked)) return null;
   const disabled = state.busy || recoveryBlocked;
   const moreTactics = view?.learn_more_count ?? 10;
   return (
     <div className="actions">
       {state.canRetry ? (
-        <Button variant="primary" onClick={actions.retry}>Retry</Button>
-      ) : state.issue === "refresh" ? (
+        <Button variant="primary" onClick={actions.retry}>{state.retryingNext ? "Retry next exercise" : "Retry"}</Button>
+      ) : state.refreshRequired ? (
         <Button disabled={state.busy} onClick={actions.refresh}>Refresh attempt</Button>
       ) : stopped ? (
         <Button variant="primary" disabled={disabled} onClick={actions.continue}>Continue study</Button>
@@ -18,10 +18,10 @@ export function StudyActions({ view, state, actions, reproduced, stopped }) {
         <>
           {view.activity === "teach" ? (
             <Button variant="primary" disabled={disabled || !reproduced} onClick={actions.acknowledge}>
-              Acknowledge lesson
+              Got it — continue
             </Button>
           ) : (
-            <Button disabled={disabled || view.assessment !== null} onClick={actions.giveUp}>Give up</Button>
+            <Button disabled={disabled || view.assessment !== null} onClick={actions.giveUp}>Show move</Button>
           )}
           <Button disabled={disabled} onClick={actions.skip}>Skip</Button>
           <Button disabled={disabled} onClick={actions.stop}>Stop</Button>
@@ -42,7 +42,12 @@ export function StudyActions({ view, state, actions, reproduced, stopped }) {
           <Button disabled={disabled} onClick={actions.next}>Check again</Button>
         </>
       ) : (
-        <Button variant="primary" disabled={disabled} onClick={actions.next}>Next</Button>
+        <>
+          <Button variant="primary" disabled={disabled} onClick={actions.next}>
+            {view ? "Continue" : "Check again"}
+          </Button>
+          <Button disabled={disabled} onClick={actions.stop}>Stop</Button>
+        </>
       )}
     </div>
   );
