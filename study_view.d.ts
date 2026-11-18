@@ -41,6 +41,7 @@ export interface AttemptViewBase {
   readonly feedback: Feedback | null;
   readonly assessment: Assessment;
   readonly activity: Activity;
+  readonly corrective_repair?: boolean;
   /** Optional public display text for any kind of exercise. */
   readonly exercise_name?: string;
   readonly history?: RevealedLine;
@@ -62,6 +63,7 @@ export interface EmptyView {
   readonly status: "empty";
   readonly dataset_id: string;
   readonly done: boolean;
+  readonly corrective_recalls_remaining?: number;
   readonly outstanding: number;
   readonly repertoire_remaining: number;
   readonly tactics_remaining: number;

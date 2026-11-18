@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
-  gameEffects, importGamePgn, maxGameCommandBytes, readGameHistory, readGameJob, refreshGames,
+  chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, maxGameCommandBytes, readGameHistory, readGameJob, refreshGames,
   sourceNames, utcDateRange, utcDayMs,
 } from "./game_commands.js";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
 
-function GameResults({ results, repertoires, history = false }) {
+function GameResults({ results, repertoires, history = false, onChoose }) {
   return (
     <ul className="game-results">
       {results.map((result, index) => {
@@ -23,18 +23,37 @@ function GameResults({ results, repertoires, history = false }) {
               {result.url
                 ? <a href={result.url} target="_blank" rel="noopener noreferrer">{gameLink}</a>
                 : <strong>{gameLink}</strong>}
-              <span> · {result.learner} · {repertoire?.name ?? result.repertoire_id}</span>
+              <span> · {result.learner}{result.repertoire_id && ` · ${repertoire?.name ?? result.repertoire_id}`}</span>
               {result.occurrence_end_ms !== null && (
                 <span> · {new Date(result.occurrence_end_ms).toLocaleDateString()}</span>
               )}
             </div>
             <p className="game-result-effect">{gameEffects[result.effect]}</p>
-            {result.occurrence_end_ms === null && result.source === "pgn" &&
-              <p>Precise game finish time unavailable.</p>}
             {result.first_deviation_ply !== null && (
               <p><strong>First learner deviation on half-move {result.first_deviation_ply}</strong></p>
             )}
-            <p>{result.matches} matched · {result.deviations} learner deviations · {result.opponent_deviations} opponent deviations · {result.coverage_gaps} outside coverage</p>
+            {result.disagreements.length > 0 && (
+              <details>
+                <summary>Disagreements by repertoire</summary>
+                <ul>{result.disagreements.map(item => (
+                  <li key={item.repertoire_id}>
+                    {repertoires.find(book => book.id === item.repertoire_id)?.name ?? item.repertoire_id}
+                    {" · "}{item.plies.length} {item.plies.length === 1 ? "move" : "moves"}
+                  </li>
+                ))}</ul>
+              </details>
+            )}
+            {onChoose && result.choices.map(choice => (
+              <div className="actions" key={choice.ply}>
+                <span>Corrective target for half-move {choice.ply}</span>
+                {choice.candidates.map(candidate => (
+                  <Button key={candidate.target_id} onClick={() => onChoose(result, choice, candidate)}>
+                    {repertoires.find(book => book.id === candidate.repertoire_id)?.name ?? candidate.repertoire_id}
+                  </Button>
+                ))}
+              </div>
+            ))}
+            <p>{result.matches} matched · {result.deviations} learner misses · {result.opponent_deviations} opponent deviations · {result.coverage_gaps} outside coverage</p>
           </li>
         );
       })}
@@ -159,8 +178,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   async function deliver(command, signal) {
     remember(command);
-    if (command.kind === "import") {
-      const result = await importGamePgn(command.payload, signal);
+    if (command.kind !== "refresh") {
+      const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
+      const result = await submitGame(command.payload, signal);
       if (signal.aborted) return;
       setImportReport(result);
       setHistoryRevision(revision => revision + 1);
@@ -205,12 +225,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
     if (pending || refreshing) return;
     const form = new FormData(event.currentTarget);
     void run(async () => {
-      const repertoire_id = form.get("repertoire");
-      if (!dataset || !repertoires?.some(item => item.id === repertoire_id))
-        throw new Error("Choose the repertoire to compare against.");
+      if (!dataset) throw new Error("Tempo could not identify the dataset.");
       const learner = form.get("learner").trim();
       if (!learner) throw new Error("Enter the learner’s account name.");
-      const identity = { command_id: crypto.randomUUID(), dataset_id: dataset, repertoire_id };
+      const identity = { command_id: crypto.randomUUID(), dataset_id: dataset };
       if (importing) {
         const file = form.get("file");
         if (file.size > maxGameCommandBytes) throw new Error("Choose a PGN file under 2 MiB.");
@@ -221,8 +239,18 @@ export function GamesPage({ onStudy, onRepertoires }) {
         return { kind: "import", payload: { ...identity, learner, pgn } };
       }
       const range = utcDateRange(form.get("from"), form.get("to"));
+      if (source === "stored") return { kind: "reprocess", payload: { ...identity, learner, ...range } };
       return { kind: "refresh", payload: { ...identity, source, account: learner, ...range } };
     });
+  }
+
+  function choose(result, choice, candidate) {
+    if (pending || refreshing || !dataset) return;
+    void run(() => ({ kind: "choose", payload: {
+      command_id: crypto.randomUUID(), dataset_id: dataset, learner: result.learner,
+      source: result.source, game_id: result.game_id, comparison_id: result.comparison_id,
+      ply: choice.ply, target_id: candidate.target_id,
+    } }));
   }
 
   const now = new Date();
@@ -238,21 +266,14 @@ export function GamesPage({ onStudy, onRepertoires }) {
           <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
         )}
         <form className="repertoire-form" onSubmit={submit}>
-          <fieldset disabled={busy || !!pending || refreshing || !repertoires?.length}>
+          <fieldset disabled={busy || !!pending || refreshing || !dataset}>
             <div className="repertoire-fields">
               <label>Source <select value={source} onChange={event => setSource(event.target.value)}>
                 {Object.entries(sourceNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                <option value="stored">Saved games</option>
               </select></label>
-              <label>{importing ? "Learner name in PGN" : "Account name"}
+              <label>{importing || source === "stored" ? "Learner name" : "Account name"}
                 <input key={source} name="learner" required autoComplete="off" maxLength={128} />
-              </label>
-              <label>Repertoire
-                <select name="repertoire" defaultValue="" required>
-                  <option value="" disabled>Choose repertoire</option>
-                  {repertoires?.map(item => (
-                    <option value={item.id} key={item.id}>{item.name} · {item.learner_color}</option>
-                  ))}
-                </select>
               </label>
             </div>
             {importing ? (
@@ -270,7 +291,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
             <div className="actions">
               <Button type="submit" pending={busy && !refreshing}
                 disabled={busy || refreshing || !job || !!jobError}>
-                {importing ? "Import games" : "Refresh games"}
+                {importing ? "Import games" : source === "stored" ? "Reprocess saved games" : "Refresh games"}
               </Button>
             </div>
           </fieldset>
@@ -311,7 +332,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           </>
         )}
         {history ? history.results.length > 0
-          ? <GameResults history results={history.results} repertoires={repertoires ?? []} />
+          ? <GameResults history onChoose={pending || busy || refreshing ? undefined : choose} results={history.results} repertoires={repertoires ?? []} />
           : <p>No games recorded yet.</p>
           : !historyError && <p role="status">Loading game evidence…</p>}
       </Surface>
