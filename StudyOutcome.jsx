@@ -7,6 +7,8 @@ export function canAutoAdvance(status, activity, assessment) {
 
 export function StudyOutcome({ view }) {
   if (view?.status !== "complete") return null;
+  if (view.corrective_repair)
+    return <p role="status">Guided move saved.</p>;
   if (view.activity === "teach")
     return <p role="status">Lesson saved. Your first review was scheduled for the next study day.</p>;
   if (view.activity === "practice") {
