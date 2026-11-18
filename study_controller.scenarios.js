@@ -131,14 +131,14 @@ test("retryable application errors retain the command; final errors release it",
   const commands = [];
   const responses = [
     {
-      schema_version: 4,
+      schema_version: 5,
       status: "error",
       code: "busy",
       message: "Try again",
       retryable: true,
     },
     {
-      schema_version: 4,
+      schema_version: 5,
       status: "error",
       code: "stale",
       message: "Request is stale",
@@ -232,7 +232,7 @@ test("lesson acknowledgement replays the reproduced move with no recall grade", 
 
 test("an uncertain extra tactics allowance replays its exact command before asking for Next", async () => {
   const done = {
-    schema_version: 4, status: "empty", dataset_id: "dataset-1", done: true,
+    schema_version: 5, status: "empty", dataset_id: "dataset-1", done: true,
     outstanding: 0, repertoire_remaining: 0, tactics_remaining: 0,
     can_practice_tactics: true, can_learn_more_tactics: true, learn_more_count: 4,
   };

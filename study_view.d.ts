@@ -24,7 +24,7 @@ export type Feedback = {
 );
 /** Server identities copied into later answer/abandon commands. */
 export interface AttemptViewBase {
-  readonly schema_version: 4;
+  readonly schema_version: 5;
   readonly display_fen: string;
   readonly learner_color: "white" | "black";
   readonly legal_moves: readonly string[];
@@ -37,7 +37,8 @@ export interface AttemptViewBase {
   readonly feedback: Feedback | null;
   readonly assessment: Assessment;
   readonly activity: Activity;
-  readonly repertoire_name?: string;
+  /** Optional public display text for any kind of exercise. */
+  readonly exercise_name?: string;
 }
 /** Use the prompt to render the current decision and accept a user move. */
 export interface ReadyView extends AttemptViewBase {
@@ -52,7 +53,7 @@ export interface FinishedView extends AttemptViewBase {
 }
 /** Nothing eligible now; Next can be requested again after conditions change. */
 export interface EmptyView {
-  readonly schema_version: 4;
+  readonly schema_version: 5;
   readonly status: "empty";
   readonly dataset_id: string;
   readonly done: boolean;
@@ -65,7 +66,7 @@ export interface EmptyView {
 }
 /** Whether to retain a command for retry is supplied by the application. */
 export interface ErrorView {
-  readonly schema_version: 4;
+  readonly schema_version: 5;
   readonly status: "error";
   readonly code: string;
   readonly message: string;

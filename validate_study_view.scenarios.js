@@ -14,11 +14,11 @@ test("external replies have a strict versioned schema and become immutable copie
   assert.equal(view.prompt.instruction, "Find the move");
   assert.deepEqual(
     validateStudyView({
-      schema_version: 4, status: "empty", dataset_id: "d", done: true,
+      schema_version: 5, status: "empty", dataset_id: "d", done: true,
       outstanding: 0, repertoire_remaining: 0, tactics_remaining: 20,
     }),
     {
-      schema_version: 4,
+      schema_version: 5,
       status: "empty",
       dataset_id: "d",
       done: true,
@@ -35,7 +35,7 @@ test("external replies have a strict versioned schema and become immutable copie
   );
   assert.equal(
     validateStudyView({
-      schema_version: 4,
+      schema_version: 5,
       status: "error",
       code: "offline",
       message: "Retry",
@@ -43,6 +43,16 @@ test("external replies have a strict versioned schema and become immutable copie
     }).retryable,
     true,
   );
+});
+
+test("any exercise can have a display name", () => {
+  for (const activity of ["test", "practice"]) {
+    const view = ready({ activity, exercise_name: "A named exercise" });
+    assert.equal(validateStudyView(view).exercise_name, "A named exercise");
+  }
+  assert.equal(validateStudyView(ready()).exercise_name, undefined);
+  assert.throws(() => validateStudyView(ready({ exercise_name: "" })), TypeError);
+  assert.throws(() => validateStudyView(ready({ repertoire_name: "Old name" })), TypeError);
 });
 
 test("only teaching may include a lesson and it cannot emit a review grade", () => {
@@ -71,9 +81,9 @@ test("malformed or unsupported replies are rejected, including extra solution fi
     ready({ assessment: "partial" }),
     ready({ solution: ["e2e4"] }),
     complete({ prompt: ready().prompt }),
-    { schema_version: 4, status: "empty" },
+    { schema_version: 5, status: "empty" },
     {
-      schema_version: 4,
+      schema_version: 5,
       status: "error",
       code: "bad",
       message: "x",

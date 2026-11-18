@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createStudyController } from "../study_controller.js";
 const ready = {
-  schema_version: 4,
+  schema_version: 5,
   status: "ready",
   activity: "test",
   dataset_id: "d",
@@ -173,7 +173,7 @@ test("concurrent startup does not replay twice", async () => {
 test("stale revision blocks repeated mutations until refresh succeeds", async () => {
   const commands = [];
   const stale = {
-    schema_version: 4,
+    schema_version: 5,
     status: "error",
     code: "stale_revision",
     message: "stale",

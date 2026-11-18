@@ -46,9 +46,9 @@ export function StudyPage({
             onRejectedMove={onRejectedMove}
           />
           {showSuccess && (
-            <div className="puzzle-success" role="status">
+            <div className="exercise-success" role="status">
               <span aria-hidden="true">✓</span>
-              <span className="visually-hidden">Puzzle solved</span>
+              <span className="visually-hidden">Exercise complete</span>
             </div>
           )}
         </div>
@@ -83,7 +83,8 @@ export function StudyPage({
                 {view?.status === "ready" &&
                   (turnFromFen(view.display_fen) === "white" ? "White to move" : "Black to move")}
               </div>
-              {attempt && <p>{view.repertoire_name ?? (view.activity === "practice" ? "Tactics practice" : "Tactics")}</p>}
+              {attempt && view.exercise_name && <p>{view.exercise_name}</p>}
+              {attempt && view.activity === "practice" && <p>Practice</p>}
               {lesson && (
                 <div className="lesson">
                   <h2>Learn this move</h2>

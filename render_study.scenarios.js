@@ -30,7 +30,7 @@ test("rendering escapes external strings and exposes intent controls without sol
   assert.ok(renderStudy(null).includes("Select Next"));
   assert.ok(
     renderStudy({
-      schema_version: 4,
+      schema_version: 5,
       status: "empty",
       dataset_id: "d",
       done: true,

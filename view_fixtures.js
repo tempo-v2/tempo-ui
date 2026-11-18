@@ -1,6 +1,6 @@
 /** Wire-only examples: no grader, scheduler, or backend imports. */
 export const ready = (changes = {}) => ({
-  schema_version: 4,
+  schema_version: 5,
   status: "ready",
   activity: "test",
   dataset_id: "dataset-1",

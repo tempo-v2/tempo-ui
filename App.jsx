@@ -11,8 +11,9 @@ import { hasPendingTacticCommand } from "./tactic_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
 const REPLY_DELAY_MS = 200;
-const NEXT_PUZZLE_DELAY_MS = 500;
+const NEXT_EXERCISE_DELAY_MS = 500;
 
+// Reply versions can change independently of the pending command format.
 const storage = {
   load: () =>
     JSON.parse(sessionStorage.getItem("tempo-study-recovery-v4") || "null"),
@@ -108,7 +109,7 @@ export function App() {
 
   const { view, state } = model;
   const showSuccess = page === "study" && !stopped && view?.status === "complete" &&
-    view.activity !== "teach" && !view.repertoire_name && view.feedback?.correct &&
+    view.activity !== "teach" && view.feedback?.correct &&
     !state.busy && !state.canRetry && !state.issue && advanced.current !== view;
   useEffect(() => {
     if (!showSuccess) return;
@@ -117,7 +118,7 @@ export function App() {
       if (current.view !== view || current.busy || current.canRetry || current.issue) return;
       advanced.current = view;
       controller.current.next().catch(() => {});
-    }, NEXT_PUZZLE_DELAY_MS);
+    }, NEXT_EXERCISE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [showSuccess, view]);
 
