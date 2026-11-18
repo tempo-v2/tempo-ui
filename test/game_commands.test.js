@@ -34,7 +34,10 @@ test("history and job replies project answer-safe result fields and preserve ref
   t.mock.method(globalThis, "fetch", async path => {
     if (path === "/api/games/job") return Response.json({ status: "failed", error: "Rate limited", report });
     if (path === "/api/games") return Response.json({
-      results: [{ ...game, url: "javascript:alert(1)" }],
+      results: [
+        { ...game, comparison_id: "previous", url: "javascript:alert(1)" },
+        { ...game, comparison_id: "current" },
+      ],
       last_successful_refresh_ms: 1739754000000,
     });
     return Response.json({ status: "error", message: "Choose a repertoire." }, { status: 400 });
@@ -42,6 +45,8 @@ test("history and job replies project answer-safe result fields and preserve ref
   const history = await readGameHistory();
   assert.equal(history.lastSuccessfulRefresh, 1739754000000);
   assert.equal(history.results[0].url, null);
+  assert.equal(history.results[0].game_id, history.results[1].game_id);
+  assert.deepEqual(history.results.map(result => result.comparison_id), ["previous", "current"]);
   assert.equal(history.results[0].effect, "requested_review");
   assert.equal(Object.hasOwn(history.results[0], "prescribed_move"), false);
   const job = await readGameJob();
@@ -49,6 +54,7 @@ test("history and job replies project answer-safe result fields and preserve ref
   assert.equal(job.error, "Rate limited");
   assert.deepEqual(job.report.errors, report.errors);
   assert.equal(job.report.results[0].url, game.url);
+  assert.equal(job.report.results[0].comparison_id, null);
   assert.equal(Object.hasOwn(job.report.results[0], "prescribed_move"), false);
   await assert.rejects(importGamePgn({ pgn: "" }), /Choose a repertoire/);
 });
@@ -66,4 +72,16 @@ test("refresh starts only after an accepted response and sends explicit account 
   assert.deepEqual(JSON.parse(options.body), payload);
   fetch.mock.mockImplementation(async () => Response.json({ status: "idle" }));
   await assert.rejects(refreshGames(payload), /did not confirm/);
+});
+
+test("a failed archive with a diagnostic preserves zero games fetched", async t => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({
+    status: "complete", report: {
+      fetched: 0, new_games: 0, duplicates: 0, matches: 0, deviations: 0,
+      errors: ["Chess.com 2009/10: Provider request timed out."], results: [],
+    },
+  }));
+  const { report } = await readGameJob();
+  assert.equal(report.fetched, 0);
+  assert.equal(report.errors.length, 1);
 });

@@ -34,6 +34,8 @@ function gameResults(results) {
     if (!Object.hasOwn(gameEffects, effect)) throw new TypeError("Invalid Study effect");
     const firstDeviation = result.first_deviation_ply;
     return {
+      comparison_id: result.comparison_id === undefined
+        ? null : string(result.comparison_id, "comparison_id", true),
       source: string(result.source, "source", true),
       game_id: string(result.game_id, "game_id", true),
       url: safeGameLink(result.url),
