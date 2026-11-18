@@ -5,8 +5,6 @@ import { turnFromFen } from "./StudyBoard.jsx";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
 import { sendTacticCommand, tacticRecovery } from "./tactic_commands.js";
 
-const MAX_PGN_BYTES = 256 * 1024;
-
 function PreviewBoard({ fen, record }) {
   const side = turnFromFen(fen);
   return (
@@ -225,10 +223,6 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
     const reading = ++fileRead.current;
     changePgn("");
     if (!upload) return;
-    if (upload.size > MAX_PGN_BYTES) {
-      setIssue("PGN files must be 256 KiB or smaller.");
-      return;
-    }
     try {
       const text = await upload.text();
       if (reading === fileRead.current) {
@@ -242,10 +236,6 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
 
   function startPreview(event) {
     event.preventDefault();
-    if (new TextEncoder().encode(pgn).length > MAX_PGN_BYTES) {
-      setIssue("PGN text must be 256 KiB or smaller.");
-      return;
-    }
     request({ command: "preview", dataset_id: dataset, pgn });
   }
 
