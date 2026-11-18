@@ -5,7 +5,7 @@ export const identity = (v) =>
 export const turnFromFen = (fen) => fen.split(/\s+/)[1] === "b" ? "black" : "white";
 
 export const StudyBoard = forwardRef(function StudyBoard(
-  { view, locked, retainMoveOnLock, onMove },
+  { view, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen },
   ref,
 ) {
   const destinations = useMemo(() => {
@@ -18,27 +18,31 @@ export const StudyBoard = forwardRef(function StudyBoard(
     }
     return m;
   }, [view.legal_moves]);
-  const turn = turnFromFen(view.display_fen);
+  const turn = turnFromFen(historyFen ?? view.display_fen);
   const demonstration = view.lesson?.move_uci ?? view.feedback?.correction_uci;
   const previous = view.lesson?.previous_move;
   return (
     <Board
       ref={ref}
-      fen={view.display_fen}
-      orientation={view.learner_color}
+      fen={historyFen ?? view.display_fen}
+      readOnly={!!historyFen}
+      orientation={flipped ? (view.learner_color === "white" ? "black" : "white") : view.learner_color}
+      theme={prefs?.theme}
+      pieceSet={prefs?.pieceSet}
       turn={turn}
-      check={view.in_check ? turn : false}
+      check={!historyFen && view.in_check ? turn : false}
       mode="legal"
       destinations={destinations}
-      positionIdentity={identity(view)}
+      positionIdentity={historyFen ? `${identity(view)}:history:${historyFen}` : identity(view)}
       positionRevision={view.revision}
       locked={locked || view.status !== "ready"}
-      retainMoveOnLock={retainMoveOnLock}
+      retainMoveOnLock={!historyFen && retainMoveOnLock}
       coordinates="edges"
       maxSize={Number.MAX_SAFE_INTEGER}
-      lastMove={previous ? [previous.slice(0, 2), previous.slice(2, 4)] : undefined}
-      shapes={demonstration ? [{ orig: demonstration.slice(0, 2), dest: demonstration.slice(2, 4), brush: "blue" }] : undefined}
+      lastMove={!historyFen && previous ? [previous.slice(0, 2), previous.slice(2, 4)] : undefined}
+      shapes={!historyFen && demonstration ? [{ orig: demonstration.slice(0, 2), dest: demonstration.slice(2, 4), brush: "blue" }] : undefined}
       onMove={onMove}
+      onRejectedMove={onRejectedMove}
       ariaLabel="Study chessboard"
       ariaDescribedBy={view.status === "ready" ? "puzzle-turn" : undefined}
     />

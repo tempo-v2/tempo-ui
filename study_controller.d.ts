@@ -15,6 +15,7 @@ export interface RecoveryStorage {
 export interface RenderState {
   readonly busy: boolean;
   readonly canRetry: boolean;
+  readonly retryingNext: boolean;
   readonly issue: string | null;
 }
 export interface ControllerState extends RenderState {

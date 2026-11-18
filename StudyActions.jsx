@@ -9,7 +9,7 @@ export function StudyActions({ view, state, actions, reproduced, stopped }) {
   return (
     <div className="actions">
       {state.canRetry ? (
-        <Button variant="primary" onClick={actions.retry}>Retry</Button>
+        <Button variant="primary" onClick={actions.retry}>{state.retryingNext ? "Retry next exercise" : "Retry"}</Button>
       ) : state.issue === "refresh" ? (
         <Button disabled={state.busy} onClick={actions.refresh}>Refresh attempt</Button>
       ) : stopped ? (
@@ -18,10 +18,10 @@ export function StudyActions({ view, state, actions, reproduced, stopped }) {
         <>
           {view.activity === "teach" ? (
             <Button variant="primary" disabled={disabled || !reproduced} onClick={actions.acknowledge}>
-              Acknowledge lesson
+              Got it — continue
             </Button>
           ) : (
-            <Button disabled={disabled || view.assessment !== null} onClick={actions.giveUp}>Give up</Button>
+            <Button disabled={disabled || view.assessment !== null} onClick={actions.giveUp}>Show move</Button>
           )}
           <Button disabled={disabled} onClick={actions.skip}>Skip</Button>
           <Button disabled={disabled} onClick={actions.stop}>Stop</Button>
@@ -36,13 +36,18 @@ export function StudyActions({ view, state, actions, reproduced, stopped }) {
           {view.can_practice_tactics && <Button disabled={disabled} onClick={actions.practiceTactics}>Practice tactics</Button>}
           {view.can_learn_more_tactics && (
             <Button disabled={disabled} onClick={actions.learnMoreTactics}>
-              Learn {moreTactics} more {moreTactics === 1 ? "tactic" : "tactics"} today
+              Learn up to {moreTactics} more {moreTactics === 1 ? "tactic" : "tactics"} today
             </Button>
           )}
           <Button disabled={disabled} onClick={actions.next}>Check again</Button>
         </>
       ) : (
-        <Button variant="primary" disabled={disabled} onClick={actions.next}>Next</Button>
+        <>
+          <Button variant="primary" disabled={disabled} onClick={actions.next}>
+            {state.issue ? "Retry next exercise" : "Continue"}
+          </Button>
+          <Button disabled={disabled} onClick={actions.stop}>Stop</Button>
+        </>
       )}
     </div>
   );
