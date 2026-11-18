@@ -5,8 +5,10 @@ import { identity } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
 import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
+import { TacticSettingsPage } from "./TacticSettingsPage.jsx";
 import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
 import { hasPendingTacticCommand } from "./tactic_commands.js";
+import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
 const REPLY_DELAY_MS = 200;
 const NEXT_PUZZLE_DELAY_MS = 500;
@@ -40,6 +42,9 @@ export function App() {
     [page, setPage] = useState(initialPage),
     [stopped, setStopped] = useState(false),
     [guided, setGuided] = useState(null);
+  const [sounds] = useState(createBoardSounds);
+  const [soundEnabled, setSoundEnabled] = useState(sounds.enabled);
+  const studyVisit = useRef(0);
   const board = useRef(null),
     controller = useRef(null),
     choiceRef = useRef(null),
@@ -59,15 +64,18 @@ export function App() {
         }
         preview.current = null;
         if (view === move.view) board.current?.clearInput();
+        const replies = view !== move.view && view?.feedback?.correct ? view.feedback.autoplay : [];
         const showResult = () => {
           replyTimer.current = null;
           setModel({ view, state, keepMove: false });
+          if (sounds.enabled && replies.length && studyVisit.current === move.studyVisit) {
+            sounds.play(replyCue(move.view.display_fen, move.uci, replies));
+          }
         };
         // The renderer has already moved the learner's piece. Give that move
         // time to land before reconciling with the FEN that includes the reply.
         const elapsed = performance.now() - move.startedAt;
-        if (view !== move.view && view?.feedback?.correct &&
-            view.feedback.autoplay.length && elapsed < REPLY_DELAY_MS) {
+        if (replies.length && elapsed < REPLY_DELAY_MS) {
           replyTimer.current = setTimeout(showResult, REPLY_DELAY_MS - elapsed);
         } else {
           showResult();
@@ -75,8 +83,12 @@ export function App() {
       },
     });
   useEffect(() => {
+    void sounds.prepare();
     if (page === "study") controller.current.start().catch(() => {});
-    return () => clearTimeout(replyTimer.current);
+    return () => {
+      clearTimeout(replyTimer.current);
+      sounds.cancel();
+    };
   }, []);
   useEffect(() => {
     const v = model.view;
@@ -139,6 +151,7 @@ export function App() {
     refresh: run(() => controller.current.refresh()),
   };
   function submit(view, uci) {
+    if (sounds.enabled) sounds.play(learnerCue(view.display_fen, uci));
     if (view.activity === "teach") {
       if (uci !== view.lesson.move_uci) {
         board.current?.clearInput();
@@ -148,10 +161,10 @@ export function App() {
       setGuided({ view, uci });
       return;
     }
-    preview.current = { view, startedAt: performance.now() };
+    preview.current = { view, uci, studyVisit: studyVisit.current, startedAt: performance.now() };
     controller.current.answer(uci).catch(() => {});
   }
-  function onMove(event) {
+  function currentMoveView(event) {
     const snapshot = controller.current.getState();
     const v = snapshot.view,
       state = snapshot;
@@ -167,11 +180,17 @@ export function App() {
       event.positionIdentity !== identity(v) ||
       event.positionRevision !== v.revision
     )
-      return;
+      return null;
+    return v;
+  }
+  function onMove(event) {
+    const v = currentMoveView(event);
+    if (!v) return;
     const base = event.from + event.to;
     const moves = v.legal_moves.filter((m) => m.startsWith(base));
     if (!moves.length) {
       board.current?.clearInput();
+      sounds.play("illegal");
       return;
     }
     const promotions = moves.filter((m) => m.length === 5);
@@ -187,6 +206,9 @@ export function App() {
       return;
     }
     submit(v, base);
+  }
+  function onRejectedMove(event) {
+    if (currentMoveView(event)) sounds.play("illegal");
   }
   function onChoose(origin, role) {
     const snapshot = controller.current.getState();
@@ -210,12 +232,15 @@ export function App() {
     submit(v, origin.base + role);
   }
   function goTo(nextPage) {
+    studyVisit.current += 1;
+    sounds.cancel();
     setGuided(null);
     setStopped(false);
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
   if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;
+  if (page === "tactic-settings") return <TacticSettingsPage onStudy={() => goTo("study")} />;
   if (page === "capture")
     return <TacticsCapturePage datasetId={view?.dataset_id} onStudy={() => goTo("study")} />;
 
@@ -229,9 +254,16 @@ export function App() {
       stopped={stopped}
       onRepertoires={() => goTo("repertoires")}
       onTacticCapture={() => goTo("capture")}
+      onTacticSettings={() => goTo("tactic-settings")}
       boardRef={board}
       choice={choice}
       onMove={onMove}
+      onRejectedMove={onRejectedMove}
+      soundEnabled={soundEnabled}
+      onSoundChange={enabled => {
+        sounds.setEnabled(enabled);
+        setSoundEnabled(enabled);
+      }}
       onChoose={onChoose}
       onCancel={() => {
         choiceRef.current = null;

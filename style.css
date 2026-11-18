@@ -288,3 +288,37 @@ body {
   flex-wrap: wrap;
   gap: 0.4rem;
 }
+
+.board-sound-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: fit-content;
+  min-height: 2.25rem;
+  cursor: pointer;
+}
+
+.board-sound-toggle input {
+  margin: 0;
+  accent-color: var(--green-dark);
+}
+
+.tactic-theme-picker,
+.tactic-theme-group {
+  min-width: 0;
+  margin: 0;
+}
+
+.tactic-theme-picker > label,
+.tactic-theme-group > label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.tactic-theme-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0.5rem 1rem;
+  margin-top: 0.75rem;
+}

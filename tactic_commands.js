@@ -66,6 +66,7 @@ export function validateTacticReply(reply, command) {
     return freeze({
       status: reply.status,
       count: integer(reply.count, "saved count"),
+      ...(reply.ready_for_review !== undefined && { ready_for_review: integer(reply.ready_for_review, "ready for review count") }),
       alternate_solutions: integer(reply.alternate_solutions ?? 0, "alternate solution count"),
     });
   }

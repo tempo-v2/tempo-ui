@@ -36,7 +36,7 @@ export function StudyActions({ view, state, actions, reproduced, stopped }) {
           {view.can_practice_tactics && <Button disabled={disabled} onClick={actions.practiceTactics}>Practice tactics</Button>}
           {view.can_learn_more_tactics && (
             <Button disabled={disabled} onClick={actions.learnMoreTactics}>
-              Learn {moreTactics} more {moreTactics === 1 ? "tactic" : "tactics"} today
+              Learn up to {moreTactics} more {moreTactics === 1 ? "tactic" : "tactics"} today
             </Button>
           )}
           <Button disabled={disabled} onClick={actions.next}>Check again</Button>

@@ -5,7 +5,7 @@ export const identity = (v) =>
 export const turnFromFen = (fen) => fen.split(/\s+/)[1] === "b" ? "black" : "white";
 
 export const StudyBoard = forwardRef(function StudyBoard(
-  { view, locked, retainMoveOnLock, onMove },
+  { view, locked, retainMoveOnLock, onMove, onRejectedMove },
   ref,
 ) {
   const destinations = useMemo(() => {
@@ -39,6 +39,7 @@ export const StudyBoard = forwardRef(function StudyBoard(
       lastMove={previous ? [previous.slice(0, 2), previous.slice(2, 4)] : undefined}
       shapes={demonstration ? [{ orig: demonstration.slice(0, 2), dest: demonstration.slice(2, 4), brush: "blue" }] : undefined}
       onMove={onMove}
+      onRejectedMove={onRejectedMove}
       ariaLabel="Study chessboard"
       ariaDescribedBy={view.status === "ready" ? "puzzle-turn" : undefined}
     />
