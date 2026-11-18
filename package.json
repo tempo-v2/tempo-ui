@@ -1,0 +1,18 @@
+{
+  "name": "tempo-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test *.scenarios.js test/*.test.js"
+  },
+  "dependencies": {
+    "@tempo-v2/core-components": "file:vendor/tempo-v2-core-components-0.2.2.tgz",
+    "chess.js": "1.4.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.3"
+  }
+}
