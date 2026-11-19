@@ -1,5 +1,6 @@
 // From the assembled workspace, with TEMPO_BINARY and TEMPO_PLAYWRIGHT.
 import assert from "node:assert/strict";
+import { Chess } from "chess.js";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -59,7 +60,11 @@ try {
   page.on("pageerror", error => errors.push(error.message));
   const button = name => page.getByRole("button", {name,exact:true});
   const heading = name => page.getByRole("heading", {name,exact:true});
-  const choose = uci => page.getByLabel("Explore a move").selectOption(uci);
+  const choose = async uci => {
+    const field = page.getByLabel("Chess move");
+    if (!await field.isVisible()) await page.getByText("Enter a move", {exact:true}).click();
+    await field.fill(uci); await field.press("Enter");
+  };
   await page.goto(origin + "/#games");
   await button("Import PGN").click();
   await page.getByLabel("Learner name").fill("Andy");
@@ -84,6 +89,97 @@ try {
   await button("← Games").click();
   await button("Andy vs Avery").click();
   await page.getByText(/Prepared here · Bc4/).waitFor();
+  async function verifyDrop(from,to,piece,removed) {
+    const rect = await page.locator(".review-board cg-board").boundingBox();
+    const point = (f,r) => [rect.x+(f+.5)*rect.width/8, rect.y+(8-r+.5)*rect.height/8];
+    await page.mouse.move(...point(...from)); await page.mouse.down();
+    await page.mouse.move(...point(...to), {steps:12});
+    await page.evaluate(({piece,removed}) => {
+      const board = document.querySelector(".review-board cg-board");
+      const held = board.querySelector("piece.dragging");
+      if (!held) throw Error("Missing dragged piece");
+      window.dropFrames = [];
+      board.addEventListener("mouseup", () => {
+        const sample = () => {
+          const rect = board.getBoundingClientRect();
+          const coords = [...board.querySelectorAll(piece)].map(el => {
+            const box = el.getBoundingClientRect();
+            return [(box.x-rect.x)/box.width,(box.y-rect.y)/box.height];
+          });
+          window.dropFrames.push({coords, captured:removed ? [...board.querySelectorAll(removed)].length : 0});
+          if(window.dropFrames.length < 16) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      }, {once:true});
+    }, {piece,removed});
+    await page.mouse.up();
+    await page.waitForFunction(() => window.dropFrames.length === 16);
+    const frames = await page.evaluate(() => window.dropFrames);
+    assert(frames.every(frame => frame.coords.some(([x,y]) => Math.abs(x-to[0])<.05 && Math.abs(y-(8-to[1]))<.05)), JSON.stringify(frames));
+    if (removed) {
+      const firstRemoved = frames.findIndex(frame => frame.captured === 1);
+      assert(firstRemoved >= 0 && firstRemoved <= 2);
+      assert(frames.slice(firstRemoved).every(frame => frame.captured === 1));
+    }
+  }
+
+  const overlay = page.getByLabel("Prepared and played arrows");
+  await page.waitForFunction(()=>document.querySelectorAll(".review-board svg line").length >= 2);
+  await overlay.uncheck();
+  await page.waitForFunction(()=>document.querySelectorAll(".review-board svg line").length === 0);
+  await overlay.check();
+  const sourceCalls = [];
+  await page.route("**/api/analysis/evidence", async route => {
+    const req=route.request().postDataJSON();
+    if(req.source==="repertoire") return route.continue();
+    sourceCalls.push(req);
+    let data;
+    if(req.source==="stockfish") data={engine:"Test engine",comparison_complete:true,candidates:[
+      {uci:"f1c4",centipawns:32},{uci:"f1b5",centipawns:18}].slice(0,req.candidate_count)};
+    if(req.source==="rated") data={white:5,draws:3,black:2,moves:[{uci:"f1b5",white:3,draws:1,black:2}]};
+    if(req.source==="maia") data={profile:"Rapid 1500",terminal:false,
+      probabilities:Object.fromEntries(new Chess(req.fen).moves({verbose:true}).map(({lan})=>[lan,lan==="f1c4"?.7:lan==="f1b5"?.3:0]))};
+    await route.fulfill({json:{request_id:req.request_id,fen:req.fen,source:req.source,status:"complete",data}});
+  });
+  await button("Compare candidate moves").click();
+  const table = page.getByRole("region",{name:"Move comparison"});
+  await table.getByRole("row").filter({hasText:"Bc4"}).getByRole("button",{name:"Circle Bc4"}).click();
+  await page.waitForFunction(()=>!!document.querySelector(".review-board svg circle"));
+  await table.getByText("Comparison sources and columns").click();
+  await table.getByText("+0.32",{exact:true}).waitFor();
+  assert.equal(sourceCalls.some(r=>r.source==="rated" || r.source==="maia"),false);
+  await table.getByRole("checkbox",{name:"Lichess Rapid"}).check();
+  await table.getByRole("checkbox",{name:"Maia"}).check();
+  await table.getByText("60.0% · 6",{exact:true}).waitFor();
+  await table.getByText("70.0%",{exact:true}).waitFor();
+  await table.getByRole("button",{name:"Maia",exact:true}).click();
+  assert.match(await table.locator("tbody tr").first().innerText(),/Bc4/);
+  await table.getByLabel("Stockfish lines").selectOption("1");
+  await page.waitForFunction(()=>!document.body.textContent.includes("+0.18"));
+  await table.getByText("+0.32",{exact:true}).waitFor();
+  assert(sourceCalls.some(r=>r.candidate_count===1));
+  await table.getByLabel("Move Nearby column left").click();
+  await table.getByRole("checkbox",{name:"Stockfish"}).uncheck();
+  assert.equal(await table.getByRole("columnheader",{name:"Stockfish"}).count(),0);
+  await button("Hide candidate moves").click();
+  await page.unroute("**/api/analysis/evidence");
+  await verifyDrop([5,1],[1,5],"piece.bishop.white");
+  await choose("a7a6");
+  await verifyDrop([1,5],[2,6],"piece.bishop.white","piece.black.knight");
+  await expectPiece(page,"c",6,"white bishop");
+  await button("Starting position").click();
+  for(const move of ["a2a4","h7h5","a4a5","h5h4","a5a6","h4h3","a6b7","h3g2"]) await choose(move);
+  const bounds = await page.locator(".review-board cg-board").boundingBox();
+  async function clickSquare(file,rank) {
+    await page.mouse.click(bounds.x+(file+.5)*bounds.width/8,bounds.y+(8-rank+.5)*bounds.height/8);
+  }
+  await clickSquare(1,7); await clickSquare(0,8);
+  await button("Cancel").click();
+  await expectPiece(page,"b",7,"white pawn");
+  await clickSquare(1,7); await clickSquare(0,8);
+  await button("Knight").click();
+  await expectPiece(page,"a",8,"white knight");
+  assert.match(await page.locator(".branch-line").innerText(),/bxa8=N/);
   await button("← Games").click();
   await button("Andy vs River").first().click();
   await page.getByText(/Opponent played an unprepared move/).waitFor();

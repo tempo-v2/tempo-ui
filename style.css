@@ -670,3 +670,20 @@ body {
 .comparison-record + .comparison-record {padding-top:.5rem;margin-top:.5rem;border-top:1px solid #d4dace;}
 .preview-line label {display:flex;align-items:center;gap:.55rem;font-size:.85rem;}
 .preview-line select {font:inherit;max-width:100%;padding:.35rem;border:1px solid #b9c2b2;background:#fcfbf7;border-radius:.3rem;}
+.review-page .review-header {align-items:center; gap:.6rem; padding-bottom:.55rem; margin-bottom:.7rem;}
+.review-page .review-header h1 {font-size:clamp(1.2rem,2vw,1.75rem); margin:.1rem 0;}
+.review-page .review-header p,.review-header label {font-size:.78rem;}
+.review-header select {padding:.22rem .4rem;font-size:.85rem;}
+.review-board-tools,.review-board-tools form {display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;font-size:.86rem;}
+.review-board-tools input:not([type=checkbox]) {width:6rem;}
+.review-board-tools,.candidate-panel details {margin:.6rem 0;}
+.review-source {display:grid;grid-template-columns:1fr auto;gap:.15rem .4rem;padding:.3rem 0;}
+.review-source small {grid-column:1/-1;}
+.candidate-panel > small {display:block;margin:.35rem 0;}
+.review-comparison-scroll {max-width:100%;max-height:22rem;overflow:auto;margin:.5rem 0;}
+.review-comparison-scroll table {width:100%;border-collapse:collapse;font-size:.82rem;}
+.review-comparison-scroll td,.review-comparison-scroll th {padding:.25rem .3rem;border-bottom:1px solid #d4d9d2;text-align:left;white-space:nowrap;}
+.review-comparison-scroll button {border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;}
+.review-comparison-scroll th {position:sticky;top:0;background:#f5f5ed;}
+.review-comparison-scroll button[aria-pressed=true] {background:#cee1fa;}
+.review-side,.candidate-panel,.board-column {min-width:0;}

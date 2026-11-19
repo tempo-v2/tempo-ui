@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { postCommand } from "./content_transport.js";
 import { checkedPositionEvidence } from "./source_evidence.js";
 
-export function usePositionEvidence(fen, source, options, retry, legal) {
+export function usePositionEvidence(fen, source, options, retry, legal, enabled = true) {
   const [reply, setReply] = useState(null);
-  const key = JSON.stringify([fen, source, options, retry]);
+  const key = JSON.stringify([fen, source, options, retry, enabled]);
   useEffect(() => {
+    if (!enabled) return;
     const owner = new AbortController();
     let timer;
     const request_id = crypto.randomUUID();
