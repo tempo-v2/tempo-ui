@@ -227,14 +227,18 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
     let timer;
     async function check() {
       try {
-        const next = await readGameJob(request.signal);
+        const statusSignal = AbortSignal.any([request.signal, AbortSignal.timeout(5000)]);
+        const next = await readGameJob(statusSignal);
         if (request.signal.aborted) return;
         setJobError("");
         setJob(next);
         if (next.status === "running") timer = setTimeout(check, 1000);
         else setHistoryRevision(revision => revision + 1);
       } catch (error) {
-        if (!request.signal.aborted) setJobError(error.message || "Could not check the refresh.");
+        if (!request.signal.aborted) {
+          setJobError(error.message || "Could not check the refresh.");
+          timer = setTimeout(check, 1500);
+        }
       }
     }
     void check();
@@ -341,8 +345,8 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
         job.commandId === pending.payload.command_id) remember(null);
   }, [job, pending]);
 
-  async function run(build) {
-    if (inFlight.current || !job || jobError) return;
+  async function run(build, { recovering = false } = {}) {
+    if (inFlight.current || (!recovering && (!job || jobError))) return;
     const signal = lifecycle.current.signal;
     inFlight.current = true;
     setBusy(true);
@@ -442,7 +446,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
         {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
         {pending && !busy && !refreshing && (
           <div className="actions">
-            <Button disabled={!job || !!jobError} onClick={() => void run(() => pending)}>Retry same request</Button>
+            <Button onClick={() => void run(() => pending, { recovering: true })}>Retry same request</Button>
             <Button onClick={() => { remember(null); setIssue(""); }}>Dismiss pending request</Button>
           </div>
         )}
