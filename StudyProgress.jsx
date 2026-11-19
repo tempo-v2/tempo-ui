@@ -1,51 +1,62 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { postCommand } from "./content_transport.js";
 
-export function StudyProgress({ view, stopped }) {
-  const [summary, setSummary] = useState(null);
-  const [unavailable, setUnavailable] = useState(false);
+export function useStudyProgress(view, stopped) {
+  const [result, setResult] = useState(null);
   const known = useRef(null);
   const dataset = view?.dataset_id;
   const attempt = view?.attempt_id;
   const status = view?.status;
   const grade = view?.assessment;
   const remaining = view?.tactics_remaining;
+  const scope = useMemo(() => ({ dataset }),
+    [dataset, attempt, status, grade, remaining, stopped]);
 
   useEffect(() => {
-    if (!dataset) return;
-    let cancelled = false;
+    if (!scope.dataset) return;
+    const request = new AbortController();
     let inFlight = false;
-    async function refresh(stamp) {
+    async function refresh() {
       if (inFlight) return;
       inFlight = true;
       try {
-        const next = await postCommand("/api/study-progress", stamp);
-        if (cancelled) return;
-        if (next?.status === "error" || (next && next.stamp.dataset_id !== dataset))
+        const previous = known.current?.stamp.dataset_id === scope.dataset ? known.current : null;
+        const next = await postCommand("/api/study-progress", previous?.stamp ?? null, request.signal);
+        if (request.signal.aborted) return;
+        if (next?.status === "error" || (next && next.stamp?.dataset_id !== scope.dataset))
           throw new Error("Progress unavailable");
-        if (next) {
-          known.current = next.stamp;
-          setSummary(next);
-        }
-        setUnavailable(false);
+        const summary = next ?? previous;
+        known.current = summary;
+        setResult({ scope, summary });
       } catch {
-        if (!cancelled) setUnavailable(true);
+        if (!request.signal.aborted) setResult({ scope, summary: null });
       } finally {
         inFlight = false;
       }
     }
     // A confirmed study transition refreshes the projection. Between
     // transitions only check the stamp, so midnight needs no catalog polling.
-    void refresh(known.current);
-    const interval = setInterval(() => void refresh(known.current), 60_000);
+    void refresh();
+    const interval = setInterval(refresh, 60_000);
     return () => {
-      cancelled = true;
+      request.abort();
       clearInterval(interval);
     };
-  }, [dataset, attempt, status, grade, remaining, stopped]);
+  }, [scope]);
 
+  const current = result?.scope === scope;
+  const summary = result && result.scope.dataset === dataset ? result.summary : null;
+  const count = summary?.repairs_remaining;
+  return {
+    summary,
+    unavailable: current && !summary,
+    repairsRemaining: current && Number.isSafeInteger(count) && count >= 0 ? count : null,
+  };
+}
+
+export function StudyProgress({ summary, unavailable }) {
   if (unavailable) return <p className="study-progress">Daily progress unavailable.</p>;
-  if (!summary || summary.stamp.dataset_id !== dataset) return null;
+  if (!summary) return null;
   return (
     <section className="study-progress" aria-label="Today's study progress">
       <h2>Today</h2>
