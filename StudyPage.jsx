@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Button, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
+import { Button, Dialog, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
 import { StudyBoard, turnFromFen } from "./StudyBoard.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
@@ -151,7 +151,8 @@ export function StudyPage({
                 </div>
               )}
               {!showSuccess && <StudyOutcome view={view} />}
-              {view?.status === "abandoned" && <p>Exercise skipped.</p>}
+              {view?.status === "abandoned" && <p>{view.activity === "test" && view.assessment === "again"
+                ? "Review ended. Again was recorded." : "Exercise skipped."}</p>}
               {view?.status === "empty" && (
                 <StatusNotice>
                   <div>{view.done ? "Done for today." : `${view.outstanding} remaining today.`}</div>
@@ -180,6 +181,11 @@ export function StudyPage({
           )}
           {!advancing && historyIndex === null && (
             <StudyActions view={view} state={state} actions={actions} reproduced={!!guided?.uci} stopped={stopped} />
+          )}
+          {attempt && historyIndex === null &&
+            (view.status !== "abandoned" || (view.activity === "test" && view.assessment === "again")) && (
+            <Button size="compact" disabled={replayBlocked || advancing || state.refreshRequired || state.storageUnavailable}
+              onClick={actions.analyze}>Analyze</Button>
           )}
           {gameContext && (
             <div className="actions game-replay-links">
@@ -213,7 +219,20 @@ export function StudyPage({
           <Button size="compact" onClick={() => setDialog("help")}>Shortcuts</Button>
         </div>
       </aside>
-      <BoardPreferences dialog={dialog} onClose={() => setDialog(null)} prefs={prefs}
+      {dialog?.kind === "analysis" && (
+        <Dialog open title="Analyze this review?" onClose={() => setDialog(null)}>
+          <p>{dialog.assessment === "again"
+            ? "Again is already recorded for this review. Opening analysis will end the attempt."
+            : "Opening analysis will end this review and record it as Again."}</p>
+          <div className="actions">
+            <Button onClick={() => setDialog(null)}>Cancel</Button>
+            <Button variant="primary" onClick={actions.confirmAnalysis}>
+              {dialog.assessment === "again" ? "End review and analyze" : "Record Again and analyze"}
+            </Button>
+          </div>
+        </Dialog>
+      )}
+      <BoardPreferences dialog={dialog?.kind === "analysis" ? null : dialog} onClose={() => setDialog(null)} prefs={prefs}
         onChange={onPrefsChange} soundEnabled={soundEnabled} onSoundChange={onSoundChange} />
       <PromotionChooser
         choice={choice}

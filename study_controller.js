@@ -13,9 +13,14 @@ export function createStudyController({
     issue = null;
   let refreshRequired = false;
   let pending = null;
+  let analysisVisit = null;
+  const envelope = (command, visit) => visit ? { pending: command, analysis: visit } : { pending: command };
   let storageUnavailable = false;
   try {
-    pending = storage.load()?.pending ?? null;
+    const saved = storage.load();
+    pending = saved?.pending ?? null;
+    analysisVisit = saved?.analysis ?? null;
+    if (analysisVisit?.savedResult) view = validateStudyView(analysisVisit.savedResult);
   } catch {
     storageUnavailable = true;
     issue =
@@ -24,6 +29,7 @@ export function createStudyController({
   const renderState = () => ({
     busy,
     canRetry: !!pending && !busy,
+    analysis: !pending && analysisVisit?.phase === "open" ? analysisVisit : null,
     retryingNext: pending?.command === "next",
     refreshRequired,
     storageUnavailable,
@@ -42,8 +48,31 @@ export function createStudyController({
         return response;
       }
       // Leave the original command in memory and storage if resolution cannot be saved.
-      storage.save({ pending: null });
+      let nextVisit = analysisVisit;
+      if (analysisVisit?.phase === "accept" && command.submission_id === analysisVisit.submission_id) {
+        if (response.status === "error") nextVisit = null;
+        else {
+          const expected = command.command === "concede" ? "abandoned" : "ready";
+          if (response.status !== expected || response.assessment !== "again" ||
+              response.attempt_id !== analysisVisit.attempt_id || response.dataset_id !== analysisVisit.dataset_id ||
+              response.content_version !== analysisVisit.content_version || response.revision !== command.expected_revision + 1)
+            throw new Error("The Study reply does not confirm this analysis request.");
+          nextVisit = { ...analysisVisit, revision: response.revision, phase: "open", savedResult: response };
+        }
+      }
+      if (analysisVisit?.phase === "return") {
+        const unavailable = command.command === "resume" && (response.status === "error"
+          ? ["stale_content", "stale_dataset", "stale_activity", "unknown_attempt"].includes(response.code)
+          : response.status !== "ready" || response.dataset_id !== analysisVisit.dataset_id ||
+            response.attempt_id !== analysisVisit.attempt_id || response.content_version !== analysisVisit.content_version);
+        nextVisit = unavailable ? { ...analysisVisit, returnTo: "next" } : null;
+      }
+      storage.save(envelope(null, nextVisit));
+      analysisVisit = nextVisit;
       pending = null;
+      // Resume can find a finished attempt or an ID in a restored dataset. Keep
+      // the original Study result visible while the authoritative Next is loaded.
+      if (nextVisit?.phase === "return") return response;
       if (response.status === "error") {
         refreshRequired ||= [
           "stale_revision",
@@ -68,6 +97,9 @@ export function createStudyController({
   }
   async function deliver(command) {
     const reply = await send(command);
+    if (command.command === "resume" && analysisVisit?.phase === "return" &&
+        analysisVisit.returnTo === "next")
+      return begin(() => ({ command: "next" }));
     if (
       (command.command === "acknowledge" && reply.status === "complete" && reply.activity === "teach") ||
       (command.command === "learn_more_tactics" && reply.status === "empty" && !reply.done)
@@ -89,7 +121,7 @@ export function createStudyController({
     try {
       const command = freeze(build());
       if (durable) {
-        storage.save({ pending: command });
+        storage.save(envelope(command, analysisVisit));
         pending = command;
       }
       return deliver(command);
@@ -110,7 +142,62 @@ export function createStudyController({
       expected_revision: view.revision,
     };
   }
+  async function visitAnalysis(address, entry) {
+    if (busy || pending || refreshRequired || storageUnavailable || !view?.attempt_id || analysisVisit) return null;
+    if (address.dataset_id !== view.dataset_id || address.attempt_id !== view.attempt_id ||
+        address.content_version !== view.content_version || address.revision !== view.revision) return null;
+    const active = view.status === "ready";
+    const scheduledReview = active && view.activity === "test";
+    // Only the confirmation for this displayed revision authorizes a human Again.
+    if (scheduledReview !== (entry === "concede")) return null;
+    const action = scheduledReview ? "concede" :
+      active && view.activity === "practice" && view.assessment === null ? "give_up" : null;
+    const visit = {
+      dataset_id: view.dataset_id, attempt_id: view.attempt_id, content_version: view.content_version,
+      revision: view.revision, returnTo: active && action !== "concede" ? "resume" : "next",
+    };
+    try {
+      if (action) {
+        const command = freeze(attemptCommand(action));
+        const original = { ...visit, phase: "accept", submission_id: command.submission_id };
+        storage.save(envelope(command, original));
+        analysisVisit = original;
+        pending = command;
+        return await deliver(command);
+      }
+      const open = { ...visit, phase: "open", savedResult: view };
+      storage.save(envelope(null, open));
+      analysisVisit = open;
+      notify();
+    } catch (error) {
+      issue = error.message || "Could not open analysis.";
+      notify();
+      throw error;
+    }
+    return null;
+  }
+  function finishReturn(visit) {
+    return visit.returnTo === "resume"
+      ? begin(() => ({ command: "resume", attempt_id: visit.attempt_id }))
+      : begin(() => ({ command: "next" }));
+  }
+  async function closeAnalysis() {
+    if (!analysisVisit || pending || busy) return null;
+    const returning = { ...analysisVisit, phase: "return" };
+    try {
+      storage.save(envelope(null, returning));
+    } catch (error) {
+      issue = error.message || "Could not close analysis.";
+      notify();
+      throw error;
+    }
+    analysisVisit = returning;
+    return finishReturn(returning);
+  }
   return Object.freeze({
+    openAnalysis: address => visitAnalysis(address, "open"),
+    concedeForAnalysis: confirmedAddress => visitAnalysis(confirmedAddress, "concede"),
+    closeAnalysis,
     getState: () => ({ view, ...renderState() }),
     start: () => {
       if (busy) return Promise.resolve(null);
@@ -118,7 +205,10 @@ export function createStudyController({
         notify();
         return Promise.reject(new Error(issue));
       }
-      return pending ? deliver(pending) : begin(() => ({ command: "next" }));
+      if (pending) return deliver(pending);
+      if (analysisVisit?.phase === "return") return finishReturn(analysisVisit);
+      if (analysisVisit) { notify(); return Promise.resolve(null); }
+      return begin(() => ({ command: "next" }));
     },
     next: () => begin(() => ({ command: "next" })),
     resume: (attemptId) =>

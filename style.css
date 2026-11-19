@@ -596,3 +596,13 @@ body {
     background: var(--ui-surface, #f8f7f3);
   }
 }
+
+.analysis-page { max-width: 98rem; margin: auto; padding: 1rem; }
+.analysis-layout { display:grid; grid-template-columns:minmax(18rem, 34rem) minmax(0,1fr); gap:1.5rem; align-items:start; }
+.analysis-layout select {max-width:100%}
+.analysis-layout fieldset {margin:1rem 0;border:1px solid #ccc;}
+.analysis-table {max-height:65vh;overflow:auto;}
+.analysis-table table {width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;}
+.analysis-table th,.analysis-table td {padding:.4rem;text-align:left;border-bottom:1px solid #ccc;}
+.analysis-table caption {text-align:left;font-size:.9rem;margin:.5rem 0;}
+@media(max-width:800px){.analysis-layout{grid-template-columns:minmax(0,1fr);}.analysis-layout>section:first-child{max-width:34rem;width:100%;}}

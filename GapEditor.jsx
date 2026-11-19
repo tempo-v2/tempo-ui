@@ -10,7 +10,7 @@ import { readPendingRepertoireCommand, savePendingRepertoireCommand, sendReperto
 const percent = value => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
 const shape = (uci, brush) => ({ orig: uci.slice(0, 2), dest: uci.slice(2, 4), brush });
 
-export function GapEditor({ gap, recovery, onClose, onStale, onAdvance }) {
+export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyze, suspended }) {
   const { draft, learner_color: color, actual_san, response_move_labels: labels } = gap.details;
   const [selected, setSelected] = useState(recovery?.response ?? "");
   const [suggestion, setSuggestion] = useState(null);
@@ -180,6 +180,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance }) {
   }, []);
 
 
+  if (suspended) return null;
   return (
     <Dialog open title={`Respond to ${opponentLabel}`} onClose={close}>
       <div className="gap-editor">
@@ -233,6 +234,10 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance }) {
                 <span>{selected ? `${suggestion ? "Suggested" : "Selected"} ${selectedLabel}` : "Play a move on the board."}</span>
                 {recommendationReason && <small>{recommendationReason}</small>}
               </div>
+              <Button disabled={locked} onClick={() => onAnalyze({
+                datasetId: gap.address.dataset_id, repertoireId: gap.address.repertoire_id,
+                fen: draft.fen, color, name: gap.details.repertoire_name, anchorRoute: gap.details.anchor_route,
+              })}>Analyze lines</Button>
               {selected && <Button disabled={locked} onClick={() => select("")}>Clear response</Button>}
               <Button variant="primary" disabled={busy || !selected} onClick={() => void save()}>
                 {busy ? "Saving response…" : pending ? "Retry save" : "Save response"}
