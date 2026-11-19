@@ -1,3 +1,4 @@
+import { boundedRead } from "./bounded_read.js";
 import { commandRecovery, postCommand } from "./content_transport.js";
 import { freeze, string, validateErrorView } from "./wire_values.js";
 
@@ -18,6 +19,12 @@ export async function sendRepertoireCommand(command, signal) {
   if (reply.status === "progress_reset" &&
       (reply.dataset_id !== command.dataset_id || reply.repertoire_id !== command.repertoire_id))
     throw new Error("The reset reply belongs to a different repertoire.");
+  return reply;
+}
+
+export async function readRepertoireCatalog(signal) {
+  const reply = await boundedRead(signal, readSignal => sendRepertoireCommand({ command: "list" }, readSignal));
+  if (reply.status === "error") throw new Error(reply.message);
   return reply;
 }
 

@@ -80,15 +80,16 @@ const model = status => ({
   status, profile: "Maia Rapid 1500", completed: status === "running" ? 1 : 2, total: 2,
 });
 
-const backfill = status => ({
+const backfill = (status, jobId = "history-fixture", datasetId = "evidence-fixture") => ({
   status,
-  job_id: "history-fixture",
+  job_id: jobId,
+  request: { command_id: jobId, dataset_id: datasetId },
   active_window: status === "running" ? 0 : 1,
   incomplete_windows: 0,
   pending_windows: status === "running" ? 1 : 0,
   windows: [{
     status,
-    learner: "example",
+    learner: jobId,
     source: "lichess",
     from_ms: Date.UTC(2026, 10, 9),
     to_ms: Date.UTC(2026, 10, 10),
@@ -113,7 +114,12 @@ const gapLabel = "Fix response";
 const emptyGaps = "No confirmed opponent gaps";
 const response = (body, status = 200) => ({ status, ok: status < 400, json: async () => body });
 const failure = message => response({ message }, 503);
+const catalog = () => response({
+  schema_version: 4, status: "repertoires", dataset_id: "evidence-fixture",
+  repertoires: [{ id: "book", name: "Book", learner_color: "white", positions: 2 }],
+});
 const hang = signal => new Promise((_, reject) => {
+  signal.throwIfAborted();
   signal.addEventListener("abort", () => reject(signal.reason), { once: true });
 });
 
@@ -143,10 +149,7 @@ async function openGames(t, handlers, { pending } = {}) {
     assert.deepEqual(errors, []);
   });
   const defaults = {
-    "POST /api/repertoires": () => response({
-      schema_version: 4, status: "repertoires", dataset_id: "evidence-fixture",
-      repertoires: [{ id: "book", name: "Book", learner_color: "white", positions: 2 }],
-    }),
+    "POST /api/repertoires": catalog,
     "GET /api/games": () => response({ results: [], last_successful_refresh_ms: null }),
     "GET /api/games/job": () => response({ status: "idle" }),
     "GET /api/games/backfill": () => response({ status: "idle" }),
@@ -243,11 +246,11 @@ test("replaying an accepted backfill request can observe completion and refresh 
   };
   const pending = JSON.stringify({ kind: "backfill", payload });
   const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(backfill(status)),
+    "GET /api/games/backfill": () => response(backfill(status, payload.command_id)),
     "POST /api/games/backfill": ({ body }) => {
       assert.equal(body, JSON.stringify(payload));
       status = "complete";
-      return response(backfill(status));
+      return response(backfill(status, payload.command_id));
     },
   }, { pending });
   assert.match(page.text(), /0 complete · 0 incomplete · 1 pending/);
@@ -259,6 +262,142 @@ test("replaying an accepted backfill request can observe completion and refresh 
   assert.equal(page.count("GET /api/games"), historyReads + 1);
   await page.advance(6000);
   assert.equal(page.count("GET /api/games"), historyReads + 1);
+});
+
+test("a current backfill that finishes between acknowledgement and status read refreshes history once", async t => {
+  const payload = { command_id: "fast", dataset_id: "evidence-fixture" };
+  let started = false;
+  const page = await openGames(t, {
+    "GET /api/games/backfill": () => response(started ? backfill("complete", "fast") : { status: "idle" }),
+    "POST /api/games/backfill": () => {
+      started = true;
+      return response(backfill("running", "fast"));
+    },
+  }, { pending: JSON.stringify({ kind: "backfill", payload }) });
+  const historyReads = page.count("GET /api/games");
+  await page.click("Retry same request");
+  assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
+  assert.equal(page.stored(), null);
+  await page.advance(6000);
+  assert.equal(page.count("GET /api/games"), historyReads + 1);
+});
+
+test("historical Retry clears only an acknowledgement for the pending job and preserves current status", async t => {
+  const payload = { command_id: "retry-a", dataset_id: "evidence-fixture", job_id: "job-a" };
+  const pending = `{ "kind":"backfill-retry", "payload":${JSON.stringify(payload)} }`;
+  const replies = [
+    backfill("complete", "job-b"),
+    backfill("complete", "job-a", "different-dataset"),
+    backfill("complete", "job-a"),
+  ];
+  let holdCurrentRead = false;
+  const page = await openGames(t, {
+    "GET /api/games/backfill": ({ signal }) =>
+      holdCurrentRead ? hang(signal) : response(backfill("running", "job-b")),
+    "POST /api/games/backfill/retry": ({ body }) => {
+      assert.equal(body, JSON.stringify(payload));
+      return response(replies.shift());
+    },
+  }, { pending });
+  assert.match(page.text(), /Processing Lichess · job-b/);
+  for (let i = 0; i < 2; i++) {
+    await page.click("Retry same request");
+    assert.equal(page.stored(), pending);
+    assert.match(page.text(), /reply belongs to a different job or dataset/);
+    assert.match(page.text(), /Processing Lichess · job-b/);
+  }
+  holdCurrentRead = true;
+  const historyReads = page.count("GET /api/games");
+  await page.click("Retry same request");
+  assert.equal(page.stored(), null);
+  assert.match(page.text(), /Processing Lichess · job-b/);
+  assert.doesNotMatch(page.text(), /job-a/);
+  assert.equal(page.count("GET /api/games"), historyReads);
+});
+
+test("catalog timeout leaves history available and reload enables dataset-dependent actions", async t => {
+  let stalled = true;
+  const page = await openGames(t, {
+    "POST /api/repertoires": ({ payload, signal }) => {
+      assert.deepEqual(payload, { command: "list" });
+      return stalled ? hang(signal) : catalog();
+    },
+  });
+  assert.match(page.text(), /No games recorded yet/);
+  assert.equal(page.button(analyzeLabel).disabled, true);
+  assert.equal(page.button("Refresh games").closest("fieldset").disabled, true);
+  await page.advance(4999);
+  assert.equal(page.button("Reload Games"), undefined);
+  await page.advance(1);
+  assert.match(page.text(), /The evidence read timed out/);
+  assert.equal(page.calls[0].signal.reason.name, "TimeoutError");
+  stalled = false;
+  await page.click("Reload Games");
+  assert.equal(page.button(analyzeLabel).disabled, false);
+  assert.equal(page.button("Refresh games").closest("fieldset").disabled, false);
+  assert.equal(page.button("Reload Games"), undefined);
+  assert.equal(page.pollTimers(), 0);
+});
+
+test("history deadline includes response body consumption and recovery publishes actual history", async t => {
+  let stalled = true;
+  const page = await openGames(t, {
+    "GET /api/games": ({ signal }) => stalled
+      ? { ...response(null), json: () => hang(signal) }
+      : response({
+          last_successful_refresh_ms: Date.UTC(2026, 10, 10),
+          results: [{
+            source: "lichess", game_id: "restored-game", url: null, repertoire_id: "book",
+            learner: "restored-player", matches: 5, deviations: 0, first_deviation_ply: null,
+            coverage_gaps: 0, opponent_deviations: 0, effect: "recorded_only",
+          }],
+        }),
+  });
+  assert.match(page.text(), /Loading game evidence/);
+  assert.equal(page.button(analyzeLabel).disabled, false);
+  await page.advance(5000);
+  assert.match(page.text(), /The evidence read timed out/);
+  assert.doesNotMatch(page.text(), /Loading game evidence|Unexpected Games response/);
+  stalled = false;
+  await page.click("Reload game evidence");
+  assert.match(page.text(), /Last successful provider refresh/);
+  assert.match(page.text(), /restored-player · Book/);
+  assert.match(page.text(), /5 matched · 0 learner misses/);
+  assert.equal(page.button("Reload game evidence"), undefined);
+});
+
+test("ordinary refresh status read times out and reload recovers without replaying pending work", async t => {
+  let stalled = true;
+  const pending = '{ "kind":"refresh","payload":{"command_id":"uncertain","dataset_id":"evidence-fixture"} }';
+  const page = await openGames(t, {
+    "GET /api/games/job": ({ signal }) => stalled ? hang(signal) : response({ status: "idle" }),
+  }, { pending });
+  await page.advance(5000);
+  assert.match(page.text(), /The evidence read timed out/);
+  const retryStart = page.calls.length;
+  stalled = false;
+  await page.click("Reload Games");
+  assert.equal(page.stored(), pending);
+  assert.equal(page.button("Reload Games"), undefined);
+  const retryPosts = page.calls.slice(retryStart).filter(call => call.endpoint.startsWith("POST"));
+  assert.deepEqual(retryPosts.map(call => [call.endpoint, call.payload]), [
+    ["POST /api/repertoires", { command: "list" }],
+  ]);
+});
+
+test("historical status deadline leaves the other evidence available and recovers the running job", async t => {
+  let stalled = true;
+  const page = await openGames(t, {
+    "GET /api/games/backfill": ({ signal }) => stalled ? hang(signal) : response(backfill("running")),
+    "GET /api/games/gaps": () => response(gapPage("a7a6")),
+  });
+  assert.match(page.text(), /a6 · 1 game/);
+  await page.advance(5000);
+  assert.match(page.text(), /Historical backfill status · The evidence read timed out/);
+  stalled = false;
+  await page.click(retryLabel);
+  assert.match(page.text(), /Processing Lichess · history-fixture/);
+  assert.equal(page.button(retryLabel), undefined);
 });
 
 test("a hung Maia read leaves other resources live and times out at five seconds", async t => {
@@ -300,10 +439,13 @@ test("initial gaps failure stays unknown and manual read retry preserves pending
   const page = await openGames(t, {
     "GET /api/games/gaps": () => failGaps ? failure("Gaps temporarily unavailable") : response(gapPage()),
     "GET /api/games/model": () => failModel ? failure("Maia temporarily unavailable") : response(model("idle")),
+    "POST /api/games/model": () => failure("Could not start analysis"),
   }, { pending });
   assert.match(page.text(), /Gaps temporarily unavailable/);
   assert.doesNotMatch(page.text(), new RegExp(emptyGaps));
   assert.ok(page.button("Retry same request"));
+  await page.click(analyzeLabel);
+  assert.match(page.text(), /Could not start analysis/);
   const beforeRetry = page.calls.length;
   failGaps = false;
   await page.click(retryLabel);
@@ -319,6 +461,31 @@ test("initial gaps failure stays unknown and manual read retry preserves pending
   assert.deepEqual(page.calls.slice(beforePoll).map(call => call.endpoint), ["GET /api/games/model"]);
   assert.equal(page.button(retryLabel), undefined);
   assert.equal(page.stored(), pending);
+  assert.match(page.text(), /Could not start analysis/);
+});
+
+test("paginated gaps timeout ignores a noncooperative result and retries the same offset", async t => {
+  let finishLate;
+  let paginatedSignal;
+  const page = await openGames(t, {
+    "GET /api/games/gaps": () => response(gapPage("a7a6", true)),
+    "POST /api/games/gaps": ({ payload, signal }) => {
+      assert.deepEqual(payload, { offset: 100 });
+      if (finishLate) return response(gapPage("b7b6"));
+      paginatedSignal = signal;
+      return new Promise(resolve => { finishLate = resolve; });
+    },
+  });
+  await page.click("Next gaps");
+  await page.advance(5000);
+  assert.match(page.text(), /Opponent gaps · The evidence read timed out/);
+  assert.equal(paginatedSignal.reason.name, "TimeoutError");
+  await page.flush(() => finishLate(response(gapPage("c7c6"))));
+  assert.doesNotMatch(page.text(), /c6 · 1 game/);
+  assert.match(page.text(), /Opponent gaps · The evidence read timed out/);
+  await page.click(retryLabel);
+  assert.match(page.text(), /b6 · 1 game/);
+  assert.equal(page.button(retryLabel), undefined);
 });
 
 test("paging aborts an old gap read and retry only reads the new page", async t => {
@@ -352,6 +519,7 @@ test("paging aborts an old gap read and retry only reads the new page", async t 
   historical = "complete";
   await page.click("Next gaps");
   assert.equal(oldRequest.signal.aborted, true);
+  assert.equal(oldRequest.signal.reason.name, "AbortError");
   assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
   assert.match(page.text(), /Maia Rapid 1500 · running/);
   assert.equal(page.count("GET /api/games"), historyReads + 1);
@@ -372,6 +540,7 @@ test("paging aborts an old gap read and retry only reads the new page", async t 
   const beforeUnmount = page.calls.length;
   await page.unmount();
   assert.equal(unresolvedPage.aborted, true);
+  assert.equal(unresolvedPage.reason.name, "AbortError");
   assert.equal(page.pollTimers(), 0);
   await page.advance(10000);
   assert.equal(page.calls.length, beforeUnmount);

@@ -5,7 +5,7 @@ import {
   sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
   readGaps, retryHistorical, startHistorical, startModel,
 } from "./game_commands.js";
-import { sendRepertoireCommand } from "./repertoire_commands.js";
+import { readRepertoireCatalog } from "./repertoire_commands.js";
 import { GapEditor } from "./GapEditor.jsx";
 import { readGapContinuation } from "./gap_save.js";
 
@@ -159,7 +159,7 @@ function GameReport({ report, importing, repertoires }) {
 
 const pendingKey = "tempo.games.pending.v1";
 const evidencePollMs = 2000;
-const evidenceTimeoutMs = 5000;
+const gapDraftTimeoutMs = 5000;
 
 function pendingGame() {
   try { return JSON.parse(sessionStorage.getItem(pendingKey)); }
@@ -202,6 +202,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const lifecycle = useRef(null);
   const evidenceOwner = useRef(null);
   const observedRunning = useRef({ dataset: null });
+  const expectedBackfill = useRef(null);
   const inFlight = useRef(false);
   const importing = source === "pgn";
   const refreshing = job?.status === "running";
@@ -230,8 +231,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
   function recordJobStatus(name, value, readChanges) {
     if (observedRunning.current.dataset !== dataset) observedRunning.current = { dataset };
     const activity = observedRunning.current;
-    const settled = activity[name] && value.status !== "running";
-    activity[name] = value.status === "running";
+    const expected = name === "backfill" ? expectedBackfill.current : null;
+    const expectedJob = expected?.dataset === dataset && expected.jobId === value.job_id;
+    if (expected) expectedBackfill.current = null;
+    const running = value.status === "running";
+    const settled = (activity[name] || expectedJob) && !running;
+    activity[name] = running;
     updateEvidence(name, { value, ...readChanges });
     if (settled) setHistoryRevision(revision => revision + 1);
     return settled;
@@ -248,18 +253,17 @@ export function GamesPage({ onStudy, onRepertoires }) {
   }, []);
 
   useEffect(() => {
-    let current = true;
+    const owner = new AbortController();
     setCatalogError("");
-    sendRepertoireCommand({ command: "list" }).then(reply => {
-      if (reply.status === "error") throw new Error(reply.message);
-      if (current) {
+    readRepertoireCatalog(owner.signal).then(reply => {
+      if (!owner.signal.aborted) {
         setRepertoires(reply.repertoires);
         setDataset(reply.dataset_id);
       }
     }).catch(error => {
-      if (current) setCatalogError(error.message || "Could not load repertoires.");
+      if (!owner.signal.aborted) setCatalogError(error.message || "Could not load repertoires.");
     });
-    return () => { current = false; };
+    return () => owner.abort();
   }, [reload]);
 
   useEffect(() => {
@@ -278,8 +282,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     let timer;
     async function check() {
       try {
-        const statusSignal = AbortSignal.any([request.signal, AbortSignal.timeout(5000)]);
-        const next = await readGameJob(statusSignal);
+        const next = await readGameJob(request.signal);
         if (request.signal.aborted) return;
         setJobError("");
         setJob(next);
@@ -365,10 +368,8 @@ export function GamesPage({ onStudy, onRepertoires }) {
     // Each resource publishes and reschedules as soon as its own request settles.
     async function check(resource) {
       resource.reading = true;
-      const timeout = AbortSignal.timeout(evidenceTimeoutMs);
-      const signal = AbortSignal.any([owner.signal, timeout]);
       try {
-        const next = await resource.read(signal);
+        const next = await resource.read(owner.signal);
         if (!owner.signal.aborted) {
           resource.apply(next);
           resource.failed = false;
@@ -376,8 +377,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       } catch (error) {
         if (!owner.signal.aborted) {
           resource.failed = true;
-          const message = timeout.aborted ? "The evidence read timed out." : error.message;
-          updateEvidence(resource.name, { error: message || "Could not load this evidence." }, resource.offset);
+          updateEvidence(resource.name, { error: error.message || "Could not load this evidence." }, resource.offset);
         }
       } finally {
         resource.reading = false;
@@ -422,7 +422,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       dataset_id: datasetId, repertoire_id: gap.repertoire_id, position: gap.position,
       actual_move: gap.actual_move, document_revision: gap.document_revision,
     };
-    const details = await gapDraft(address, AbortSignal.any([signal, AbortSignal.timeout(evidenceTimeoutMs)]));
+    const details = await gapDraft(address, AbortSignal.any([signal, AbortSignal.timeout(gapDraftTimeoutMs)]));
     if (!signal.aborted) setActiveGap({ address, details, passed, offset });
   }
 
@@ -445,10 +445,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   async function advanceGap(san) {
     const signal = lifecycle.current.signal;
-    const timeout = AbortSignal.any([signal, AbortSignal.timeout(evidenceTimeoutMs)]);
     const { address, passed, offset } = activeGap;
     async function freshPage(pageOffset) {
-      const page = await readGaps(timeout, pageOffset);
+      const page = await readGaps(signal, pageOffset);
       if (page.dataset_id !== address.dataset_id) throw new Error("The active dataset changed.");
       if (page.gaps.some(gap => gapKey(gap) === gapKey(address)))
         throw new Error("Tempo could not confirm the refreshed gap list. Try loading it again.");
@@ -484,13 +483,13 @@ export function GamesPage({ onStudy, onRepertoires }) {
   }
 
   async function deliver(command, signal) {
-    remember(command);
     if (command.kind === "backfill" || command.kind === "backfill-retry") {
       const submit = command.kind === "backfill" ? startHistorical : retryHistorical;
-      const status = await submit(command.payload, signal);
+      const acknowledgement = await submit(command.payload, signal);
       if (signal.aborted) return;
+      // Only the status read can identify the current job. The acknowledged job may be older.
+      expectedBackfill.current = { dataset: command.payload.dataset_id, jobId: acknowledgement.job_id };
       refreshEvidenceReads();
-      recordJobStatus("backfill", status);
       remember(null);
     } else if (command.kind !== "refresh") {
       const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
@@ -522,7 +521,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
     setImportReport(null);
     try {
       const command = await build();
-      if (!signal.aborted) await deliver(command, signal);
+      if (!signal.aborted) {
+        if (!recovering) remember(command);
+        await deliver(command, signal);
+      }
     } catch (error) {
       if (!signal.aborted) {
         setIssue(error.message || "Could not process these games.");
