@@ -48,6 +48,7 @@ test("history and job replies project answer-safe result fields and preserve ref
   assert.equal(history.results[0].game_id, history.results[1].game_id);
   assert.deepEqual(history.results.map(result => result.comparison_id), ["previous", "current"]);
   assert.equal(history.results[0].effect, "requested_review");
+  assert.equal(history.results[0].repertoires, null);
   assert.equal(Object.hasOwn(history.results[0], "prescribed_move"), false);
   const job = await readGameJob();
   assert.equal(job.status, "failed");
@@ -92,4 +93,27 @@ test("a failed archive with a diagnostic preserves zero games fetched", async t 
   const { report } = await readGameJob();
   assert.equal(report.fetched, 0);
   assert.equal(report.errors.length, 1);
+});
+
+
+test("only an explicit null departure admits known compatible repertoire evidence", async t => {
+  const known = { repertoire_id: "book", source_available: true, first_departure: null, reentry_ply: null };
+  const result = { ...game, repertoires: [known] };
+  const wrap = item => Response.json({ results: [item], last_successful_refresh_ms: null });
+  const fetch = t.mock.method(globalThis, "fetch", async () => wrap(result));
+  const projected = await readGameHistory();
+  assert.deepEqual(projected.results[0].repertoires, [known]);
+  for (const first_departure of [undefined, false, { kind: "invented", ply: 1 },
+    { kind: "opponent_gap", ply: 0 }]) {
+    fetch.mock.mockImplementation(async () => wrap({
+      ...result, repertoires: [{ ...known, first_departure }],
+    }));
+    await assert.rejects(readGameHistory(), /Invalid repertoire/);
+  }
+  fetch.mock.mockImplementation(async () => wrap({
+    ...result,
+    repertoires: [{ ...known, first_departure: { kind: "opponent_gap", ply: 2 }, reentry_ply: 4 }],
+  }));
+  assert.deepEqual((await readGameHistory()).results[0].repertoires[0].first_departure,
+    { kind: "opponent_gap", ply: 2 });
 });

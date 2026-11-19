@@ -53,11 +53,11 @@ export function AnalysisEvidence({
   const book = usePositionEvidence(fen, "repertoire", context, [
     retry.repertoire,
     bookRevision,
-  ]);
-  const fish = usePositionEvidence(fen, "stockfish", { pins }, retry.stockfish);
-  const rapid = usePositionEvidence(fen, "rated", { ratings }, retry.rated);
-  const masters = usePositionEvidence(fen, "masters", {}, retry.masters);
-  const maia = usePositionEvidence(fen, "maia", {}, retry.maia);
+  ], moves);
+  const fish = usePositionEvidence(fen, "stockfish", { pins }, retry.stockfish, moves);
+  const rapid = usePositionEvidence(fen, "rated", { ratings }, retry.rated, moves);
+  const masters = usePositionEvidence(fen, "masters", {}, retry.masters, moves);
+  const maia = usePositionEvidence(fen, "maia", {}, retry.maia, moves);
   const replies = {
     repertoire: book,
     stockfish: fish,
@@ -166,6 +166,7 @@ export function AnalysisEvidence({
           </p>
         ) : null,
       )}
+      {maia.data?.terminal && <p role="status">Maia · No legal moves in this position.</p>}
       {fish.data?.comparison_complete === false && (
         <p role="status">
           Stockfish could not finish a same-depth comparison of the pinned

@@ -76,8 +76,8 @@ function clockFor(window, simulateRecovery = false) {
   };
 }
 
-const model = status => ({
-  status, profile: "Maia Rapid 1500", completed: status === "running" ? 1 : 2, total: 2,
+const model = (status, dataset = "evidence-fixture") => ({
+  status, ...(status === "idle" ? {} : { dataset_id: dataset }), profile: "Maia Rapid 1500", completed: status === "running" ? 1 : 2, total: 2,
 });
 
 const backfill = (status, jobId = "history-fixture", datasetId = "evidence-fixture") => ({
@@ -874,7 +874,7 @@ test("changing dataset while Games reads are pending clears old rows and ignores
       ? response({ schema_version: 4, status: "repertoires", dataset_id: "next-dataset", repertoires: [] })
       : catalog(),
     "GET /api/games/job": () => changed ? response({ status: "idle" }) : failure("Fixture refresh unavailable"),
-    "GET /api/games/model": () => response(model(modelState)),
+    "GET /api/games/model": () => response(model(modelState, changed ? "next-dataset" : "evidence-fixture")),
     "GET /api/games/backfill": ({ signal }) => {
       if (changed) return response(backfill("complete", "next-job", "next-dataset"));
       oldStatusSignal = signal;
@@ -1272,4 +1272,20 @@ test("a lost Maia start acknowledgement waits for current model status before an
   assert.match(page.text(), /Maia Rapid 1500 · complete/);
   assert.equal(page.button(analyzeLabel).disabled, false);
   assert.equal(page.count("POST /api/games/model"), 1);
+});
+
+
+test("a foreign Maia run never takes ownership of current Games evidence", async t => {
+  const page = await openGames(t, {
+    "GET /api/games/model": () => response({
+      ...model("running", "old-dataset"),
+      projection: {
+        dataset_id: "evidence-fixture", complete_current: 1,
+        partial_current: 0, unavailable: 0, pending: 0,
+      },
+    }),
+  });
+  assert.match(page.text(), /Maia run status belongs to a different dataset/);
+  assert.doesNotMatch(page.text(), /running · 1 of 2 positions/);
+  assert.equal(page.button(analyzeLabel).disabled, false);
 });

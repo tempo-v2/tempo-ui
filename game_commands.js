@@ -30,6 +30,30 @@ function count(value, field) {
   return value;
 }
 
+const departureKinds = new Set(["learner_move", "opponent_gap", "authored_endpoint", "outside_context"]);
+
+function comparisonPly(value) {
+  if (!Number.isSafeInteger(value) || value < 1) throw new TypeError("Invalid repertoire comparison ply");
+  return value;
+}
+
+function repertoireComparisons(result) {
+  if (!Object.hasOwn(result, "repertoires")) return null;
+  if (!Array.isArray(result.repertoires)) throw new TypeError("Invalid repertoire comparisons");
+  return result.repertoires.map(book => {
+    if (typeof book?.source_available !== "boolean") throw new TypeError("Invalid repertoire comparison availability");
+    const departure = book.first_departure;
+    if (departure !== null && !departureKinds.has(departure?.kind))
+      throw new TypeError("Invalid repertoire departure");
+    return {
+      repertoire_id: string(book.repertoire_id, "comparison repertoire", true),
+      source_available: book.source_available,
+      first_departure: departure === null ? null : { kind: departure.kind, ply: comparisonPly(departure.ply) },
+      reentry_ply: book.reentry_ply === null ? null : comparisonPly(book.reentry_ply),
+    };
+  });
+}
+
 function gameResults(results) {
   if (!Array.isArray(results)) throw new TypeError("Invalid game results");
   return results.map(result => {
@@ -62,12 +86,7 @@ function gameResults(results) {
         repertoire_id: string(item.repertoire_id, "disagreement repertoire", true),
         plies: item.plies.map(ply => count(ply, "disagreement ply")),
       })),
-      repertoires: (result.repertoires ?? []).map(book => ({
-        repertoire_id: string(book.repertoire_id, "comparison repertoire", true),
-        source_available: book.source_available === true,
-        first_departure: book.first_departure ?? null,
-        reentry_ply: book.reentry_ply ?? null,
-      })),
+      repertoires: repertoireComparisons(result),
       effect,
     };
   });
@@ -188,8 +207,10 @@ export const startHistorical = (payload, signal) =>
 export const retryHistorical = (payload, signal) =>
   acknowledgeHistorical("/backfill/retry", payload, payload.job_id, signal);
 
-export async function modelStatus(signal) {
-  const reply = await read("/model", signal);
+function modelReply(reply) {
+  if (!["idle", "running", "complete", "incomplete"].includes(reply?.status))
+    throw new TypeError("Invalid Maia status.");
+  if (reply.status !== "idle") string(reply.dataset_id, "model dataset", true);
   if (reply.projection == null) return reply;
   const projection = reply.projection;
   return {
@@ -204,7 +225,16 @@ export async function modelStatus(signal) {
   };
 }
 
-export const startModel = (payload, signal) => request("/model", payload, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS });
+export async function modelStatus(signal) {
+  return modelReply(await read("/model", signal));
+}
+
+export async function startModel(payload, signal) {
+  const reply = modelReply(await request("/model", payload, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS }));
+  if (reply.dataset_id !== payload.dataset_id)
+    throw new Error("The Maia acknowledgement belongs to a different dataset.");
+  return reply;
+}
 export const readGaps = (signal, offset = 0) => read("/gaps", signal, offset ? { offset } : undefined);
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
 export const startGapAnalysis = (payload, signal) => request("/gap-analysis", payload, signal);

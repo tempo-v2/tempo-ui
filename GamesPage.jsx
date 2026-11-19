@@ -50,7 +50,7 @@ function GameResults({ results, repertoires, history = false, onChoose, dataset 
                 ))}</ul>
               </details>
             )}
-            {result.repertoires.length > 0 && (
+            {result.repertoires?.length > 0 && (
               <details>
                 <summary>Repertoire compatibility</summary>
                 <ul>{result.repertoires.map(book => (
@@ -192,12 +192,6 @@ async function loadPendingGame() {
 function matchesRefresh(job, command) {
   return command?.kind === "refresh" && job?.datasetId === command.payload.dataset_id &&
     job.commandId === command.payload.command_id;
-}
-
-function checkedModelStatus(value) {
-  if (!["idle", "running", "complete", "incomplete"].includes(value?.status))
-    throw new TypeError("Invalid Maia status.");
-  return value;
 }
 
 function evidenceFor(resource, dataset, offset) {
@@ -422,7 +416,8 @@ export function GamesPage({ onStudy, onRepertoires }) {
         name: "model",
         read: modelStatus,
         apply(value) {
-          checkedModelStatus(value);
+          if (value.status !== "idle" && value.dataset_id !== dataset)
+            throw new Error("Maia run status belongs to a different dataset.");
           const summary = value.projection?.dataset_id === dataset ? value.projection : undefined;
           pendingProjection = summary?.pending > 0;
           observeStatus("model", value, { projection: summary });
@@ -512,7 +507,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     setModelActionError("");
     const current = () => !signal.aborted && modelAction.current === action && dataset === catalogDataset.current;
     try {
-      const status = checkedModelStatus(await startModel({ dataset_id: dataset }, signal));
+      const status = await startModel({ dataset_id: dataset }, signal);
       if (current()) {
         refreshEvidenceReads();
         recordJobStatus("model", status);
