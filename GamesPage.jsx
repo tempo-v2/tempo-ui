@@ -175,6 +175,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
   const [model, setModel] = useState(null);
   const [gaps, setGaps] = useState([]);
   const [moreGaps, setMoreGaps] = useState(false);
+  const [gapOffset, setGapOffset] = useState(0);
   const [evidenceError, setEvidenceError] = useState("");
   const [workingGap, setWorkingGap] = useState(false);
   const [evidenceRevision, setEvidenceRevision] = useState(0);
@@ -255,7 +256,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
     async function check() {
       try {
         const [historical, inference, coverage] = await Promise.all([
-          historicalStatus(request.signal), modelStatus(request.signal), readGaps(request.signal),
+          historicalStatus(request.signal), modelStatus(request.signal), readGaps(request.signal, gapOffset),
         ]);
         if (request.signal.aborted) return;
         setBackfill(historical);
@@ -272,7 +273,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
     }
     void check();
     return () => { request.abort(); clearTimeout(timer); };
-  }, [evidenceRevision, historyRevision]);
+  }, [evidenceRevision, historyRevision, gapOffset]);
 
   function beginBackfill(event) {
     event.preventDefault();
@@ -477,7 +478,10 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
             {model.error && ` · ${model.error}`}</p>
         )}
         {evidenceError && <StatusNotice kind="error">{evidenceError}</StatusNotice>}
-        {moreGaps && <p>Showing the 100 most frequent gaps.</p>}
+        {(moreGaps || gapOffset > 0) && <div className="actions">
+          <Button disabled={gapOffset === 0 || workingGap} onClick={() => setGapOffset(offset => offset - 100)}>Previous gaps</Button>
+          <Button disabled={!moreGaps || workingGap} onClick={() => setGapOffset(offset => offset + 100)}>Next gaps</Button>
+        </div>}
         {gaps.length === 0 ? <p>No confirmed opponent gaps in the current documents.</p> : (
           <ul className="game-results">{gaps.map(gap => (
             <li key={`${gap.repertoire_id}:${gap.position}:${gap.actual_move}`}>

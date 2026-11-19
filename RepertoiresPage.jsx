@@ -6,6 +6,7 @@ import {
   sendRepertoireCommand,
 } from "./repertoire_commands.js";
 import { gapDraft } from "./game_commands.js";
+import { GapAnalysis } from "./GapAnalysis.jsx";
 
 
 function PreviewSummary({ preview }) {
@@ -591,6 +592,8 @@ function GapResponse({ gap, color, selected, setSelected, onAdd, disabled }) {
         </select></label>
         <Button disabled={disabled || !selected} onClick={() => void onAdd()}>Add response to draft</Button>
       </div>
+      <GapAnalysis key={gap.address.document_revision + gap.address.position + gap.address.actual_move}
+        gap={gap} color={color} disabled={disabled} />
     </section>
   );
 }
