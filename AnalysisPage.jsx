@@ -142,7 +142,7 @@ export function AnalysisPage({ origin, onClose }) {
               {[
                 [
                   origin.prescribedUci,
-                  origin.repertoireId ? "Repertoire" : "Prescribed",
+                  "Issued Study move",
                 ],
                 [origin.playedUci, "Played"],
               ]

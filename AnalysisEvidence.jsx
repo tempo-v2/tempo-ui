@@ -72,14 +72,17 @@ export function AnalysisEvidence({
       (row.repertoire_id === origin.repertoireId
         ? "This repertoire"
         : book.data.repertoire_names[row.repertoire_id] || "Other repertoire");
-  for (const group of ["current", "other"])
-    for (const row of book.data?.similar_responses?.[group] || [])
-      repertoire[row.uci] = [
-        repertoire[row.uci],
-        row.position_count + " nearby (" + group + ")",
-      ]
-        .filter(Boolean)
-        .join(" · ");
+  const similar = new Map();
+  for (const group of ["current", "other"]) {
+    for (const row of book.data?.similar_responses?.[group] || []) {
+      const support = similar.get(row.uci) || [];
+      const positions = book.data.nearby[group].filter((position) =>
+        position.responses.some((response) => response.reusable && response.uci === row.uci),
+      );
+      support.push({ group, count: row.position_count, positions });
+      similar.set(row.uci, support);
+    }
+  }
   const sign = fen.split(" ")[1] === "w" ? 1 : -1;
   const stockfish = Object.fromEntries(
     (fish.data?.candidates || []).map((row) => [
@@ -93,7 +96,7 @@ export function AnalysisEvidence({
     (a, b) => b[1] - a[1],
   );
   const columns = {
-    repertoire,
+    repertoire: Object.fromEntries([...Object.keys(repertoire), ...similar.keys()].map((m) => [m, repertoire[m]])),
     stockfish,
     rated: stats(rapid.data),
     masters: stats(masters.data),
@@ -182,6 +185,9 @@ export function AnalysisEvidence({
               {Object.entries(sources).map(([k, v]) => (
                 <th key={k}>
                   {v}
+                  {(k === "rated" || k === "masters") && replies[k].data && (
+                    <small> · {(replies[k].data.white + replies[k].data.draws + replies[k].data.black).toLocaleString()} games</small>
+                  )}
                   {!replies[k].data && !replies[k].error ? " …" : ""}
                 </th>
               ))}
@@ -215,7 +221,13 @@ export function AnalysisEvidence({
                 </td>
                 {Object.keys(sources).map((k) => (
                   <td key={k}>
-                    {columns[k][move] || "—"}
+                    {columns[k][move] || (k === "repertoire" && similar.has(move) ? "" : "—")}
+                    {k === "repertoire" && similar.get(move)?.map(({ group, count, positions }) => (
+                      <details key={group}>
+                        <summary>{count} nearby ({group})</summary>
+                        {positions.map((position) => <Nearby key={position.fen} position={position} orientation={origin.color || "white"} />)}
+                      </details>
+                    ))}
                     {overlay.some(
                       (arrow) => arrow.source === k && arrow.move === move,
                     ) && <span aria-label="Arrow shown"> ↗</span>}

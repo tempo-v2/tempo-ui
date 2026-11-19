@@ -10,7 +10,7 @@ import { readPendingRepertoireCommand, savePendingRepertoireCommand, sendReperto
 const percent = value => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
 const shape = (uci, brush) => ({ orig: uci.slice(0, 2), dest: uci.slice(2, 4), brush });
 
-export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyze }) {
+export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyze, suspended }) {
   const { draft, learner_color: color, actual_san, response_move_labels: labels } = gap.details;
   const [selected, setSelected] = useState(recovery?.response ?? "");
   const [suggestion, setSuggestion] = useState(null);
@@ -180,6 +180,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   }, []);
 
 
+  if (suspended) return null;
   return (
     <Dialog open title={`Respond to ${opponentLabel}`} onClose={close}>
       <div className="gap-editor">

@@ -6,7 +6,9 @@ const counts = (row) =>
   ["white", "draws", "black"].every(
     (k) => Number.isSafeInteger(row[k]) && row[k] >= 0,
   );
-const move = (row) => row && typeof row.uci === "string";
+const uci = (value) => typeof value === "string" && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(value);
+const move = (row) => row && uci(row.uci);
+const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
 function checkedData(source, data) {
   let valid = false;
@@ -17,7 +19,7 @@ function checkedData(source, data) {
         valid =
           counts(data) &&
           Array.isArray(data.moves) &&
-          data.moves.every((row) => move(row) && counts(row));
+          data.moves.every((row) => move(row) && counts(row) && ["white", "draws", "black"].every((k) => row[k] <= data[k]));
         break;
       case "stockfish":
         valid =
@@ -26,7 +28,8 @@ function checkedData(source, data) {
           data.candidates.every(
             (row) =>
               move(row) &&
-              Number.isInteger(row.centipawns) !== Number.isInteger(row.mate),
+              ((Number.isSafeInteger(row.centipawns) && row.mate == null) ||
+                (Number.isSafeInteger(row.mate) && row.centipawns == null)),
           );
         break;
       case "maia":
@@ -41,8 +44,9 @@ function checkedData(source, data) {
       case "repertoire":
         valid =
           Array.isArray(data.exact) &&
-          data.exact.every(move) &&
-          data.repertoire_names &&
+          data.exact.every((row) => move(row) && typeof row.repertoire_id === "string") &&
+          record(data.repertoire_names) &&
+          Object.values(data.repertoire_names).every((name) => typeof name === "string") &&
           ["current", "other"].every(
             (group) =>
               Array.isArray(data.nearby?.[group]) &&
@@ -50,10 +54,10 @@ function checkedData(source, data) {
                 (p) =>
                   typeof p?.fen === "string" &&
                   Array.isArray(p.responses) &&
-                  p.responses.every((m) => typeof m?.san === "string"),
+                  p.responses.every((m) => move(m) && typeof m.san === "string" && typeof m.reusable === "boolean"),
               ) &&
               Array.isArray(data.similar_responses?.[group]) &&
-              data.similar_responses[group].every(move),
+              data.similar_responses[group].every((m) => move(m) && Number.isSafeInteger(m.position_count) && m.position_count > 0),
           );
         break;
     }

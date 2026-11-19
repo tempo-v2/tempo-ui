@@ -85,9 +85,35 @@ try {
   await page.waitForFunction(() =>
     document.querySelector("tbody")?.textContent.includes("This repertoire"),
   );
+  await button("d5").click();
+  await button("exd5").click();
+  await button("Mark line").click();
+  await button("Preview changes").click();
+  await button("Save repertoire").waitFor();
+  await post({
+    command: "rename",
+    dataset_id: list.dataset_id,
+    repertoire_id: doc.repertoire_id,
+    name: "Renamed by another page",
+  });
+  await button("Preview changes").click();
+  await button("Refresh document").waitFor();
+  assert.equal(await button("Save repertoire").count(), 0);
+  await button("Refresh document").click();
+  await page.getByRole("heading", { name: "Renamed by another page" }).waitFor();
+  await button("Preview changes").click();
+  await button("Save repertoire").click();
+  await page.getByText("Repertoire saved.", { exact: true }).waitFor();
+  const refreshed = await post({
+    command: "read_document",
+    dataset_id: list.dataset_id,
+    repertoire_id: doc.repertoire_id,
+  });
+  assert.match(refreshed.document.pgn, /exd5/);
+  assert.match(refreshed.document.pgn, /c5/);
   assert.deepEqual(errors, []);
   console.log(
-    "Marked branches saved, unmarked experiment excluded, pin restored, opponent repertoire evidence rendered.",
+    "Marked branches saved, unmarked experiment excluded, pin restored, opponent moves shown, stale preview rejected and refreshed.",
   );
 } finally {
   await browser?.close();

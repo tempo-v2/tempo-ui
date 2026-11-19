@@ -154,14 +154,18 @@ export function App() {
   function analyze() {
     pausedAdvance.current = view;
     board.current?.clearInput();
-    if (view?.status === "ready" && view.activity === "test") openDialog("analysis");
-    else void controller.current.openAnalysis().catch(() => {});
+    const { dataset_id, attempt_id, content_version, revision } = view;
+    const address = { dataset_id, attempt_id, content_version, revision };
+    if (view.status === "ready" && view.activity === "test")
+      openDialog({ kind: "analysis", address, assessment: view.assessment });
+    else void controller.current.openAnalysis(address).catch(() => {});
   }
   const actions = {
     analyze,
     confirmAnalysis: () => {
+      if (dialog?.kind !== "analysis") return;
       setDialog(null);
-      void controller.current.openAnalysis().catch(() => {});
+      void controller.current.concedeForAnalysis(dialog.address).catch(() => {});
     },
     next: run(() => {
       pausedAdvance.current = view;

@@ -302,7 +302,7 @@ test("analysis recovery replays an uncertain concession once and reopens the acc
   });
   const first = controller();
   await first.start();
-  await assert.rejects(first.openAnalysis(), /reply was lost/);
+  await assert.rejects(first.concedeForAnalysis(first.getState().view), /reply was lost/);
   assert.equal(first.getState().analysis, null);
   assert.equal(saved.pending.command, "concede");
   const recovering = controller();
@@ -332,7 +332,7 @@ test("guided analysis resumes its original attempt and practice accepts assistan
       } },
     });
     await controller.start();
-    await controller.openAnalysis();
+    await controller.openAnalysis(controller.getState().view);
     assert.equal(controller.getState().analysis.returnTo, "resume");
     await controller.closeAnalysis();
     assert.deepEqual(sent, activity === "teach" ? ["next", "resume"] : ["next", "give_up", "resume"]);
@@ -354,7 +354,7 @@ test("a failed Next after analysis preserves the confirmed grade and reload retr
   });
   const original = make();
   await original.start();
-  await original.openAnalysis();
+  await original.concedeForAnalysis(original.getState().view);
   failNext = true;
   await assert.rejects(original.closeAnalysis(), /Next unavailable/);
   assert.equal(original.getState().view.assessment, "again");
@@ -364,4 +364,56 @@ test("a failed Next after analysis preserves the confirmed grade and reload retr
   failNext = false;
   await recovered.start();
   assert.deepEqual(commands, ["next", "concede", "next", "next"]);
+});
+
+test("a direct Analyze action or a confirmation for an earlier review cannot concede the current one", async () => {
+  const sent = [];
+  const reviews = [ready(), ready({ attempt_id: "attempt-2" }), ready({ attempt_id: "attempt-2", revision: 1 })];
+  const controller = createStudyController({
+    storage: { load: () => null, save() {} }, render() {}, makeSubmissionId: () => "confirmed",
+    transport: { send: async command => {
+      sent.push(command.command);
+      if (command.command === "next") return reviews.shift();
+      return complete({ status: "abandoned", assessment: "again", attempt_id: "attempt-2", revision: 2 });
+    } },
+  });
+  const first = await controller.start();
+  const second = await controller.next();
+  const current = await controller.next();
+  await controller.openAnalysis(current);
+  await controller.concedeForAnalysis(first);
+  await controller.concedeForAnalysis(second);
+  assert.deepEqual(sent, ["next", "next", "next"]);
+  assert.equal(controller.getState().analysis, null);
+  await controller.concedeForAnalysis(current);
+  assert.equal(controller.getState().analysis.attempt_id, "attempt-2");
+  assert.deepEqual(sent, ["next", "next", "next", "concede"]);
+});
+
+test("returning to guided Study selects Next if the resumed ID is closed or belongs to another data version", async () => {
+  const initial = ready({ activity: "teach", lesson: { move_uci: "e2e4", move_san: "e4", comments: [] } });
+  for (const unavailable of [
+    complete({ activity: "teach", assessment: null }),
+    { ...initial, dataset_id: "restored" },
+    { ...initial, content_version: 2 },
+  ]) {
+    const commands = [];
+    const rendered = [];
+    const controller = createStudyController({
+      storage: { load: () => null, save() {} }, makeSubmissionId: () => "unused",
+      render: view => { if (view) rendered.push(view); },
+      transport: { send: async command => {
+        commands.push(command.command);
+        if (command.command === "resume") return unavailable;
+        return commands.length === 1 ? initial : ready({ attempt_id: "current-review" });
+      } },
+    });
+    const origin = await controller.start();
+    await controller.openAnalysis(origin);
+    const current = await controller.closeAnalysis();
+    assert.equal(current.attempt_id, "current-review");
+    assert.deepEqual(commands, ["next", "resume", "next"]);
+    assert.ok(rendered.every(view => view.status === "ready" && view.dataset_id === initial.dataset_id &&
+      view.content_version === initial.content_version));
+  }
 });

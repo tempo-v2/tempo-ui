@@ -80,6 +80,7 @@ export function useMarkedLines(
     setIssue("");
     try {
       if (!save) {
+        setPreview(null);
         const r = await sendRepertoireCommand(
           {
             command: "marked_preview",

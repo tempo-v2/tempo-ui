@@ -219,20 +219,20 @@ export function StudyPage({
           <Button size="compact" onClick={() => setDialog("help")}>Shortcuts</Button>
         </div>
       </aside>
-      {dialog === "analysis" && (
+      {dialog?.kind === "analysis" && (
         <Dialog open title="Analyze this review?" onClose={() => setDialog(null)}>
-          <p>{view.assessment === "again"
+          <p>{dialog.assessment === "again"
             ? "Again is already recorded for this review. Opening analysis will end the attempt."
             : "Opening analysis will end this review and record it as Again."}</p>
           <div className="actions">
             <Button onClick={() => setDialog(null)}>Cancel</Button>
             <Button variant="primary" onClick={actions.confirmAnalysis}>
-              {view.assessment === "again" ? "End review and analyze" : "Record Again and analyze"}
+              {dialog.assessment === "again" ? "End review and analyze" : "Record Again and analyze"}
             </Button>
           </div>
         </Dialog>
       )}
-      <BoardPreferences dialog={dialog === "analysis" ? null : dialog} onClose={() => setDialog(null)} prefs={prefs}
+      <BoardPreferences dialog={dialog?.kind === "analysis" ? null : dialog} onClose={() => setDialog(null)} prefs={prefs}
         onChange={onPrefsChange} soundEnabled={soundEnabled} onSoundChange={onSoundChange} />
       <PromotionChooser
         choice={choice}

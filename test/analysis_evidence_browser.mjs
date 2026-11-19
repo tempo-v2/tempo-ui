@@ -43,6 +43,9 @@ try {
       return route.fulfill({ json: { status: "running", request_id: heldId, source, fen } });
     }
     let data;
+    if (source === "rated" && request.ratings === "above1500") {
+      return route.fulfill({ json: reply(request, stats(10, 20)) });
+    }
     if (source === "stockfish") {
       const top = white ? ["e2e4", "d2d4", "g1f3"] : ["d7d5", "g8f6", "e7e6"];
       pins.push(request.pins);
@@ -53,7 +56,14 @@ try {
     } else if (source === "maia") {
       return route.fulfill({ json: { ...reply(request, null), status: "error", message: "Fixture model offline" } });
     } else if (source === "repertoire") {
-      data = { exact: [], similar_responses: {}, repertoire_names: {}, content_revision: 0 };
+      const example = {
+        fen: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        responses: [{ uci: "d7d5", san: "d5", reusable: true, repertoire_id: "sample" }],
+      };
+      data = {
+        exact: [], similar_responses: { current: [], other: white ? [] : [{ uci: "d7d5", position_count: 1 }] },
+        nearby: { current: [], other: white ? [] : [example] }, repertoire_names: { sample: "Sample" }, content_revision: 0,
+      };
     } else {
       data = white ? { white: 0, draws: 0, black: 0, moves: [] } : stats(100, 24);
     }
@@ -84,6 +94,24 @@ try {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await page.getByText(/99\.0%/).count(), 0);
   assert.match(await row("d5").innerText(), /-0\.62/);
+  await page.getByRole("columnheader", { name: /Lichess Rapid.*100 games/ }).waitFor();
+  await row("d5").getByText("1 nearby (other)").click();
+  await row("d5").locator("details details summary").click();
+  await row("d5").locator(".gap-neighbor-board cg-board").waitFor();
+  await row("d5").getByText("1 nearby (other)").click();
+  for (const label of ["Lichess Rapid", "Masters"]) await page.getByRole("checkbox", {name: label, exact:true}).check();
+  await page.mouse.move(1, 1);
+  await page.waitForFunction(() => document.querySelectorAll(".analysis-layout > section:first-child svg line").length === 1);
+  assert.equal(await row("d5").getByLabel("Arrow shown").count(), 2);
+  await button("Nf6").focus();
+  await page.waitForFunction(() => document.querySelectorAll(".analysis-layout > section:first-child svg line").length === 2);
+  await page.getByLabel("Rapid rating").selectOption("above1500");
+  await page.getByText(/Lichess Rapid · Tempo could not read this source/).waitFor();
+  assert.equal(await row("d5").getByText(/24\.0%/).count(), 1); // Masters is still available.
+  await page.getByLabel("Rapid rating").selectOption("around1500");
+  await page.getByRole("columnheader", { name: /Lichess Rapid.*100 games/ }).waitFor();
+  await button("Back one move").click();
+  assert.equal(await button("Pin a3").getAttribute("aria-pressed"), "true");
   assert.deepEqual(errors, []);
   console.log("Packaged table evaluated a pinned fourth candidate, kept a fixed score perspective, and ignored a late lookup while a separate source was unavailable.");
 } finally {

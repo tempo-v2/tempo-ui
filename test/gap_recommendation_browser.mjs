@@ -181,6 +181,10 @@ try {
   await dragStart(["e", 4]);
   await dragEnd(["e", 5]);
   await page.getByText("Selected e5", { exact: true }).waitFor();
+  await button("Analyze lines").click();
+  await heading("Analysis board").waitFor();
+  await button("Return").click();
+  await page.getByText("Selected e5", { exact: true }).waitFor();
   await button("Clear response").click();
   await page.getByText("Play a move on the board.", { exact: true }).waitFor();
   assert.equal(await button("Save response").isEnabled(), false);

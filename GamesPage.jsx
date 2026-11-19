@@ -574,11 +574,15 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const now = new Date();
   const lastDate = now.toISOString().slice(0, 10);
   const firstDate = new Date(now.getTime() - 6 * utcDayMs).toISOString().slice(0, 10);
-  if (analysis) return <AnalysisPage origin={analysis} onClose={saved=>{
+  function returnFromAnalysis(saved) {
     setAnalysis(null);
-    if (saved) { setActiveGap(null); refreshEvidenceReads(); }
-  }}/>;
-  return (
+    if (saved) {
+      setActiveGap(null);
+      refreshEvidenceReads();
+    }
+  }
+  return <div className="tempo-core">
+    {analysis ? <AnalysisPage origin={analysis} onClose={returnFromAnalysis} /> : (
     <main className="tempo-core repertoire-page games-page">
       <PageHeader title="Games" actions={<Button onClick={onStudy}>Study</Button>} />
       <Surface>
@@ -702,8 +706,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
           : <p>No games recorded yet.</p>
           : !historyError && <p role="status">Loading game evidence…</p>}
       </Surface>
+    </main>)}
       {activeGap && (
-        <GapEditor key={gapKey(activeGap.address)} gap={activeGap} onAnalyze={setAnalysis}
+        <GapEditor key={gapKey(activeGap.address)} gap={activeGap} suspended={!!analysis} onAnalyze={setAnalysis}
           recovery={activeGap === recovery?.gap ? recovery : null} onAdvance={advanceGap}
           onClose={san => {
             setActiveGap(null);
@@ -714,6 +719,5 @@ export function GamesPage({ onStudy, onRepertoires }) {
             refreshEvidenceReads();
           }} />
       )}
-    </main>
-  );
+  </div>;
 }

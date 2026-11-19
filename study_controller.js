@@ -61,13 +61,18 @@ export function createStudyController({
         }
       }
       if (analysisVisit?.phase === "return") {
-        const replaced = command.command === "resume" && response.status === "error" &&
-          ["stale_content", "stale_dataset", "stale_activity", "unknown_attempt"].includes(response.code);
-        nextVisit = replaced ? { ...analysisVisit, returnTo: "next" } : null;
+        const unavailable = command.command === "resume" && (response.status === "error"
+          ? ["stale_content", "stale_dataset", "stale_activity", "unknown_attempt"].includes(response.code)
+          : response.status !== "ready" || response.dataset_id !== analysisVisit.dataset_id ||
+            response.attempt_id !== analysisVisit.attempt_id || response.content_version !== analysisVisit.content_version);
+        nextVisit = unavailable ? { ...analysisVisit, returnTo: "next" } : null;
       }
       storage.save(envelope(null, nextVisit));
       analysisVisit = nextVisit;
       pending = null;
+      // Resume can find a finished attempt or an ID in a restored dataset. Keep
+      // the original Study result visible while the authoritative Next is loaded.
+      if (nextVisit?.phase === "return") return response;
       if (response.status === "error") {
         refreshRequired ||= [
           "stale_revision",
@@ -92,8 +97,8 @@ export function createStudyController({
   }
   async function deliver(command) {
     const reply = await send(command);
-    if (command.command === "resume" && reply.status === "error" && !reply.retryable &&
-        analysisVisit?.phase === "return" && analysisVisit.returnTo === "next")
+    if (command.command === "resume" && analysisVisit?.phase === "return" &&
+        analysisVisit.returnTo === "next")
       return begin(() => ({ command: "next" }));
     if (
       (command.command === "acknowledge" && reply.status === "complete" && reply.activity === "teach") ||
@@ -137,10 +142,15 @@ export function createStudyController({
       expected_revision: view.revision,
     };
   }
-  async function openAnalysis() {
+  async function visitAnalysis(address, entry) {
     if (busy || pending || refreshRequired || storageUnavailable || !view?.attempt_id || analysisVisit) return null;
+    if (address.dataset_id !== view.dataset_id || address.attempt_id !== view.attempt_id ||
+        address.content_version !== view.content_version || address.revision !== view.revision) return null;
     const active = view.status === "ready";
-    const action = active && view.activity === "test" ? "concede" :
+    const scheduledReview = active && view.activity === "test";
+    // Only the confirmation for this displayed revision authorizes a human Again.
+    if (scheduledReview !== (entry === "concede")) return null;
+    const action = scheduledReview ? "concede" :
       active && view.activity === "practice" && view.assessment === null ? "give_up" : null;
     const visit = {
       dataset_id: view.dataset_id, attempt_id: view.attempt_id, content_version: view.content_version,
@@ -185,7 +195,8 @@ export function createStudyController({
     return finishReturn(returning);
   }
   return Object.freeze({
-    openAnalysis,
+    openAnalysis: address => visitAnalysis(address, "open"),
+    concedeForAnalysis: confirmedAddress => visitAnalysis(confirmedAddress, "concede"),
     closeAnalysis,
     getState: () => ({ view, ...renderState() }),
     start: () => {
