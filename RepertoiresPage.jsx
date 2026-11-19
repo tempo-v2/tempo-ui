@@ -1,3 +1,4 @@
+import { settleReviewDraftSave } from "./review_draft.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
@@ -215,7 +216,12 @@ export function RepertoiresPage({ onStudy }) {
         setRefresh(next);
         await refreshCurrent(next);
       } else if (durable) {
-        setNotice(command.command === "save" ? "Repertoire saved." : "Repertoire renamed.");
+        let message = command.command === "save" ? "Repertoire saved." : "Repertoire renamed.";
+        if (stored && command.command === "save") {
+          try {settleReviewDraftSave(command,true);}
+          catch {message += " The browser could not clear the retained game draft.";}
+        }
+        setNotice(message);
         setPreview(null);
         setRename(null);
         if (command.command === "save" && !editor) {
