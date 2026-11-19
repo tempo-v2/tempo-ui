@@ -19,7 +19,8 @@ export function explorerCells(data) {
   return Object.fromEntries(data.moves.map(row => {
     const n = row.white + row.draws + row.black;
     const text = total ? percent(n/total) + " · " + n.toLocaleString() : "0 games";
-    return [row.uci, {score:n, text, results:[row.white,row.draws,row.black].join("/")}];
+    const detail = total ? " games · " + [row.white,row.draws,row.black].join("/") : "";
+    return [row.uci, {score:n, text, detail}];
   }));
 }
 
@@ -28,8 +29,7 @@ export function probabilityCells(data) {
     .sort((a,b) => b[1]-a[1]).map(([move,score]) => [move,{score,text:percent(score)}]));
 }
 
-// Review admits prepared, played and explicitly marked moves, plus ranked contributions
-// from enabled sources. The Analysis board separately requests every legal move for exploration.
+// Candidate inputs are separate from cell values. Full legal lists require an explicit view.
 export function candidateMoves(legal, groups) {
   return [...new Set(groups.flat())].filter(move => legal.has(move));
 }
@@ -60,4 +60,9 @@ export function measurementText(cell, reply) {
   if (reply.error) return "Unavailable";
   if (!reply.data) return "Checking…";
   return "—";
+}
+
+export function comparisonCandidates(legal, {required = [], exact = [], engine = [], ranked = [], allLegal = false}) {
+  return candidateMoves(legal, [required, exact, engine, ...ranked.map(cells => leadingMeasuredMoves(cells)),
+    allLegal ? [...legal.keys()] : []]);
 }

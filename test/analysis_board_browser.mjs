@@ -27,6 +27,7 @@ try {
   await page.goto(url);
   await button("Repertoires").click();
   await button("Build new repertoire").click();
+  await page.getByRole("checkbox",{name:"All legal moves"}).check();
   await page.getByLabel("Name", { exact: true }).fill("Board test");
   await button("Pin e4").click();
   const surface = await page.locator("cg-board").first().boundingBox();
@@ -81,6 +82,7 @@ try {
   assert.doesNotMatch(doc.document.pgn, /d4/);
   await button("Analyze and build").click();
   await page.getByRole("heading", { name: "Analysis board" }).waitFor();
+  await page.getByRole("checkbox",{name:"All legal moves"}).check();
   await button("e4").click();
   await page.waitForFunction(() =>
     document.querySelector("tbody")?.textContent.includes("This repertoire"),

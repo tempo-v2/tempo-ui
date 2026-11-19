@@ -89,6 +89,7 @@ try {
   await page.goto(ready.replace("Tempo study at ", ""));
   await button("Repertoires").click();
   await button("Build new repertoire").click();
+  await page.getByRole("checkbox",{name:"All legal moves"}).check();
   await page.getByText(/Fixture model offline/).waitFor();
   await button("Pin a3").click();
   const row = move => page.locator("tr").filter({ has: button(move) });
@@ -100,6 +101,11 @@ try {
   maiaMode = "valid";
   await maiaStatus.getByRole("button", { name: "Retry" }).click();
   await row("e4").getByText("100.0%", { exact: true }).waitFor();
+  await page.getByRole("checkbox",{name:"All legal moves"}).uncheck();
+  assert((await page.locator(".analysis-table tbody tr").count()) < 20);
+  await row("a3").getByText("0.0%", {exact:true}).waitFor();
+  await page.getByRole("checkbox",{name:"All legal moves"}).check();
+  assert.equal(await page.locator(".analysis-table tbody tr").count(),20);
   maiaMode = "offline";
   await row("a3").getByText(/0\.17/).waitFor();
   assert.ok(pins.some(request => request.includes("a2a3")));

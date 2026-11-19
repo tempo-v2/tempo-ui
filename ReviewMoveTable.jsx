@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useState } from "react";
-import {candidateMoves, engineCells, engineRankShapes, explorerCells, leadingMeasuredMoves, measurementText, probabilityCells} from "./move_evidence.js";
+import {Button, IconButton} from "@tempo-v2/core-components";
+import {comparisonCandidates, engineCells, engineRankShapes, explorerCells, measurementText, probabilityCells} from "./move_evidence.js";
 import { usePositionEvidence } from "./position_evidence.js";
 
 const labels = {exact:"Prepared", nearby:"Nearby", stockfish:"Stockfish", rated:"Lichess Rapid", maia:"Maia"};
@@ -42,13 +43,9 @@ export function ReviewMoveTable({ fen, book, review, legal, prepared, played, on
       .map(row => [row.uci,{score:row.position_count,text:String(row.position_count)}])),
     stockfish:engineCells(fen,fish.data), rated:explorerCells(rapid.data), maia:probabilityCells(maia.data),
   };
-  const rows = candidateMoves(legal, [
-    savedMoves, [played, circle],
-    ...(enabled.nearby ? [leadingMeasuredMoves(values.nearby)] : []),
-    ...(enabled.stockfish ? [Object.keys(values.stockfish)] : []),
-    ...(enabled.rated ? [leadingMeasuredMoves(values.rated)] : []),
-    ...(enabled.maia ? [leadingMeasuredMoves(values.maia)] : []),
-  ]);
+  const ranked = ["nearby","rated","maia"].filter(source => enabled[source]).map(source => values[source]);
+  const rows = comparisonCandidates(legal, {required:[played,circle],exact:savedMoves,
+    engine:enabled.stockfish ? Object.keys(values.stockfish) : [],ranked});
   const visible = columns.filter(c => enabled[c]);
   const sorted = rows.sort((a,b) => {
     const first = values[sort.column]?.[a]?.score, second = values[sort.column]?.[b]?.score;
@@ -59,7 +56,7 @@ export function ReviewMoveTable({ fen, book, review, legal, prepared, played, on
   });
   function header(key,label) {
     return <th key={key} aria-sort={sort.column===key ? sort.desc ? "descending":"ascending" : undefined}>
-      <button onClick={() => setSortOverride({column:key, desc:sort.column===key ? !sort.desc : key==="stockfish" ? whiteToMove : key!=="move"})}>{label}{sort.column===key ? sort.desc?" ↓":" ↑":""}</button></th>;
+      <Button size="compact" variant="quiet" onClick={() => setSortOverride({column:key, desc:sort.column===key ? !sort.desc : key==="stockfish" ? whiteToMove : key!=="move"})}>{label}{sort.column===key ? sort.desc?" ↓":" ↑":""}</Button></th>;
   }
   if (sort.column==="move" && sort.desc) sorted.reverse();
   return <section className="candidate-panel" aria-label="Move comparison">
@@ -67,20 +64,20 @@ export function ReviewMoveTable({ fen, book, review, legal, prepared, played, on
       <p>Prepared, played and circled moves stay in the list. Each enabled source contributes up to three ranked moves with positive support, or the number of Stockfish lines you choose.</p>
       {columns.map((key,i) => <div className="review-source" key={key}>
         <label><input type="checkbox" checked={!!enabled[key]} onChange={e=>setEnabled({...enabled,[key]:e.target.checked})}/>{labels[key]}</label>
-        <button aria-label={"Move "+labels[key]+" column left"} disabled={!i} onClick={()=>{
+        <IconButton size="compact" variant="quiet" label={"Move "+labels[key]+" column left"} disabled={!i} onClick={()=>{
           const next=[...columns]; [next[i-1],next[i]]=[next[i],next[i-1]]; setColumns(next);
-        }}>←</button><small>{descriptions[key]}{!enabled[key] && " Source off."}</small></div>)}
+        }}>←</IconButton><small>{descriptions[key]}{!enabled[key] && " Source off."}</small></div>)}
     </details>
     {enabled.stockfish && <div><label>Stockfish lines <select value={count} onChange={e=>setCount(Number(e.target.value))}>
       {[1,2,3,4,5].map(n=><option key={n}>{n}</option>)}</select></label>{" "}<label><input type="checkbox" checked={showRanks} onChange={e=>setShowRanks(e.target.checked)}/> Stockfish on board</label>
       {showRanks && <small> Numbers show engine rank for the side to move.</small>}</div>}
     {visible.filter(c=>!replies[c].data).map(c=><small key={c} role="status">{labels[c]} · {
       (c==="exact" || c==="nearby") && !book ? "Select a repertoire" : replies[c].error || "Checking position…"}</small>)}
-    {Object.values(replies).some(r=>r.error) && <button onClick={()=>{setRetry(n=>n+1);retryRepertoire();}}>Retry sources</button>}
+    {Object.values(replies).some(r=>r.error) && <Button size="compact" variant="quiet" onClick={()=>{setRetry(n=>n+1);retryRepertoire();}}>Retry sources</Button>}
     <div className="review-comparison-scroll"><table><thead><tr>{header("move","Move")}{visible.map(k=>header(k,labels[k]))}<th>Mark</th></tr></thead>
-      <tbody>{sorted.map(m=><tr key={m}><td><button disabled={locked} onClick={()=>play(m)}>{legal.get(m).san}</button></td>
+      <tbody>{sorted.map(m=><tr key={m}><td><Button size="compact" variant="quiet" disabled={locked} onClick={()=>play(m)}>{legal.get(m).san}</Button></td>
         {visible.map(k=><td key={k}>{measurementText(values[k][m],replies[k])}</td>)}
-        <td><button aria-label={"Circle "+legal.get(m).san} aria-pressed={circle===m} onClick={()=>setCircle(circle===m?null:m)}>◎</button></td></tr>)}</tbody></table></div>
+        <td><IconButton size="compact" variant="quiet" label={"Circle "+legal.get(m).san} aria-pressed={circle===m} onClick={()=>setCircle(circle===m?null:m)}>◎</IconButton></td></tr>)}</tbody></table></div>
     {!sorted.length && <p>No candidate moves from the selected sources yet.</p>}
     <small>Positive engine scores favor White. A dash means the source supplied no value for that move.</small>
   </section>;
