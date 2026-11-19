@@ -3,9 +3,20 @@ import type { StudyCommand } from "./study_command.js";
 
 export type MutationCommand = Extract<
   StudyCommand,
-  { command: "answer" | "abandon" | "acknowledge" | "skip" | "give_up" | "learn_more_tactics" }
+  { command: "answer" | "abandon" | "acknowledge" | "skip" | "give_up" | "concede" | "learn_more_tactics" }
 >;
+export interface StudyAnalysisVisit {
+  readonly dataset_id: string;
+  readonly attempt_id: string;
+  readonly content_version: number;
+  readonly revision: number;
+  readonly returnTo: "resume" | "next";
+  readonly phase: "accept" | "open" | "return";
+  readonly savedResult?: StudyView;
+  readonly submission_id?: string;
+}
 export interface RecoveryEnvelope {
+  readonly analysis?: StudyAnalysisVisit;
   readonly pending: MutationCommand | null;
 }
 export interface RecoveryStorage {
@@ -13,6 +24,7 @@ export interface RecoveryStorage {
   save(envelope: RecoveryEnvelope): void;
 }
 export interface RenderState {
+  readonly analysis: StudyAnalysisVisit | null;
   readonly busy: boolean;
   readonly canRetry: boolean;
   readonly retryingNext: boolean;
@@ -30,6 +42,8 @@ export interface StudyController {
   getState(): ControllerState;
   start(): Promise<StudyView | null>;
   next(): Promise<StudyView | null>;
+  openAnalysis(): Promise<StudyView | null>;
+  closeAnalysis(): Promise<StudyView | null>;
   resume(attemptId: string): Promise<StudyView | null>;
   refresh(): Promise<StudyView | null>;
   answer(uci: string): Promise<StudyView | null>;

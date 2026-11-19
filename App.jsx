@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createStudyController } from "./study_controller.js";
 import { StudyPage } from "./StudyPage.jsx";
+import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
 import { identity } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { GamesPage } from "./GamesPage.jsx";
@@ -125,18 +126,19 @@ export function App() {
   }, [model.view, model.state.canRetry, model.state.busy]);
 
   const { view, state } = model;
-  const readyRepair = page === "study" && !stopped && view?.status === "ready" && view.corrective_repair;
+  const studying = page === "study" && !state.analysis;
+  const readyRepair = studying && !stopped && view?.status === "ready" && view.corrective_repair;
   const gameContext = useStudyGameContext(view?.dataset_id, readyRepair ? view.attempt_id : null);
   const historyLine = gameContext?.line ?? view?.history;
   const inspecting = history?.view === view;
   useEffect(() => { setHistory(null); }, [view]);
-  const autoAdvance = page === "study" && !stopped && !dialog && !inspecting && canAutoAdvance(view?.status, view?.activity, view?.assessment) &&
+  const autoAdvance = studying && !stopped && !dialog && !inspecting && canAutoAdvance(view?.status, view?.activity, view?.assessment) &&
     !state.busy && !state.canRetry && !state.refreshRequired && !state.storageUnavailable && advanced.current !== view && pausedAdvance.current !== view;
   useEffect(() => {
     if (!autoAdvance) return;
     const timer = setTimeout(() => {
       const current = controller.current.getState();
-      if (current.view !== view || current.busy || current.canRetry || current.refreshRequired || current.storageUnavailable || pausedAdvance.current === view) return;
+      if (current.analysis || current.view !== view || current.busy || current.canRetry || current.refreshRequired || current.storageUnavailable || pausedAdvance.current === view) return;
       advanced.current = view;
       controller.current.next().catch(() => {});
     }, NEXT_EXERCISE_DELAY_MS);
@@ -149,7 +151,18 @@ export function App() {
     setChoice(null);
     fn().catch(() => {});
   };
+  function analyze() {
+    pausedAdvance.current = view;
+    board.current?.clearInput();
+    if (view?.status === "ready" && view.activity === "test") openDialog("analysis");
+    else void controller.current.openAnalysis().catch(() => {});
+  }
   const actions = {
+    analyze,
+    confirmAnalysis: () => {
+      setDialog(null);
+      void controller.current.openAnalysis().catch(() => {});
+    },
     next: run(() => {
       pausedAdvance.current = view;
       return controller.current.next();
@@ -195,7 +208,7 @@ export function App() {
     setFlipped(value => !value);
   };
   useEffect(() => {
-    if (page !== "study") return;
+    if (!studying) return;
     function shortcut(event) {
       if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey ||
           event.ctrlKey || event.metaKey || (event.shiftKey && event.key !== "?") ||
@@ -247,7 +260,7 @@ export function App() {
     if (
       !v ||
       v.status !== "ready" ||
-      dialog || inspecting ||
+      dialog || inspecting || snapshot.analysis ||
       state.busy ||
       state.canRetry ||
       state.refreshRequired || state.storageUnavailable ||
@@ -322,6 +335,9 @@ export function App() {
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
+  if (page === "study" && state.analysis)
+    return <StudyAnalysisEntry visit={state.analysis} issue={state.issue}
+      onClose={() => controller.current.closeAnalysis().catch(() => {})} />;
   if (page === "games") return <GamesPage onStudy={() => goTo("study")}
     onRepertoires={() => goTo("repertoires")} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;

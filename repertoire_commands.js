@@ -18,6 +18,13 @@ export async function sendRepertoireCommand(command, signal) {
   if (reply.status === "progress_reset" &&
       (reply.dataset_id !== command.dataset_id || reply.repertoire_id !== command.repertoire_id))
     throw new Error("The reset reply belongs to a different repertoire.");
+  if (command.command === "marked_preview" && reply.status === "preview") {
+    const save = reply.save_command;
+    if (save.dataset_id !== command.dataset_id || save.repertoire_id !== (command.repertoire_id ?? null) ||
+        save.name !== command.name || save.learner_color !== command.learner_color ||
+        (command.repertoire_id && command.repertoire_id !== reply.repertoire_id))
+      throw new TypeError("The preview belongs to another repertoire.");
+  }
   return reply;
 }
 
@@ -59,11 +66,12 @@ export function validateRepertoireReply(reply, command) {
         : { status: "unavailable" },
     });
   }
-  const isPreview = command === "preview" || command === "edit_preview";
+  const isPreview = ["preview", "edit_preview", "marked_preview"].includes(command);
   if (reply.status === "preview" && isPreview) {
     return freeze({
       status: reply.status,
       token: string(reply.token, "token", true),
+      ...(command === "marked_preview" ? markedDetails(reply) : {}),
       ...Object.fromEntries(COUNT_FIELDS.map((field) => [field, count(reply[field], field)])),
     });
   }
@@ -83,4 +91,25 @@ export function validateRepertoireReply(reply, command) {
       };
     }),
   });
+}
+
+function markedDetails(reply) {
+  const save = reply.save_command;
+  if (save?.command !== "save" || save.token !== reply.token ||
+      !["white", "black"].includes(save.learner_color) || !Array.isArray(reply.replacements) ||
+      !Array.isArray(reply.retired_routes)) throw new TypeError("Invalid marked-line preview");
+  return {
+    repertoire_id: string(reply.repertoire_id, "repertoire_id", true),
+    save_command: {
+      command: "save", token: save.token,
+      dataset_id: string(save.dataset_id, "dataset_id", true),
+      repertoire_id: save.repertoire_id === null ? null : string(save.repertoire_id, "repertoire_id", true),
+      name: string(save.name, "name", true), learner_color: save.learner_color, pgn: string(save.pgn, "pgn", true),
+    },
+    replacements: reply.replacements.map(change => ({
+      route: string(change.route, "route"), old_move: string(change.old_move, "old_move", true),
+      new_move: string(change.new_move, "new_move", true),
+    })),
+    retired_routes: reply.retired_routes.map(route => string(route, "route", true)),
+  };
 }

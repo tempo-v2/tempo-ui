@@ -1,3 +1,4 @@
+import { AnalysisPage } from "./AnalysisPage.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
@@ -187,6 +188,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [evidence, setEvidence] = useState({});
   const [modelActionError, setModelActionError] = useState("");
   const [gapActionError, setGapActionError] = useState("");
+  const [analysis,setAnalysis] = useState(null);
   const [workingGap, setWorkingGap] = useState(false);
   const [recovery] = useState(readGapContinuation);
   const [gapOffset, setGapOffset] = useState(() => recovery?.gap.offset ?? 0);
@@ -572,6 +574,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const now = new Date();
   const lastDate = now.toISOString().slice(0, 10);
   const firstDate = new Date(now.getTime() - 6 * utcDayMs).toISOString().slice(0, 10);
+  if (analysis) return <AnalysisPage origin={analysis} onClose={saved=>{
+    setAnalysis(null);
+    if (saved) { setActiveGap(null); refreshEvidenceReads(); }
+  }}/>;
   return (
     <main className="tempo-core repertoire-page games-page">
       <PageHeader title="Games" actions={<Button onClick={onStudy}>Study</Button>} />
@@ -697,7 +703,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           : !historyError && <p role="status">Loading game evidence…</p>}
       </Surface>
       {activeGap && (
-        <GapEditor key={gapKey(activeGap.address)} gap={activeGap}
+        <GapEditor key={gapKey(activeGap.address)} gap={activeGap} onAnalyze={setAnalysis}
           recovery={activeGap === recovery?.gap ? recovery : null} onAdvance={advanceGap}
           onClose={san => {
             setActiveGap(null);

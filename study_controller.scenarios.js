@@ -285,3 +285,83 @@ test("an uncertain extra tactics allowance replays its exact command before aski
   assert.equal(reopened.getState().view.status, "ready");
   assert.equal(saved.pending, null);
 });
+
+
+test("analysis recovery replays an uncertain concession once and reopens the accepted position without Next", async () => {
+  let saved, drop = true;
+  const sent = [];
+  const controller = () => createStudyController({
+    storage: { load: () => structuredClone(saved), save: value => { saved = structuredClone(value); } },
+    render() {}, makeSubmissionId: () => "concession",
+    transport: { send: async command => {
+      sent.push(JSON.stringify(command));
+      if (command.command === "next") return ready();
+      if (drop) { drop = false; throw new Error("reply was lost"); }
+      return complete({ status: "abandoned", assessment: "again", revision: 1 });
+    } },
+  });
+  const first = controller();
+  await first.start();
+  await assert.rejects(first.openAnalysis(), /reply was lost/);
+  assert.equal(first.getState().analysis, null);
+  assert.equal(saved.pending.command, "concede");
+  const recovering = controller();
+  await recovering.start();
+  assert.equal(recovering.getState().analysis.revision, 1);
+  assert.equal(sent[1], sent[2]);
+  const reopened = controller();
+  await reopened.start();
+  assert.equal(sent.length, 3);
+  assert.equal(reopened.getState().analysis.attempt_id, "attempt-1");
+  await reopened.closeAnalysis();
+  assert.deepEqual(sent.map(value => JSON.parse(value).command), ["next", "concede", "concede", "next"]);
+  assert.deepEqual(saved, { pending: null });
+});
+
+test("guided analysis resumes its original attempt and practice accepts assistance before opening", async () => {
+  for (const activity of ["teach", "practice"]) {
+    const sent = [];
+    const initial = ready({ activity, ...(activity === "teach" && { lesson: {
+      move_uci: "e2e4", move_san: "e4", comments: [],
+    } }) });
+    const controller = createStudyController({
+      storage: { load: () => null, save() {} }, render() {}, makeSubmissionId: () => "assist",
+      transport: { send: async command => {
+        sent.push(command.command);
+        return command.command === "give_up" ? { ...initial, assessment: "again", revision: 1 } : initial;
+      } },
+    });
+    await controller.start();
+    await controller.openAnalysis();
+    assert.equal(controller.getState().analysis.returnTo, "resume");
+    await controller.closeAnalysis();
+    assert.deepEqual(sent, activity === "teach" ? ["next", "resume"] : ["next", "give_up", "resume"]);
+  }
+});
+
+test("a failed Next after analysis preserves the confirmed grade and reload retries only Next", async () => {
+  let saved, failNext = false;
+  const commands = [];
+  const make = () => createStudyController({
+    storage: { load: () => structuredClone(saved), save: value => { saved = structuredClone(value); } },
+    render() {}, makeSubmissionId: () => "confirmed",
+    transport: { send: async command => {
+      commands.push(command.command);
+      if (command.command === "concede") return complete({ status: "abandoned", assessment: "again", revision: 1 });
+      if (failNext) throw new Error("Next unavailable");
+      return ready();
+    } },
+  });
+  const original = make();
+  await original.start();
+  await original.openAnalysis();
+  failNext = true;
+  await assert.rejects(original.closeAnalysis(), /Next unavailable/);
+  assert.equal(original.getState().view.assessment, "again");
+  assert.equal(original.getState().retryingNext, true);
+  const recovered = make();
+  assert.equal(recovered.getState().view.assessment, "again");
+  failNext = false;
+  await recovered.start();
+  assert.deepEqual(commands, ["next", "concede", "next", "next"]);
+});

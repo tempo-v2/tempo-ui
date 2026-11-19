@@ -17,4 +17,4 @@ export type StudyCommand =
       readonly command: "answer" | "acknowledge";
       readonly answer: { readonly uci: string };
     })
-  | (AttemptCommandBase & { readonly command: "abandon" | "skip" | "give_up" });
+  | (AttemptCommandBase & { readonly command: "abandon" | "skip" | "give_up" | "concede" });

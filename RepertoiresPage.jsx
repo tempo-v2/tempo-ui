@@ -1,3 +1,4 @@
+import { AnalysisPage } from "./AnalysisPage.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
@@ -44,6 +45,7 @@ function downloadDocument(reply) {
 }
 
 export function RepertoiresPage({ onStudy }) {
+  const [analysis, setAnalysis] = useState(null);
   const [catalog, setCatalog] = useState(null);
   const [destination, setDestination] = useState("");
   const [name, setName] = useState("");
@@ -316,6 +318,10 @@ export function RepertoiresPage({ onStudy }) {
     });
   }
 
+  if (analysis) return <AnalysisPage origin={analysis} onClose={() => {
+    setAnalysis(null);
+    request({ command: "list" });
+  }} />;
   return (
     <main className="tempo-core repertoire-page">
       <PageHeader title="Repertoires" actions={
@@ -341,6 +347,7 @@ export function RepertoiresPage({ onStudy }) {
 
       {catalog && (
         <>
+          <Button disabled={locked || !!editor} onClick={() => setAnalysis({ datasetId: catalog.dataset_id, newBook: true })}>Build new repertoire</Button>
           {catalog.repertoires.length > 0 && (
             <Surface>
               <h2>Saved repertoires</h2>
@@ -349,6 +356,9 @@ export function RepertoiresPage({ onStudy }) {
                   <li key={item.id}>
                     <div><strong>{item.name}</strong> <span className="repertoire-details">· {item.learner_color} · {item.positions} positions</span></div>
                     <div className="actions">
+                      <Button disabled={locked || !!editor} onClick={() => setAnalysis({
+                        datasetId: catalog.dataset_id, repertoireId: item.id, color: item.learner_color, name: item.name,
+                      })}>Analyze and build</Button>
                       <Button disabled={locked} onClick={() => openEditor(item)}>
                         Edit<span className="visually-hidden"> {item.name}</span>
                       </Button>
