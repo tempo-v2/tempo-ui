@@ -30,19 +30,26 @@ export function commandRecovery(storageKey, summarize = () => null) {
   const largeKey = `${storageKey}-external`;
   const external = () => JSON.parse(sessionStorage.getItem(largeKey) || "null");
 
-  function entry() {
-    const stored = external();
+  const payloadObject = command => command && typeof command === "object" && !Array.isArray(command);
+  function entry({ strict = false } = {}) {
+    const rawPointer = sessionStorage.getItem(largeKey);
+    const stored = JSON.parse(strict ? rawPointer ?? "null" : rawPointer || "null");
+    if (strict && rawPointer !== null &&
+        (!payloadObject(stored) || typeof stored.id !== "string" || !stored.id ||
+          !Object.hasOwn(stored, "identity"))) throw new Error("Invalid saved command reference.");
     if (stored) {
       return {
         command: stored.identity,
         async load() {
           const command = await largeCommand("readonly", store => store.get(stored.id));
-          if (!command) throw new Error("The saved command is unavailable.");
+          if (!command || (strict && !payloadObject(command))) throw new Error("The saved command is unavailable.");
           return command;
         },
       };
     }
-    const command = JSON.parse(sessionStorage.getItem(storageKey) || "null");
+    const rawCommand = sessionStorage.getItem(storageKey);
+    const command = JSON.parse(strict ? rawCommand ?? "null" : rawCommand || "null");
+    if (strict && rawCommand !== null && !payloadObject(command)) throw new Error("Invalid saved command.");
     return command && { command, load: () => command };
   }
 
@@ -55,8 +62,8 @@ export function commandRecovery(storageKey, summarize = () => null) {
         return false;
       }
     },
-    async load() {
-      return (await entry()?.load()) ?? null;
+    async load(options) {
+      return (await entry(options)?.load()) ?? null;
     },
     // Detaching the tab's replay record is separate from deleting an
     // unreferenced payload. An explicit dismissal can detach corrupt metadata.

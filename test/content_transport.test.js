@@ -225,10 +225,15 @@ test("recovery clear keeps a live pointer on detach failure and distinguishes an
   fail = false;
   assert.deepEqual(await recovery.clear(), { orphaned: true });
   assert.equal(values.has(pointerKey), false);
+  values.set(pointerKey, "null");
+  await assert.rejects(recovery.load({ strict: true }), /Invalid saved command reference/);
   values.set(pointerKey, "{ corrupt");
   assert.deepEqual(await recovery.clear(), { orphaned: true });
   assert.equal(values.has(pointerKey), false);
+  values.set(key, "false");
+  await assert.rejects(recovery.load({ strict: true }), /Invalid saved command/);
   values.set(key, JSON.stringify({ command: "save" }));
+  assert.deepEqual(await recovery.load({ strict: true }), { command: "save" });
   assert.deepEqual(await recovery.clear(), { orphaned: false });
   assert.equal(values.has(key), false);
 });
