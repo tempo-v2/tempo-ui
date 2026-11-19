@@ -32,7 +32,7 @@ test("history and job replies project answer-safe result fields and preserve ref
     errors: ["One game could not be read."], results: [game],
   };
   t.mock.method(globalThis, "fetch", async path => {
-    if (path === "/api/games/job") return Response.json({ status: "failed", error: "Rate limited", report });
+    if (path === "/api/games/job") return Response.json({ dataset_id: "dataset", command_id: "refresh", status: "failed", error: "Rate limited", report });
     if (path === "/api/games") return Response.json({
       results: [
         { ...game, comparison_id: "previous", url: "javascript:alert(1)" },
@@ -40,7 +40,7 @@ test("history and job replies project answer-safe result fields and preserve ref
       ],
       last_successful_refresh_ms: 1739754000000,
     });
-    return Response.json({ status: "error", message: "Choose a repertoire." }, { status: 400 });
+    return Response.json({ status: "error", code: "invalid_game", retryable: false, message: "Choose a repertoire." }, { status: 400 });
   });
   const history = await readGameHistory();
   assert.equal(history.lastSuccessfulRefresh, 1739754000000);
@@ -51,32 +51,40 @@ test("history and job replies project answer-safe result fields and preserve ref
   assert.equal(Object.hasOwn(history.results[0], "prescribed_move"), false);
   const job = await readGameJob();
   assert.equal(job.status, "failed");
+  assert.equal(job.datasetId, "dataset");
+  assert.equal(job.commandId, "refresh");
   assert.equal(job.error, "Rate limited");
   assert.deepEqual(job.report.errors, report.errors);
   assert.equal(job.report.results[0].url, game.url);
   assert.equal(job.report.results[0].comparison_id, null);
   assert.equal(Object.hasOwn(job.report.results[0], "prescribed_move"), false);
-  await assert.rejects(importGamePgn({ pgn: "" }), /Choose a repertoire/);
+  await assert.rejects(importGamePgn({ pgn: "" }), {
+    message: "Choose a repertoire.", code: "invalid_game", retryable: false, status: 400,
+  });
 });
 
 test("refresh starts only after an accepted response and sends explicit account and repertoire", async t => {
   const payload = {
+    dataset_id: "dataset", command_id: "refresh",
     source: "chess_com", account: "learner", repertoire_id: "book",
     ...utcDateRange("2026-11-12", "2026-11-18"),
   };
-  const fetch = t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 202 }));
-  await refreshGames(payload);
+  const acknowledgement = { dataset_id: "dataset", command_id: "refresh", status: "running" };
+  const fetch = t.mock.method(globalThis, "fetch", async () => Response.json(acknowledgement, { status: 202 }));
+  assert.deepEqual(await refreshGames(payload), { status: "running", datasetId: "dataset", commandId: "refresh" });
   const [[path, options]] = fetch.mock.calls.map(call => call.arguments);
   assert.equal(path, "/api/games/refresh");
   assert.equal(options.method, "POST");
   assert.deepEqual(JSON.parse(options.body), payload);
-  fetch.mock.mockImplementation(async () => Response.json({ status: "idle" }));
-  await assert.rejects(refreshGames(payload), /did not confirm/);
+  fetch.mock.mockImplementation(async () => Response.json(acknowledgement));
+  await assert.rejects(refreshGames(payload), { status: 200 });
+  fetch.mock.mockImplementation(async () => new Response(null, { status: 202 }));
+  await assert.rejects(refreshGames(payload));
 });
 
 test("a failed archive with a diagnostic preserves zero games fetched", async t => {
   t.mock.method(globalThis, "fetch", async () => Response.json({
-    status: "complete", report: {
+    dataset_id: "dataset", command_id: "refresh", status: "complete", report: {
       fetched: 0, new_games: 0, duplicates: 0, matches: 0, deviations: 0,
       errors: ["Chess.com 2009/10: Provider request timed out."], results: [],
     },
