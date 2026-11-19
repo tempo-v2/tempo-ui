@@ -201,8 +201,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [jobRevision, setJobRevision] = useState(0);
   const lifecycle = useRef(null);
   const evidenceOwner = useRef(null);
+  const historyOwner = useRef(null);
+  const catalogDataset = useRef(null);
   const observedRunning = useRef({ dataset: null });
-  const expectedBackfill = useRef(null);
   const inFlight = useRef(false);
   const importing = source === "pgn";
   const refreshing = job?.status === "running";
@@ -231,15 +232,31 @@ export function GamesPage({ onStudy, onRepertoires }) {
   function recordJobStatus(name, value, readChanges) {
     if (observedRunning.current.dataset !== dataset) observedRunning.current = { dataset };
     const activity = observedRunning.current;
-    const expected = name === "backfill" ? expectedBackfill.current : null;
-    const expectedJob = expected?.dataset === dataset && expected.jobId === value.job_id;
-    if (expected) expectedBackfill.current = null;
     const running = value.status === "running";
-    const settled = (activity[name] || expectedJob) && !running;
+    let settled = activity[name] && !running;
+    if (name === "backfill") {
+      const hasSettlement = ["complete", "incomplete", "paused"].includes(value.status);
+      if (hasSettlement) {
+        // A Retry can advance a different window without changing the maximum attempt.
+        // Paused work may have already committed batches of a still-pending window.
+        const settlement = JSON.stringify([value.job_id, value.status, value.windows.map(window => [
+          window.source, window.learner, window.from_ms, window.to_ms, window.attempt, window.status,
+        ])]);
+        settled = settled || settlement !== activity.backfillSettlement;
+        activity.backfillSettlement = settlement;
+      } else {
+        settled = false;
+      }
+    }
     activity[name] = running;
     updateEvidence(name, { value, ...readChanges });
-    if (settled) setHistoryRevision(revision => revision + 1);
+    if (settled) refreshHistory();
     return settled;
+  }
+
+  function refreshHistory() {
+    historyOwner.current?.abort();
+    setHistoryRevision(revision => revision + 1);
   }
 
   function refreshEvidenceReads() {
@@ -257,6 +274,13 @@ export function GamesPage({ onStudy, onRepertoires }) {
     setCatalogError("");
     readRepertoireCatalog(owner.signal).then(reply => {
       if (!owner.signal.aborted) {
+        if (catalogDataset.current !== null && catalogDataset.current !== reply.dataset_id) {
+          evidenceOwner.current?.abort();
+          setHistory(null);
+          setHistoryError("");
+          refreshHistory();
+        }
+        catalogDataset.current = reply.dataset_id;
         setRepertoires(reply.repertoires);
         setDataset(reply.dataset_id);
       }
@@ -268,6 +292,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   useEffect(() => {
     const request = new AbortController();
+    historyOwner.current = request;
     setHistoryError("");
     readGameHistory(request.signal).then(next => {
       if (!request.signal.aborted) setHistory(next);
@@ -288,7 +313,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
         setJob(next);
         if (next.status === "running") timer = setTimeout(check, 1000);
         else {
-          setHistoryRevision(revision => revision + 1);
+          refreshHistory();
           if (next.status !== "idle") refreshEvidenceReads();
         }
       } catch (error) {
@@ -322,7 +347,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
       {
         name: "backfill",
         read: historicalStatus,
-        apply: value => observeStatus("backfill", value),
+        apply(value) {
+          if (value.status !== "idle" && value.request?.dataset_id !== dataset) {
+            throw new Error("Historical backfill belongs to a different dataset.");
+          }
+          observeStatus("backfill", value);
+        },
       },
       {
         name: "model",
@@ -408,12 +438,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
     setModelActionError("");
     try {
       const status = await startModel({ dataset_id: dataset }, signal);
-      if (!signal.aborted) {
+      if (!signal.aborted && dataset === catalogDataset.current) {
         refreshEvidenceReads();
         recordJobStatus("model", status);
       }
     } catch (error) {
-      if (!signal.aborted) setModelActionError(error.message);
+      if (!signal.aborted && dataset === catalogDataset.current) setModelActionError(error.message);
     }
   }
 
@@ -485,10 +515,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
   async function deliver(command, signal) {
     if (command.kind === "backfill" || command.kind === "backfill-retry") {
       const submit = command.kind === "backfill" ? startHistorical : retryHistorical;
-      const acknowledgement = await submit(command.payload, signal);
+      await submit(command.payload, signal);
       if (signal.aborted) return;
       // Only the status read can identify the current job. The acknowledged job may be older.
-      expectedBackfill.current = { dataset: command.payload.dataset_id, jobId: acknowledgement.job_id };
       refreshEvidenceReads();
       remember(null);
     } else if (command.kind !== "refresh") {
@@ -496,7 +525,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       const result = await submitGame(command.payload, signal);
       if (signal.aborted) return;
       setImportReport(result);
-      setHistoryRevision(revision => revision + 1);
+      refreshHistory();
       refreshEvidenceReads();
       remember(null);
     } else {
@@ -528,7 +557,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     } catch (error) {
       if (!signal.aborted) {
         setIssue(error.message || "Could not process these games.");
-        setHistoryRevision(revision => revision + 1);
+        refreshHistory();
         refreshEvidenceReads();
         setJobRevision(revision => revision + 1);
       }
@@ -627,6 +656,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           <Button onClick={() => {
             setJob(null);
             setJobRevision(value => value + 1);
+            historyOwner.current?.abort();
             setReload(value => value + 1);
             refreshEvidenceReads();
           }}>Reload Games</Button>
@@ -690,7 +720,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
         {historyError && (
           <>
             <StatusNotice kind="error">{historyError}</StatusNotice>
-            <Button onClick={() => setHistoryRevision(revision => revision + 1)}>Reload game evidence</Button>
+            <Button onClick={refreshHistory}>Reload game evidence</Button>
           </>
         )}
         {history ? history.results.length > 0
