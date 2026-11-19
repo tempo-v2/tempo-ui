@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Button, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
 import { StudyBoard, turnFromFen } from "./StudyBoard.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
-import { StudyProgress } from "./StudyProgress.jsx";
+import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
 import { StudyOutcome } from "./StudyOutcome.jsx";
 import { BoardPreferences } from "./BoardPreferences.jsx";
 import { MoveFeedback } from "./MoveFeedback.jsx";
@@ -43,6 +43,10 @@ export function StudyPage({
   const attempt = view && !stopped && ["ready", "complete", "abandoned"].includes(view.status);
   const lesson = view?.lesson;
   const inGameReplay = !!gameContext && historyIndex !== null;
+  // The source is contiguous, so only a leading Black move needs its own number.
+  const precedingMoves = gameContext?.line.moves.slice(0, -1).map(({ notation }, index) =>
+    index === 0 ? notation : notation.replace(/^\d+\.\.\. /, ""));
+  const { summary, unavailable, repairsRemaining } = useStudyProgress(view, stopped);
   const replayBlocked = state.busy || state.canRetry || !!choice || !!dialog;
   const title = attempt
     ? view.exercise_name ?? (view.corrective_repair ? "Opening move" :
@@ -107,7 +111,11 @@ export function StudyPage({
             </>
           ) : (
             <>
-              {view?.corrective_repair && <h2 className="correction-heading">Repertoire correction</h2>}
+              {view?.corrective_repair && (
+                <h2 className="correction-heading">
+                  Repertoire correction{repairsRemaining !== null && ` (${repairsRemaining} remaining)`}
+                </h2>
+              )}
               {inGameReplay ? (
                 <p className="puzzle-turn" role="status">Game replay</p>
               ) : (
@@ -122,6 +130,11 @@ export function StudyPage({
                 <p className="game-source-note">{selectionReason.text}</p>}
               {lesson && (
                 <div className="lesson">
+                  {!inGameReplay && precedingMoves?.length > 0 && (
+                    <p className="correction-context"><strong>Moves before the decision</strong><br />
+                      {precedingMoves.join(" ")}
+                    </p>
+                  )}
                   {gameContext && <p>You played <strong>{gameContext.playedSan}</strong> in your game.
                     {" "}Your repertoire calls for <strong>{lesson.move_san}</strong>.</p>}
                   {!inGameReplay && (
@@ -179,7 +192,7 @@ export function StudyPage({
             </div>
           )}
         </Surface>
-        <StudyProgress view={view} stopped={stopped} />
+        <StudyProgress summary={summary} unavailable={unavailable} />
         <nav className="study-navigation" aria-label="Tempo sections">
           <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
             Repertoires
