@@ -13,6 +13,7 @@ import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
 import { hasPendingTacticCommand } from "./tactic_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
+import { useStudyGameContext } from "./study_game_context.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
 
@@ -122,6 +123,9 @@ export function App() {
   }, [model.view, model.state.canRetry, model.state.busy]);
 
   const { view, state } = model;
+  const readyRepair = page === "study" && !stopped && view?.status === "ready" && view.corrective_repair;
+  const gameContext = useStudyGameContext(view?.dataset_id, readyRepair ? view.attempt_id : null);
+  const historyLine = gameContext?.line ?? view?.history;
   const inspecting = history?.view === view;
   useEffect(() => { setHistory(null); }, [view]);
   const autoAdvance = page === "study" && !stopped && !dialog && !inspecting && canAutoAdvance(view?.status, view?.activity, view?.assessment) &&
@@ -198,10 +202,10 @@ export function App() {
       const current = controller.current.getState();
       if (event.key === "?") openDialog("help");
       else if (event.key.toLowerCase() === "f" && view?.attempt_id && !stopped) onFlip();
-      else if (view?.history && !stopped && !current.busy && !current.canRetry &&
+      else if (historyLine && !stopped && !current.busy && !current.canRetry &&
           ["ArrowLeft", "ArrowRight", "Home", "End", "r", "R"].includes(event.key)) {
-        const end = view.history.moves.length;
-        const index = inspecting ? history.index : end;
+        const end = historyLine.moves.length;
+        const index = inspecting ? history.index : end - Number(!!gameContext);
         if (event.key.toLowerCase() === "r") inspect(null);
         else if (event.key === "Home") inspect(0);
         else if (event.key === "End") inspect(end);
@@ -344,6 +348,8 @@ export function App() {
       prefs={prefs}
       flipped={flipped}
       historyIndex={inspecting ? history.index : null}
+      historyLine={historyLine}
+      gameContext={gameContext}
       onInspect={inspect}
       onFlip={onFlip}
       dialog={dialog}

@@ -8,11 +8,12 @@ export function commandRecovery(storageKey) {
   };
 }
 
-export async function postCommand(path, command) {
+export async function postCommand(path, command, signal) {
   const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(command),
+    signal,
   });
   if (!response.ok) throw new Error(`Server returned ${response.status}`);
   return response.json();

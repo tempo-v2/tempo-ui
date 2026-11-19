@@ -52,8 +52,8 @@ export function StudyProgress({ view, stopped }) {
       <dl>
         <div><dt>Due reviews</dt><dd>{summary.due}</dd></div>
         {!!summary.reteach && <div><dt>Opening moves to relearn</dt><dd>{summary.reteach}</dd></div>}
-        <div><dt>Opening introductions</dt><dd>{summary.openings_introduced} / {summary.openings_limit}</dd></div>
-        <div><dt>Tactic introductions</dt><dd>{summary.tactics_introduced} / {summary.tactics_limit}
+        <div><dt>New opening moves</dt><dd>{summary.openings_introduced} / {summary.openings_limit}</dd></div>
+        <div><dt>New tactics</dt><dd>{summary.tactics_introduced} / {summary.tactics_limit}
           {!!summary.extra_tactics && ` (+${summary.extra_tactics} today)`}</dd></div>
       </dl>
       {summary.active_correction && <p>Current test still needs correction.</p>}
