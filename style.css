@@ -691,3 +691,11 @@ body {
 .games-page > .training-header {padding:.45rem 0 1rem;border-bottom:1px solid var(--ui-border)}
 .games-page .game-title.ui-button {font-size:1.05rem;text-align:start;justify-content:start;padding-inline:.25rem}
 :is(.games-page,.review-page) :is(input,select,summary,button):focus-visible {outline:3px solid var(--ui-focus);outline-offset:3px}
+.review-header .training-header {flex:1;min-width:0;max-width:none;padding:0;gap:1rem}
+.review-header .training-header h1 {overflow-wrap:anywhere}
+.review-card .section-header {display:flex;justify-content:space-between;align-items:baseline;gap:.4rem;flex-wrap:wrap}
+@media(max-width:740px){
+  .review-page .review-header {align-items:stretch}
+  .review-header>.ui-button {align-self:flex-start}
+  .review-header .training-header {align-items:flex-start;flex-wrap:wrap}
+}
