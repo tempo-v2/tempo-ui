@@ -6,6 +6,7 @@ import { promotionRoles } from "./promotion_roles.js";
 import { GamesPage } from "./GamesPage.jsx";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
 import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
+import { readGapContinuation } from "./gap_save.js";
 import { TacticsCollectionPage } from "./TacticsCollectionPage.jsx";
 import { signalStudyChange } from "./study_presence.js";
 import { TacticSettingsPage } from "./TacticSettingsPage.jsx";
@@ -40,6 +41,7 @@ const transport = {
   },
 };
 function initialPage() {
+  if (readGapContinuation()) return "games";
   if (hasPendingRepertoireCommand()) return "repertoires";
   if (hasPendingTacticCommand()) return "capture";
   return "study";
@@ -51,7 +53,6 @@ export function App() {
     [page, setPage] = useState(initialPage),
     [stopped, setStopped] = useState(false),
     [guided, setGuided] = useState(null);
-  const [gapHandoff, setGapHandoff] = useState(null);
   const [prefs, setPrefs] = useState(loadBoardPreferences);
   const [flipped, setFlipped] = useState(false);
   const [history, setHistory] = useState(null);
@@ -303,8 +304,7 @@ export function App() {
     board.current?.previewPromotion(origin.base.slice(2), promotionRoles[role].toLowerCase());
     submit(v, origin.base + role);
   }
-  function goTo(nextPage, gap = null) {
-    setGapHandoff(gap);
+  function goTo(nextPage) {
     pausedAdvance.current = view;
     studyVisit.current += 1;
     setDialog(null);
@@ -318,8 +318,8 @@ export function App() {
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
   if (page === "games") return <GamesPage onStudy={() => goTo("study")}
-    onRepertoires={() => goTo("repertoires")} onGap={gap => goTo("repertoires", gap)} />;
-  if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} gapHandoff={gapHandoff} />;
+    onRepertoires={() => goTo("repertoires")} />;
+  if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;
   if (page === "tactics") return <TacticsCollectionPage onStudy={() => goTo("study")}
     onCapture={() => goTo("capture")} onSettings={() => goTo("tactic-settings")} />;
   if (page === "tactic-settings") return <TacticSettingsPage onStudy={() => goTo("study")} />;

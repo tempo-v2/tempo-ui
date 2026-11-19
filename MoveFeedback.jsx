@@ -1,15 +1,14 @@
 import React from "react";
 import { StatusNotice } from "@tempo-v2/core-components";
-import { promotionRoles } from "./promotion_roles.js";
+import { moveSan } from "./board_move.js";
 
 export function MoveFeedback({ view }) {
   const move = view?.feedback?.correction_uci;
   if (!move) return null;
-  const role = promotionRoles[move[4]];
+  const san = moveSan(view.display_fen, move);
   return (
     <StatusNotice kind="error">
-      {view.feedback.message} Move {move.slice(0, 2)} to {move.slice(2, 4)}
-      {role ? ` and promote to ${role.toLowerCase()}` : ""}.
+      {view.feedback.message}{san ? ` Play ${san}.` : ""}
       {view.activity === "practice" && " Schedule unchanged."}
     </StatusNotice>
   );

@@ -102,14 +102,14 @@ const gapPage = (move, more = false) => ({
   dataset_id: "evidence-fixture",
   more,
   gaps: move ? [{
-    repertoire_id: "book", actual_move: move, position: "fixture", document_revision: 8, games: 1,
+    repertoire_id: "book", actual_move: move, actual_san: move.slice(2), position: "fixture", document_revision: 8, games: 1,
   }] : [],
 });
 
 const retryLabel = "Retry evidence reads";
 const analyzeLabel = "Analyze Maia probabilities";
 const backfillLabel = "Start historical backfill";
-const gapLabel = "Open response editor";
+const gapLabel = "Fix response";
 const emptyGaps = "No confirmed opponent gaps";
 const response = (body, status = 200) => ({ status, ok: status < 400, json: async () => body });
 const failure = message => response({ message }, 503);
@@ -194,14 +194,14 @@ test("model completion survives a failed gaps refresh and gaps retry after two s
   const historyReads = page.count("GET /api/games");
   assert.match(page.text(), /running · 1 of 2 positions/);
   assert.equal(page.button(analyzeLabel).disabled, true);
-  assert.match(page.text(), /a7a6 · 1 game/);
+  assert.match(page.text(), /a6 · 1 game/);
 
   phase = "failure";
   await page.advance(2000);
   assert.match(page.text(), /complete · 2 of 2 positions/);
   assert.equal(page.button(analyzeLabel).disabled, false);
   assert.match(page.text(), /Temporary gap read failure/);
-  assert.match(page.text(), /a7a6 · 1 game/);
+  assert.match(page.text(), /a6 · 1 game/);
   assert.ok(page.button(retryLabel));
   assert.equal(page.count("GET /api/games"), historyReads + 1);
 
@@ -209,7 +209,7 @@ test("model completion survives a failed gaps refresh and gaps retry after two s
   await page.advance(1999);
   assert.equal(page.count("GET /api/games/gaps"), gapReads + 1);
   await page.advance(1);
-  assert.match(page.text(), /c7c6 · 1 game/);
+  assert.match(page.text(), /c6 · 1 game/);
   assert.doesNotMatch(page.text(), /Temporary gap read failure|a7a6/);
   assert.equal(page.button(retryLabel), undefined);
   const settledReads = page.calls.length;
@@ -273,7 +273,7 @@ test("a hung Maia read leaves other resources live and times out at five seconds
       return hang(signal);
     },
   });
-  assert.match(page.text(), /h7h6 · 1 game/);
+  assert.match(page.text(), /h6 · 1 game/);
   status = "complete";
   await page.advance(2000);
   assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
@@ -356,16 +356,16 @@ test("paging aborts an old gap read and retry only reads the new page", async t 
   assert.match(page.text(), /Maia Rapid 1500 · running/);
   assert.equal(page.count("GET /api/games"), historyReads + 1);
   assert.match(page.text(), /Next gap page unavailable/);
-  assert.doesNotMatch(page.text(), /a7a6|No confirmed opponent gaps/);
+  assert.doesNotMatch(page.text(), /a6|No confirmed opponent gaps/);
   const beforeRetry = page.calls.length;
   await page.click(retryLabel);
   assert.deepEqual(page.calls.slice(beforeRetry).map(call => call.endpoint).sort(), [
     "GET /api/games/backfill", "GET /api/games/model", "POST /api/games/gaps",
   ]);
-  assert.match(page.text(), /b7b6 · 1 game/);
+  assert.match(page.text(), /b6 · 1 game/);
   await page.flush(() => resolveOldPage(response(gapPage("a7a5"))));
-  assert.match(page.text(), /b7b6 · 1 game/);
-  assert.doesNotMatch(page.text(), /a7a5/);
+  assert.match(page.text(), /b6 · 1 game/);
+  assert.doesNotMatch(page.text(), /a5/);
   await page.advance(2000);
   assert.equal(unresolvedPage.aborted, false);
   assert.ok(page.pollTimers() > 0);

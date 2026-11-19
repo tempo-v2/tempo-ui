@@ -1,12 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Board, Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
   readPendingRepertoireCommand,
   savePendingRepertoireCommand,
   sendRepertoireCommand,
 } from "./repertoire_commands.js";
-import { gapDraft } from "./game_commands.js";
-import { GapAnalysis } from "./GapAnalysis.jsx";
 
 
 function PreviewSummary({ preview }) {
@@ -45,7 +43,7 @@ function downloadDocument(reply) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function RepertoiresPage({ onStudy, gapHandoff }) {
+export function RepertoiresPage({ onStudy }) {
   const [catalog, setCatalog] = useState(null);
   const [destination, setDestination] = useState("");
   const [name, setName] = useState("");
@@ -61,8 +59,6 @@ export function RepertoiresPage({ onStudy, gapHandoff }) {
   const [issue, setIssue] = useState(null);
   const [notice, setNotice] = useState(null);
   const [editor, setEditor] = useState(null);
-  const [gapMove, setGapMove] = useState("");
-  const gapOpened = useRef(false);
   const [documentBusy, setDocumentBusy] = useState(false);
   const [refresh, setRefresh] = useState(null);
   const [cleanupNeeded, setCleanupNeeded] = useState(false);
@@ -97,7 +93,7 @@ export function RepertoiresPage({ onStudy, gapHandoff }) {
     setIssue(null);
   }
 
-  async function readDocument(address, download = false, gap = null) {
+  async function readDocument(address, download = false) {
     const read = ++documentRead.current;
     setDocumentBusy(true);
     setIssue(null);
@@ -109,9 +105,7 @@ export function RepertoiresPage({ onStudy, gapHandoff }) {
           throw new Error("There is no verified current PGN. Upload a complete replacement to establish it.");
         downloadDocument(reply);
       } else {
-        const stale = !!gap && gap.details.content_revision !== reply.revision;
-        setEditor({ address, current: reply, text: reply.document.pgn ?? "", stale, gap: stale ? null : gap });
-        if (stale) setIssue("The repertoire changed after the gap was opened. Return to Games to refresh it.");
+        setEditor({ address, current: reply, text: reply.document.pgn ?? "", stale: false });
       }
     } catch (error) {
       if (documentRead.current === read) setIssue(error.message);
@@ -127,36 +121,6 @@ export function RepertoiresPage({ onStudy, gapHandoff }) {
     const address = documentAddress(catalog.dataset_id, item.id);
     setEditor({ address, current: null, text: "", stale: false });
     readDocument(address);
-  }
-
-  useEffect(() => {
-    if (!gapHandoff || gapOpened.current || !catalog || locked) return;
-    gapOpened.current = true;
-    const address = documentAddress(catalog.dataset_id, gapHandoff.address.repertoire_id);
-    if (address.dataset_id !== gapHandoff.address.dataset_id) {
-      setIssue("The active dataset changed. Return to Games to reopen the gap.");
-      return;
-    }
-    setEditor({ address, current: null, text: "", stale: false });
-    void readDocument(address, false, gapHandoff);
-  }, [catalog, gapHandoff, locked]);
-
-  async function addGapResponse() {
-    if (!gapMove || !editor?.gap || dirty || locked || documentBusy) return;
-    const read = ++documentRead.current;
-    setDocumentBusy(true);
-    setIssue(null);
-    try {
-      const next = await gapDraft({ ...editor.gap.address, response: gapMove });
-      if (documentRead.current !== read) return;
-      if (next.content_revision !== editor.current.revision) throw new Error("The repertoire changed.");
-      setEditor({ ...editor, gap: null, text: next.draft.pgn });
-      setPreview(null);
-    } catch (error) {
-      if (documentRead.current === read) setIssue(error.message);
-    } finally {
-      if (documentRead.current === read) setDocumentBusy(false);
-    }
   }
 
   function reloadEditor() {
@@ -435,9 +399,6 @@ export function RepertoiresPage({ onStudy, gapHandoff }) {
                   }}>Upload replacement</Button>
                 </>
               )}
-              {editor.gap && <GapResponse gap={editor.gap} color={editor.current.learner_color}
-                selected={gapMove} setSelected={setGapMove} onAdd={addGapResponse}
-                disabled={locked || dirty || documentBusy} />}
               {editor.current?.document.status === "available" && (
                 <form className="repertoire-form" onSubmit={previewEdit}>
                   <p>This document replaces the entire repertoire. Omitted lines will retire.</p>
@@ -566,34 +527,5 @@ export function RepertoiresPage({ onStudy, gapHandoff }) {
         </div>
       </Dialog>
     </main>
-  );
-}
-
-const percent = value => (value * 100).toFixed(1) + "%";
-
-function GapResponse({ gap, color, selected, setSelected, onAdd, disabled }) {
-  const { draft, profile, local_coverage, actual_probability, top_replies } = gap.details;
-  return (
-    <section>
-      <h3>Respond to {gap.address.actual_move}</h3>
-      <div style={{ width: "min(100%, 320px)" }}>
-        <Board fen={draft.fen} orientation={color} turn={color} readOnly coordinates="edges" />
-      </div>
-      <p>Local coverage · {local_coverage == null ? "Unknown" : percent(local_coverage)} · {profile}</p>
-      <p>Probability of this opponent reply · {actual_probability == null ? "Unknown" : percent(actual_probability)}</p>
-      {top_replies && <details>
-        <summary>Most likely replies at this position</summary>
-        <ul>{top_replies.map(([move, probability]) => <li key={move}>{move} · {percent(probability)}</li>)}</ul>
-      </details>}
-      <div className="actions">
-        <label>Learner response <select value={selected} onChange={event => setSelected(event.target.value)} disabled={disabled}>
-          <option value="">Choose a legal move</option>
-          {draft.legal_moves.map(move => <option key={move} value={move}>{move}</option>)}
-        </select></label>
-        <Button disabled={disabled || !selected} onClick={() => void onAdd()}>Add response to draft</Button>
-      </div>
-      <GapAnalysis key={gap.address.document_revision + gap.address.position + gap.address.actual_move}
-        gap={gap} color={color} disabled={disabled} />
-    </section>
   );
 }

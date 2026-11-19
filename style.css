@@ -424,3 +424,111 @@ body {
 .game-result-effect {
   color: #494f44;
 }
+
+.ui-dialog:has(.gap-editor) {
+  width: min(68rem, calc(100% - 1.5rem));
+  max-width: none;
+  max-height: calc(100dvh - 1.5rem);
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.gap-repertoire {
+  margin-block: 0 1rem;
+  color: var(--ui-muted, #515449);
+}
+
+.gap-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.13fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.gap-board {
+  min-width: 0;
+  padding: 0 0 1.25rem 1.25rem;
+}
+
+.gap-statistics {
+  display: grid;
+  min-width: 0;
+  max-height: min(56dvh, 35rem);
+  overflow: auto;
+  gap: .9rem;
+  padding-inline-end: .4rem;
+}
+
+.gap-statistics h3,
+.gap-statistics h4,
+.gap-statistics p {
+  margin-block: 0 .4rem;
+}
+
+.gap-statistics summary {
+  cursor: pointer;
+}
+
+.gap-moves {
+  list-style: none;
+  margin: .5rem 0;
+  padding: 0;
+}
+
+.gap-move {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  text-align: start;
+  width: 100%;
+  padding: .45rem .5rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: .4rem;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.gap-move:hover,
+.gap-move:focus-visible {
+  border-color: #3468a1;
+}
+
+.gap-move[aria-pressed="true"] {
+  border-color: #53834a;
+  background: #53834a22;
+}
+
+.gap-token-path {
+  overflow-wrap: anywhere;
+}
+
+.gap-neighbor-board {
+  width: min(100%, 15rem);
+  margin: .5rem 0 1rem 1.25rem;
+}
+
+.gap-editor-actions {
+  margin-block: 1rem 0;
+}
+
+@media (max-width: 680px) {
+  .gap-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .gap-statistics {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .gap-editor-actions {
+    position: sticky;
+    bottom: 0;
+    padding-block: .4rem;
+    background: var(--ui-surface, #f8f7f3);
+  }
+}
