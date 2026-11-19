@@ -8,10 +8,12 @@ import {
 } from "./game_commands.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
 import { GapEditor } from "./GapEditor.jsx";
+import { GameDetectionPanel } from "./GameDetectionPanel.jsx";
 import { readGapContinuation } from "./gap_save.js";
 import { commandRecovery } from "./content_transport.js";
 
-function GameResults({ results, repertoires, history = false, onChoose }) {
+function GameResults({ results, repertoires, history = false, onChoose, dataset }) {
+  const [detectorRow, setDetectorRow] = useState(null);
   return (
     <ul className="game-results">
       {results.map((result, index) => {
@@ -73,6 +75,18 @@ function GameResults({ results, repertoires, history = false, onChoose }) {
               </div>
             ))}
             <p>{result.matches} matched · {result.deviations} learner misses · {result.opponent_deviations} opponent deviations · {result.coverage_gaps} outside coverage</p>
+            {history && dataset && (
+              <>
+                <Button onClick={() => setDetectorRow(detectorRow === key ? null : key)}
+                  aria-expanded={detectorRow === key}>
+                  {detectorRow === key ? "Close detector" : "Analyze this game"}
+                </Button>
+                {detectorRow === key && (
+                  <GameDetectionPanel key={JSON.stringify([dataset, result.source, result.game_id, result.learner])}
+                    dataset={dataset} source={result.source} gameId={result.game_id} learner={result.learner} />
+                )}
+              </>
+            )}
           </li>
         );
       })}
@@ -862,7 +876,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           </>
         )}
         {history ? history.results.length > 0
-          ? <GameResults history onChoose={commandsBlocked || busy || refreshing ? undefined : choose} results={history.results} repertoires={repertoires ?? []} />
+          ? <GameResults key={dataset} dataset={dataset} history onChoose={commandsBlocked || busy || refreshing ? undefined : choose} results={history.results} repertoires={repertoires ?? []} />
           : <p>No games recorded yet.</p>
           : !historyError && <p role="status">Loading game evidence…</p>}
       </Surface>
