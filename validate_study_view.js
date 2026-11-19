@@ -13,6 +13,22 @@ function integer(value, minimum, name) {
   return value;
 }
 
+export function validateRevealedLine(line) {
+  object(line, ["start_fen", "moves"], "revealed history");
+  if (!Array.isArray(line.moves) || !line.moves.length)
+    throw new TypeError("Expected a played move in history");
+  return {
+    start_fen: string(line.start_fen, "start position", true),
+    moves: line.moves.map((move) => {
+      object(move, ["notation", "fen"], "revealed move");
+      return {
+        notation: string(move.notation, "move notation", true),
+        fen: string(move.fen, "revealed position", true),
+      };
+    }),
+  };
+}
+
 /**
  * Use at the transport boundary before trusting a response as a Study view.
  * The server produces the wire value; rendering/controller code consumes the
@@ -125,21 +141,7 @@ export function validateStudyView(value) {
     if (value.activity !== "teach") throw new TypeError("A corrective repair must be guided");
     context.corrective_repair = boolean(value.corrective_repair, "corrective_repair");
   }
-  if (Object.hasOwn(value, "history")) {
-    object(value.history, ["start_fen", "moves"], "revealed history");
-    if (!Array.isArray(value.history.moves) || !value.history.moves.length)
-      throw new TypeError("Expected a played move in history");
-    context.history = {
-      start_fen: string(value.history.start_fen, "start position", true),
-      moves: value.history.moves.map((move) => {
-        object(move, ["notation", "fen"], "revealed move");
-        return {
-          notation: string(move.notation, "move notation", true),
-          fen: string(move.fen, "revealed position", true),
-        };
-      }),
-    };
-  }
+  if (Object.hasOwn(value, "history")) context.history = validateRevealedLine(value.history);
   if (Object.hasOwn(value, "exercise_name"))
     context.exercise_name = string(value.exercise_name, "exercise_name", true);
   if (value.lesson) {

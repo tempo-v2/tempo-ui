@@ -29,10 +29,13 @@ body {
   min-width: 0;
   width: 100%;
   max-width: 32rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
 }
 
 .study-panel .training-header {
-  margin: 0 0 1rem;
+  margin: 0;
   padding: 0;
 }
 
@@ -125,32 +128,48 @@ body {
   }
 
   .study-panel {
-    display: flex;
-    flex-direction: column;
     margin-top: 0.5rem;
-  }
-
-  .study-layout.has-board .training-header {
-    order: 1;
-    margin: 0.75rem 0 0;
   }
 }
 
-.lesson h2,
+.correction-heading,
 .repertoire-page h2 {
   font-size: 1.125rem;
   margin: 0;
 }
 
-.lesson {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #d9ddd3;
+.correction-heading + .puzzle-turn {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: #494f44;
 }
 
 .lesson p,
 .repertoire-details {
   color: #494f44;
+}
+
+.lesson p {
+  margin: 0.625rem 0;
+}
+
+.correction-allowance,
+.move-progress,
+.game-replay-links {
+  font-size: 0.875rem;
+}
+
+.game-replay-links {
+  align-items: center;
+}
+
+.game-replay-links a {
+  color: var(--green-dark, #344737);
+  text-underline-offset: 0.18em;
+}
+
+.study-panel .study-board-controls {
+  margin: 0;
 }
 
 .repertoire-page {

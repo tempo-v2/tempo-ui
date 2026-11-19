@@ -72,7 +72,7 @@ function gameResults(results) {
   });
 }
 
-function safeGameLink(link) {
+export function safeGameLink(link) {
   if (link === null) return null;
   try {
     const url = new URL(link);
