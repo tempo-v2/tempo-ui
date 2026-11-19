@@ -29,7 +29,7 @@ const bundle = await build({
 });
 const script = bundle.outputFiles.find(file => file.path.endsWith(".js")).text;
 
-function clockFor(window) {
+function clockFor(window, simulateRecovery = false) {
   const timers = new Map();
   let now = 0;
   let nextId = 0;
@@ -41,9 +41,9 @@ function clockFor(window) {
   const nativeSet = window.setTimeout.bind(window);
   const nativeClear = window.clearTimeout.bind(window);
   // Keep React's short scheduler tasks real. Advance polling and deadlines by hand.
-  window.setTimeout = (callback, delay, ...args) => delay < 1000
-    ? nativeSet(callback, delay, ...args)
-    : schedule(() => callback(...args), delay, "poll");
+  window.setTimeout = (callback, delay, ...args) => delay >= 1000 || (simulateRecovery && delay === 0)
+    ? schedule(() => callback(...args), delay, "poll")
+    : nativeSet(callback, delay, ...args);
   window.clearTimeout = id => id < 0 ? timers.delete(id) : nativeClear(id);
   window.AbortController = AbortController;
   window.AbortSignal = {
@@ -124,7 +124,7 @@ const hang = signal => new Promise((_, reject) => {
   signal.addEventListener("abort", () => reject(signal.reason), { once: true });
 });
 
-async function openGames(t, handlers, { pending } = {}) {
+async function openGames(t, handlers, { pending, gapContinuation } = {}) {
   const { window } = new JSDOM('<!DOCTYPE html><div id="root"></div>', {
     url: "http://tempo.test/", runScripts: "outside-only", pretendToBeVisual: true,
   });
@@ -135,7 +135,7 @@ async function openGames(t, handlers, { pending } = {}) {
     port1 = {};
     port2 = { postMessage: () => setImmediate(() => this.port1.onmessage()) };
   };
-  const clock = clockFor(window);
+  const clock = clockFor(window, !!gapContinuation);
   const calls = [];
   const errors = [];
   let mounted = true;
@@ -169,6 +169,11 @@ async function openGames(t, handlers, { pending } = {}) {
   };
   window.addEventListener("error", event => errors.push(event.message));
   if (pending !== undefined) window.sessionStorage.setItem(pendingKey, pending);
+  if (gapContinuation) {
+    window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+    window.HTMLDialogElement.prototype.close = function () { this.open = false; };
+    window.sessionStorage.setItem("tempo-gap-save-continuation-v1", JSON.stringify(gapContinuation));
+  }
   window.eval(script);
   await window.mountGames();
   const button = label => [...window.document.querySelectorAll("button")].find(item => item.textContent === label);
@@ -828,3 +833,56 @@ test("changing dataset while Games reads are pending clears old rows and ignores
   assert.match(page.text(), /Lichess · next-job/);
   assert.doesNotMatch(page.text(), /old-dataset-game|obsolete-game|old-job|different dataset/);
 });
+
+for (const stall of ["fetch", "body"]) {
+  test(`accepted gap Save recovers a successor ${stall} timeout without replaying Save`, async t => {
+    const gapContinuation = {
+      token: "accepted-save", accepted: true, response: "e2e4",
+      gap: {
+        address: {
+          dataset_id: "evidence-fixture", repertoire_id: "book", position: "fixture", actual_move: "h7h6",
+        },
+        details: {
+          learner_color: "white", actual_san: "h6", response_move_labels: { e2e4: "e4" },
+          draft: { fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", legal_moves: ["e2e4"] },
+        },
+        passed: [], offset: 100,
+      },
+    };
+    let succeed = false;
+    let successorSignal;
+    const nextGaps = ({ signal, payload }) => {
+      assert.deepEqual(payload, { offset: 100 });
+      if (succeed) return response(gapPage());
+      // The initial independent Games gap read can succeed. Hold the editor's read.
+      if (successorSignal === undefined) {
+        successorSignal = signal;
+        return stall === "fetch" ? hang(signal) : { ...response(null), json: () => hang(signal) };
+      }
+      return response(gapPage());
+    };
+    // The editor schedules recovery immediately. Keep the independent initial read
+    // successful at this offset so only the editor's continuation can time out.
+    let gapReads = 0;
+    const page = await openGames(t, {
+      "POST /api/games/gaps": request => ++gapReads === 1 ? response(gapPage()) : nextGaps(request),
+    }, { gapContinuation });
+    await page.advance(0);
+    assert.ok(successorSignal);
+    assert.match(page.text(), /Saved e4/);
+    await page.advance(4999);
+    assert.equal(successorSignal.aborted, false);
+    await page.advance(1);
+    assert.match(page.text(), /The evidence read timed out/);
+    assert.match(page.text(), /Saved e4/);
+    succeed = true;
+    const retryStart = page.calls.length;
+    await page.click("Retry loading next gap");
+    assert.equal(page.button("Retry loading next gap"), undefined);
+    assert.doesNotMatch(page.text(), /The evidence read timed out/);
+    assert.match(page.text(), /Saved e4/);
+    assert.ok(page.calls.slice(retryStart).some(call => call.endpoint === "POST /api/games/gaps"));
+    assert.equal(page.calls.filter(call => call.endpoint === "POST /api/repertoires" &&
+      call.payload.command === "save").length, 0);
+  });
+}
