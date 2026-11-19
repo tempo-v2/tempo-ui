@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@tempo-v2/core-components";
 import {
-  readPendingRepertoireCommand,
+  hasPendingRepertoireCommand,
   savePendingRepertoireCommand,
   sendRepertoireCommand,
 } from "./repertoire_commands.js";
@@ -100,13 +100,13 @@ export function useMarkedLines(
         setPreview(r);
       } else {
         const cmd = pending || preview.save_command;
-        if (!pending && readPendingRepertoireCommand())
+        if (!pending && hasPendingRepertoireCommand())
           throw new Error("Reload to recover the pending repertoire save.");
-        savePendingRepertoireCommand(cmd);
+        if (!pending) await savePendingRepertoireCommand(cmd);
         setPending(cmd);
         const r = await sendRepertoireCommand(cmd, AbortSignal.timeout(20000));
         if (r.status === "error" && r.retryable) throw new Error(r.message);
-        savePendingRepertoireCommand(null);
+        await savePendingRepertoireCommand(null);
         setPending(null);
         setPreview(null);
         if (r.status === "error") throw new Error(r.message);

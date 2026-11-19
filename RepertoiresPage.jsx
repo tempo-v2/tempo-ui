@@ -131,9 +131,9 @@ export function RepertoiresPage({ onStudy }) {
     readDocument(editor.address);
   }
 
-  function clearRecovery() {
+  async function clearRecovery() {
     try {
-      savePendingRepertoireCommand(null);
+      await savePendingRepertoireCommand(null);
       setCleanupNeeded(false);
     } catch {
       setCleanupNeeded(true);
@@ -186,7 +186,7 @@ export function RepertoiresPage({ onStudy }) {
     try {
       if (durable && !stored) {
         try {
-          savePendingRepertoireCommand(command);
+          await savePendingRepertoireCommand(command);
         } catch {
           setIssue("Tempo could not store this command for recovery. It was not sent.");
           return;
@@ -196,7 +196,7 @@ export function RepertoiresPage({ onStudy }) {
       const reply = await sendRepertoireCommand(command);
       if (durable && (reply.status !== "error" || !reply.retryable)) {
         setPending(null);
-        clearRecovery();
+        await clearRecovery();
       }
       if (reply.status === "error") {
         if (command.command === "save" && !reply.retryable) setPreview(null);
@@ -245,9 +245,9 @@ export function RepertoiresPage({ onStudy }) {
     }
   }
 
-  function resumeRecovery() {
+  async function resumeRecovery() {
     try {
-      const recover = readPendingRepertoireCommand();
+      const recover = await readPendingRepertoireCommand();
       setRecoveryBlocked(false);
       if (recover) {
         setPending(recover);

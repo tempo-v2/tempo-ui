@@ -3,13 +3,7 @@ import { freeze, string, validateErrorView } from "./wire_values.js";
 
 export const tacticRecovery = commandRecovery("tempo-tactics-recovery-v4");
 
-export function hasPendingTacticCommand() {
-  try {
-    return !!tacticRecovery.load();
-  } catch {
-    return false;
-  }
-}
+export const hasPendingTacticCommand = tacticRecovery.hasPending;
 
 export async function sendTacticCommand(command) {
   return validateTacticReply(await postCommand("/api/tactics", command), command.command);
