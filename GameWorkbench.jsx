@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Board, Button } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
 import { readGameReview } from "./game_commands.js";
-import { hasPendingRepertoireCommand, savePendingRepertoireCommand, sendRepertoireCommand } from "./repertoire_commands.js";
+import { deliverDurableRepertoireCommand, previewMarkedLines, recoveryCleanupNotice, sendRepertoireCommand } from "./repertoire_commands.js";
 import { playBoardMove } from "./board_move.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { usePositionEvidence } from "./position_evidence.js";
@@ -243,30 +243,30 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
         const source = {dataset_id:review.dataset_id, source:review.source, game_id:review.game_id,
           learner:review.learner, repertoire_id:book.id};
         const [r, annotated] = await Promise.all([
-          sendRepertoireCommand({ command:"marked_preview", dataset_id:review.dataset_id, repertoire_id:book.id,
+          previewMarkedLines({ dataset_id:review.dataset_id, repertoire_id:book.id,
             name:doc.name, learner_color:doc.learner_color, base_revision:doc.revision,
             anchor_fen:positions[anchor].fen, lines:[path] }, AbortSignal.timeout(20000)),
           readGameReview({...source, line:{from_ply:anchor,moves:path}}, AbortSignal.timeout(20000)),
         ]);
         if (annotated.revision !== review.revision || annotated.document_id !== review.document_id)
           throw new Error("The repertoire changed. Reload the comparison.");
-        if (r.status !== "preview") throw new Error(r.message || "Preview unavailable.");
+        const unchanged = doc.document.pgn === r.save_command.pgn;
         setPreview({ ...r, edges:annotated.line, conflict: !!(r.changed || r.removed || r.affected_learning || r.replacements.length || r.retired_routes.length),
-          unchanged: doc.document.pgn === r.save_command.pgn });
+          unchanged });
       } else {
         if (!preview || preview.conflict || preview.unchanged) return;
         const cmd = pending || preview.save_command;
-        if (!pending) {
-          if (hasPendingRepertoireCommand()) throw new Error("Reload to recover the pending repertoire save.");
-          await savePendingRepertoireCommand(cmd); setPending(cmd); recover = true;
+        const { reply: result, cleanupNeeded } = await deliverDurableRepertoireCommand(cmd, {
+          stored: !!pending, signal: AbortSignal.timeout(20_000),
+          onPending(next) { setPending(next); recover = !!next; },
+        });
+        if (result.status === "error") {
+          if (!result.retryable) setPreview(null);
+          throw new Error([result.message, cleanupNeeded && recoveryCleanupNotice].filter(Boolean).join(" "));
         }
-        const result = await sendRepertoireCommand(cmd, AbortSignal.timeout(20000));
-        if (result.status === "error" && result.retryable) throw new Error(result.message);
-        await savePendingRepertoireCommand(null); setPending(null); recover = false;
-        if (result.status !== "repertoires") { setPreview(null); throw new Error(result.message || "Save was declined."); }
         window.history.replaceState(window.history.state, "", reviewUrl({ ...address, ply, branch, start }));
         rememberVisit({...address, ply, branch, start}, {saved:{endpoint, repertoire_id:book.id, name:cmd.name, at:Date.now()}});
-        onSaved("Saved through " + endpoint + " to " + cmd.name + ".",selection);
+        onSaved("Saved through " + endpoint + " to " + cmd.name + "." + (cleanupNeeded ? " " + recoveryCleanupNotice : ""),selection);
       }
     } catch (e) { setIssue(e.message); }
     finally { flight.current = false; setLocked(recover); }
