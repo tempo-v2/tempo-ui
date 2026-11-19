@@ -14,6 +14,7 @@ import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
 import { hasPendingTacticCommand } from "./tactic_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
+import { studyMoveDetails } from "./content_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
@@ -33,7 +34,7 @@ const transport = {
     if (command.command !== "study_status") signalStudyChange();
     const response = await fetch("/api/study", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...studyMoveDetails },
       body: JSON.stringify(command),
     });
     if (!response.ok) throw new Error(`Server returned ${response.status}`);

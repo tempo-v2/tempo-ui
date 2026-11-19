@@ -1,11 +1,10 @@
 import React from "react";
 import { StatusNotice } from "@tempo-v2/core-components";
-import { moveSan } from "./board_move.js";
 
 export function MoveFeedback({ view }) {
   const move = view?.feedback?.correction_uci;
   if (!move) return null;
-  const san = moveSan(view.display_fen, move);
+  const san = view.feedback.correction_san;
   return (
     <StatusNotice kind="error">
       {view.feedback.message}{san ? ` Play ${san}.` : ""}

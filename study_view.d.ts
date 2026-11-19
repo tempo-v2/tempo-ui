@@ -20,7 +20,7 @@ export type Feedback = {
   readonly autoplay: readonly { readonly uci: string }[];
 } & (
   | { readonly correct: true }
-  | { readonly correct: false; readonly correction_uci: string }
+  | { readonly correct: false; readonly correction_uci: string; readonly correction_san?: string }
 );
 /** Server identities copied into later answer/abandon commands. */
 export interface RevealedLine {
