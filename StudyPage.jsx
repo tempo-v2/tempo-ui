@@ -29,6 +29,8 @@ export function StudyPage({
   prefs,
   flipped,
   historyIndex,
+  historyLine,
+  gameContext,
   onInspect,
   onFlip,
   dialog,
@@ -43,6 +45,12 @@ export function StudyPage({
   const lesson = view?.lesson;
   const lessonSan = lesson && (lesson.move_san !== lesson.move_uci
     ? lesson.move_san : moveSan(view.display_fen, lesson.move_uci));
+  const inGameReplay = !!gameContext && historyIndex !== null;
+  const replayBlocked = state.busy || state.canRetry || !!choice || !!dialog;
+  const title = attempt
+    ? view.exercise_name ?? (view.corrective_repair ? "Opening move" :
+      ({ teach: "Learn the move", test: "Find the move", practice: "Practice" })[view.activity])
+    : stopped ? "Study paused" : "Study";
   const [selectionReason, setSelectionReason] = useState(null);
   const attemptId = attempt ? view.attempt_id : null;
   const datasetId = view?.dataset_id;
@@ -71,7 +79,9 @@ export function StudyPage({
             prefs={prefs}
             flipped={flipped}
             historyFen={historyIndex === null ? undefined : historyIndex === 0
-              ? view.history.start_fen : view.history.moves[historyIndex - 1]?.fen}
+              ? historyLine?.start_fen : historyLine?.moves[historyIndex - 1]?.fen}
+            gameReplay={inGameReplay}
+            guidedMove={view.corrective_repair ? guided?.uci : undefined}
             locked={
               state.busy ||
               state.canRetry ||
@@ -91,54 +101,42 @@ export function StudyPage({
         </div>
       )}
       <aside className="study-panel" aria-label="Study information">
-        <PageHeader title="Study" actions={
-          <div className="study-navigation">
-            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
-              Repertoires
-            </Button>
-            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onTactics}>
-              Tactics
-            </Button>
-            <Button disabled={state.busy || state.canRetry || !!choice} onClick={onGames}>
-              Games
-            </Button>
-          </div>
-        } />
-        <div className="actions">
-          {attempt && <Button disabled={!!choice} onClick={onFlip}>Flip board</Button>}
-          <Button aria-pressed={soundEnabled} onClick={() => onSoundChange(!soundEnabled)}>
-            {soundEnabled ? "Mute board" : "Unmute board"}
-          </Button>
-          <Button onClick={() => setDialog("preferences")}>Board preferences</Button>
-          <Button onClick={() => setDialog("help")}>Shortcuts</Button>
-        </div>
-        <StudyProgress view={view} stopped={stopped} />
+        <PageHeader title={title} />
         <Surface>
           {stopped ? (
             <>
-              <p>Study paused.</p>
               {view?.status === "empty" && <p>{view.outstanding} remaining today.</p>}
             </>
           ) : (
             <>
-              <div id="puzzle-turn" className="puzzle-turn" role="status">
-                {view?.status === "ready" &&
-                  (turnFromFen(view.display_fen) === "white" ? "White to move" : "Black to move")}
-              </div>
-              {attempt && <p>{({ teach: "Teach", test: "Test", practice: "Practice" })[view.activity]}
-                {view.exercise_name && ` · ${view.exercise_name}`}
-                {view.prompt && ` · Move ${view.prompt.decision_index + 1} of ${view.prompt.decision_count}`}</p>}
+              {view?.corrective_repair && <h2 className="correction-heading">Repertoire correction</h2>}
+              {inGameReplay ? (
+                <p className="puzzle-turn" role="status">Game replay</p>
+              ) : (
+                <div id="puzzle-turn" className="puzzle-turn" role="status">
+                  {view?.status === "ready" &&
+                    (turnFromFen(view.display_fen) === "white" ? "White to move" : "Black to move")}
+                </div>
+              )}
+              {attempt && view.prompt?.decision_count > 1 &&
+                <p className="move-progress">Move {view.prompt.decision_index + 1} of {view.prompt.decision_count}</p>}
               {attempt && selectionReason?.attemptId === attemptId && selectionReason.datasetId === datasetId &&
                 <p className="game-source-note">{selectionReason.text}</p>}
               {lesson && (
                 <div className="lesson">
-                  {view.corrective_repair && <strong>Game correction</strong>}
-                  <h2>Learn this move</h2>
-                  <p>Play <strong>{lessonSan ?? "the highlighted move"}</strong> on the board.</p>
-                  {lesson.comments.map((comment, index) => <p key={index}>{comment}</p>)}
-                  {guided && (guided.uci
-                    ? <p role="status">Move reproduced. Continue to save {view.corrective_repair ? "the repair" : "the lesson"}.</p>
-                    : <StatusNotice>Follow the arrow and try {lessonSan ?? "the highlighted move"}.</StatusNotice>)}
+                  {gameContext && <p>You played <strong>{gameContext.playedSan}</strong> in your game.
+                    {" "}Your repertoire calls for <strong>{lessonSan ?? "the highlighted move"}</strong>.</p>}
+                  {!inGameReplay && (
+                    <>
+                      <p>Play <strong>{lessonSan ?? "the highlighted move"}</strong> on the board.</p>
+                      {lesson.comments.map((comment, index) => <p key={index}>{comment}</p>)}
+                      {guided && (guided.uci
+                        ? <p role="status">Move reproduced. Continue to save {view.corrective_repair ? "the correction" : "the lesson"}.</p>
+                        : <StatusNotice>Follow the arrow and try {lessonSan ?? "the highlighted move"}.</StatusNotice>)}
+                    </>
+                  )}
+                  {view.corrective_repair &&
+                    <p className="correction-allowance">Outside your daily allowance for new opening moves.</p>}
                 </div>
               )}
               {!showSuccess && <StudyOutcome view={view} />}
@@ -158,9 +156,9 @@ export function StudyPage({
                 </StatusNotice>
               )}
               <MoveFeedback view={view} />
-              {view?.history && <MoveTrail line={view.history} index={historyIndex}
-                onInspect={onInspect} disabled={state.busy || state.canRetry || !!choice || !!dialog}
-                onReturn={() => onInspect(null)} />}
+              {historyLine && (!gameContext || inGameReplay) &&
+                <MoveTrail line={historyLine} index={historyIndex} gameReplay={inGameReplay}
+                  onInspect={onInspect} disabled={replayBlocked} onReturn={() => onInspect(null)} />}
             </>
           )}
           {view?.status === "error" && (
@@ -172,7 +170,37 @@ export function StudyPage({
           {!advancing && historyIndex === null && (
             <StudyActions view={view} state={state} actions={actions} reproduced={!!guided?.uci} stopped={stopped} />
           )}
+          {gameContext && (
+            <div className="actions game-replay-links">
+              {!inGameReplay &&
+                <Button size="compact" disabled={replayBlocked}
+                  onClick={() => onInspect(gameContext.line.moves.length)}>Replay game</Button>}
+              {gameContext.url && <a href={gameContext.url} target="_blank" rel="noopener noreferrer">
+                Open original game
+              </a>}
+            </div>
+          )}
         </Surface>
+        <StudyProgress view={view} stopped={stopped} />
+        <nav className="study-navigation" aria-label="Tempo sections">
+          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
+            Repertoires
+          </Button>
+          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onTactics}>
+            Tactics
+          </Button>
+          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onGames}>
+            Games
+          </Button>
+        </nav>
+        <div className="actions study-board-controls" aria-label="Board controls" role="group">
+          {attempt && <Button size="compact" disabled={!!choice} onClick={onFlip}>Flip board</Button>}
+          <Button size="compact" aria-pressed={soundEnabled} onClick={() => onSoundChange(!soundEnabled)}>
+            {soundEnabled ? "Mute board" : "Unmute board"}
+          </Button>
+          <Button size="compact" onClick={() => setDialog("preferences")}>Board preferences</Button>
+          <Button size="compact" onClick={() => setDialog("help")}>Shortcuts</Button>
+        </div>
       </aside>
       <BoardPreferences dialog={dialog} onClose={() => setDialog(null)} prefs={prefs}
         onChange={onPrefsChange} soundEnabled={soundEnabled} onSoundChange={onSoundChange} />
