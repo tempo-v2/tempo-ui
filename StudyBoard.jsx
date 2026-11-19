@@ -7,7 +7,7 @@ export const identity = (v) =>
 export const turnFromFen = (fen) => fen.split(/\s+/)[1] === "b" ? "black" : "white";
 
 export const StudyBoard = forwardRef(function StudyBoard(
-  { view, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay },
+  { view, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
   ref,
 ) {
   const destinations = useMemo(() => {
@@ -30,6 +30,21 @@ export const StudyBoard = forwardRef(function StudyBoard(
   const turn = turnFromFen(fen);
   const demonstration = view.lesson?.move_uci ?? view.feedback?.correction_uci;
   const lastMove = guidedMove || view.lesson?.previous_move;
+  const arrows = [];
+  if (!historyFen && !previewFen) {
+    if (gameDeviation) {
+      const sameSquares = gameDeviation.slice(0, 4) === demonstration?.slice(0, 4);
+      arrows.push({
+        orig: gameDeviation.slice(0, 2), dest: gameDeviation.slice(2, 4), brush: "red",
+        ...(sameSquares && { modifiers: { lineWidth: 18 } }),
+      });
+    }
+    if (demonstration) {
+      arrows.push({
+        orig: demonstration.slice(0, 2), dest: demonstration.slice(2, 4), brush: "blue",
+      });
+    }
+  }
   return (
     <Board
       ref={ref}
@@ -49,7 +64,7 @@ export const StudyBoard = forwardRef(function StudyBoard(
       coordinates="edges"
       maxSize={Number.MAX_SAFE_INTEGER}
       lastMove={!historyFen && lastMove ? [lastMove.slice(0, 2), lastMove.slice(2, 4)] : undefined}
-      shapes={!historyFen && !previewFen && demonstration ? [{ orig: demonstration.slice(0, 2), dest: demonstration.slice(2, 4), brush: "blue" }] : undefined}
+      shapes={arrows}
       onMove={onMove}
       onRejectedMove={onRejectedMove}
       ariaLabel={gameReplay ? "Game replay chessboard" : "Study chessboard"}

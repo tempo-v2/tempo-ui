@@ -8,10 +8,12 @@ export function commandRecovery(storageKey) {
   };
 }
 
-export async function postCommand(path, command, signal) {
+export const studyMoveDetails = { "X-Tempo-Move-Details": "1" };
+
+export async function postCommand(path, command, signal, headers) {
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(command),
     signal,
   });

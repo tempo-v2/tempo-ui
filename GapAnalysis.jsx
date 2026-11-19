@@ -25,8 +25,8 @@ function useGapRead(gap, service, ratings) {
         if (owner.signal.aborted) return;
         if (result.request_id !== requestId || result.content_revision !== gap.details.content_revision)
           throw new Error("The result belongs to a different position. Try again.");
+        publish(result);
         if (result.status === "running") timer = setTimeout(poll, 300);
-        else publish(result);
       } catch (error) { fail(error); }
     }
 
@@ -65,43 +65,84 @@ function evaluation(candidate) {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
 }
 
-export function GapAnalysis({ gap, color, moveButton }) {
-  const [state, retry] = useGapRead(gap, localAnalysis);
+function NearbyExample({ position, names, color }) {
+  const [open, setOpen] = useState(false);
+  const summary = [...new Set(position.responses.map(move =>
+    `${move.san} · ${names[move.repertoire_id] ?? "Saved repertoire"}`))].join(" / ");
   return (
-    <section>
-      <h4>Stockfish</h4>
-      {state.status === "running" && <p role="status">Analyzing moves and similar positions…</p>}
-      {state.status === "error" && <p role="status">{state.message}</p>}
-      {state.stockfish_error && <p>{state.stockfish_error}</p>}
-      {state.stockfish && (
-        <>
-          <p>{state.stockfish.engine} · Evaluation for the side to move</p>
-          {state.stockfish.candidates.length
-            ? <ul className="gap-moves">{state.stockfish.candidates.map(candidate => (
-                <li key={candidate.uci}>{moveButton(candidate.uci, evaluation(candidate))}</li>
-              ))}</ul>
-            : <p>No legal response.</p>}
-        </>
-      )}
-      {state.status === "complete" && (
+    <details onToggle={event => setOpen(event.currentTarget.open)}>
+      <summary>{summary}</summary>
+      {open && <div className="gap-neighbor-board">
+        <Board fen={position.fen} orientation={color} turn={color}
+          readOnly coordinates="edges" positionIdentity={position.fen} positionRevision={0} />
+      </div>}
+    </details>
+  );
+}
+
+function SimilarResponses({ state, color, moveButton }) {
+  if (state.neighbors_error) return <p role="status">{state.neighbors_error}</p>;
+  if (!state.nearby) return state.status === "running" ? <p role="status">Finding similar positions…</p> : null;
+  const groups = [
+    ["current", "Current repertoire"],
+    ["other", "Other same-side repertoires"],
+  ];
+  if (groups.every(([key]) => !state.nearby[key].length)) return <p>No similar saved positions found.</p>;
+  return groups.map(([key, label]) => {
+    const positions = state.nearby[key];
+    const moves = state.similar_responses[key];
+    if (!positions.length) return null;
+    return (
+      <div className="gap-similar-group" key={key}>
+        <h5>{label}</h5>
+        {moves.length ? <ul className="gap-moves">{moves.map(move => (
+          <li key={move.uci}>{moveButton(move.uci,
+            `${move.position_count} ${move.position_count === 1 ? "position" : "positions"}`)}</li>
+        ))}</ul> : <p>No reusable responses.</p>}
         <details>
-          <summary>Similar repertoire positions</summary>
-          {state.neighbors_error && <p>{state.neighbors_error}</p>}
-          {state.neighbors?.length === 0 && <p>No similar saved positions found.</p>}
-          {state.neighbors?.map(({ fen, repertoires }, index) => (
-            <details key={fen}>
-              <summary>{repertoires.join(", ")} · Similar position {index + 1}</summary>
-              <div className="gap-neighbor-board">
-                <Board fen={fen} orientation={color} turn={fen.split(" ")[1] === "w" ? "white" : "black"}
-                  readOnly coordinates="edges" positionIdentity={fen} positionRevision={0} />
-              </div>
-            </details>
+          <summary>Nearby examples</summary>
+          {positions.map(position => (
+            <NearbyExample key={position.fen} position={position} names={state.repertoire_names} color={color} />
           ))}
         </details>
-      )}
+      </div>
+    );
+  });
+}
+
+export function GapAnalysis({ gap, color, moveButton, onRecommendation }) {
+  const [state, retry] = useGapRead(gap, localAnalysis);
+  useEffect(() => {
+    if (state.status === "complete" && state.recommendation) onRecommendation(state.recommendation);
+  }, [state, onRecommendation]);
+
+  return (
+    <>
+      <div className="gap-analysis-columns">
+        <section className="gap-analysis-panel" aria-label="Similar repertoire positions">
+          <h4>Similar repertoire positions</h4>
+          <SimilarResponses state={state} color={color} moveButton={moveButton} />
+        </section>
+        <section className="gap-analysis-panel" aria-label="Stockfish">
+          <h4>Stockfish</h4>
+          {state.status === "running" && <p role="status">Evaluating responses…</p>}
+          {state.status === "error" && <p role="status">{state.message}</p>}
+          {state.stockfish_error && <p>{state.stockfish_error}</p>}
+          {state.stockfish && (
+            <>
+              <p>{state.stockfish.engine} · Evaluation for the side to move</p>
+              {state.stockfish.candidates.length
+                ? <ul className="gap-moves">{state.stockfish.candidates.map(candidate => (
+                    <li key={candidate.uci}>{moveButton(candidate.uci, evaluation(candidate))}</li>
+                  ))}</ul>
+                : <p>No legal response.</p>}
+            </>
+          )}
+        </section>
+      </div>
       {(state.status === "error" || state.stockfish_error || state.neighbors_error) &&
         <Button onClick={retry}>Retry local analysis</Button>}
-    </section>
+    </>
   );
 }
 
@@ -133,7 +174,7 @@ export function GapExplorer({ gap, color, moveButton }) {
   const [state, retry] = useGapRead(gap, explorer, ratings);
   const [copied, setCopied] = useState(false);
   return (
-    <section>
+    <section className="gap-explorer" aria-label="Lichess Explorer">
       <h4>Lichess Explorer</h4>
       <label>Rated Rapid · average rating <select value={ratings} onChange={event => setRatings(event.target.value)}>
         <option value="below1500">1200–1399</option>

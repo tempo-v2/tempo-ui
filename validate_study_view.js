@@ -4,7 +4,7 @@ import { boolean, freeze, object, string, validateErrorView } from "./wire_value
 const ASSESSMENTS = new Set([null, "good", "again"]);
 const ATTEMPT_STATUSES = new Set(["ready", "complete", "abandoned"]);
 const ACTIVITIES = new Set(["teach", "test", "practice"]);
-const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
+export const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
 
 function integer(value, minimum, name) {
   if (!Number.isSafeInteger(value) || value < minimum) {
@@ -169,7 +169,10 @@ export function validateStudyView(value) {
   if (value.feedback !== null) {
     const correct = value.feedback?.correct;
     const keys = ["correct", "message", "autoplay"];
-    if (correct === false) keys.push("correction_uci");
+    if (correct === false) {
+      keys.push("correction_uci");
+      if (Object.hasOwn(value.feedback, "correction_san")) keys.push("correction_san");
+    }
     object(value.feedback, keys, "feedback");
     if (!Array.isArray(value.feedback.autoplay))
       throw new TypeError("autoplay must be an array");
@@ -188,6 +191,8 @@ export function validateStudyView(value) {
           !value.legal_moves.includes(correction))
         throw new TypeError("Invalid correction move");
       feedback.correction_uci = correction;
+      if (Object.hasOwn(value.feedback, "correction_san"))
+        feedback.correction_san = string(value.feedback.correction_san, "correction SAN", true);
     }
   }
   if (!["white", "black"].includes(value.learner_color))

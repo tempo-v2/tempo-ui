@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { moveSan } from "./board_move.js";
 import { Button, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
 import { StudyBoard, turnFromFen } from "./StudyBoard.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
@@ -43,8 +42,6 @@ export function StudyPage({
 }) {
   const attempt = view && !stopped && ["ready", "complete", "abandoned"].includes(view.status);
   const lesson = view?.lesson;
-  const lessonSan = lesson && (lesson.move_san !== lesson.move_uci
-    ? lesson.move_san : moveSan(view.display_fen, lesson.move_uci));
   const inGameReplay = !!gameContext && historyIndex !== null;
   const replayBlocked = state.busy || state.canRetry || !!choice || !!dialog;
   const title = attempt
@@ -81,6 +78,7 @@ export function StudyPage({
             historyFen={historyIndex === null ? undefined : historyIndex === 0
               ? historyLine?.start_fen : historyLine?.moves[historyIndex - 1]?.fen}
             gameReplay={inGameReplay}
+            gameDeviation={gameContext?.playedUci}
             guidedMove={view.corrective_repair ? guided?.uci : undefined}
             locked={
               state.busy ||
@@ -125,14 +123,14 @@ export function StudyPage({
               {lesson && (
                 <div className="lesson">
                   {gameContext && <p>You played <strong>{gameContext.playedSan}</strong> in your game.
-                    {" "}Your repertoire calls for <strong>{lessonSan ?? "the highlighted move"}</strong>.</p>}
+                    {" "}Your repertoire calls for <strong>{lesson.move_san}</strong>.</p>}
                   {!inGameReplay && (
                     <>
-                      <p>Play <strong>{lessonSan ?? "the highlighted move"}</strong> on the board.</p>
+                      <p>Play <strong>{lesson.move_san}</strong> on the board.</p>
                       {lesson.comments.map((comment, index) => <p key={index}>{comment}</p>)}
                       {guided && (guided.uci
                         ? <p role="status">Move reproduced. Continue to save {view.corrective_repair ? "the correction" : "the lesson"}.</p>
-                        : <StatusNotice>Follow the arrow and try {lessonSan ?? "the highlighted move"}.</StatusNotice>)}
+                        : <StatusNotice>Try {lesson.move_san} again.</StatusNotice>)}
                     </>
                   )}
                   {view.corrective_repair &&
