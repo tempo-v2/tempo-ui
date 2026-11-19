@@ -100,19 +100,19 @@ export function GameLibrary({dataset, refresh, books, recent, renderResults, ren
   const selectedBook = filter.book && books.find(book => book.id === filter.book);
   return <>
     <div className="library-controls">
-      <label>Find a game<input type="search" placeholder="Opening, player or moves" value={filter.query} onChange={e=>update({query:e.target.value})} /></label>
-      <label>Repertoire<select value={filter.book} onChange={e=>update({book:e.target.value})}>
-        <option value="">All repertoires</option>{books.map(book=><option key={book.id} value={book.id}>{book.name}</option>)}</select></label>
-      <label>First decision at import<select value={filter.reason} onChange={e=>update({reason:e.target.value})}>
-        <option value="">Any decision</option>{Object.entries(reasons).map(([key,text])=><option key={key} value={key}>{text}</option>)}</select></label>
-      <label>I played<select value={filter.color} onChange={e=>update({color:e.target.value})}>
-        <option value="">Either color</option><option value="white">White</option><option value="black">Black</option></select></label>
+      <div><label htmlFor="archive-query">Find a game</label><input id="archive-query" type="search" placeholder="Opening, player or moves" value={filter.query} onChange={e=>update({query:e.target.value})} /></div>
+      <div><label htmlFor="archive-book">Repertoire</label><select id="archive-book" value={filter.book} onChange={e=>update({book:e.target.value})}>
+        <option value="">All repertoires</option>{books.map(book=><option key={book.id} value={book.id}>{book.name}</option>)}</select></div>
+      <div><label htmlFor="archive-reason">First decision at import</label><select id="archive-reason" value={filter.reason} onChange={e=>update({reason:e.target.value})}>
+        <option value="">Any decision</option>{Object.entries(reasons).map(([key,text])=><option key={key} value={key}>{text}</option>)}</select></div>
+      <div><label htmlFor="archive-color">I played</label><select id="archive-color" value={filter.color} onChange={e=>update({color:e.target.value})}>
+        <option value="">Either color</option><option value="white">White</option><option value="black">Black</option></select></div>
     </div>
     <p className="library-note">Search by the opening named in the PGN or a sequence from its first 12 half-moves. Decisions come from the latest recorded comparison.</p>
-    {archive.issue && <StatusNotice kind="error">{archive.issue} <button onClick={()=>setRevision(n=>n+1)}>Retry library</button></StatusNotice>}
+    {archive.issue && <StatusNotice kind="error">{archive.issue} <Button size="compact" onClick={()=>setRevision(n=>n+1)}>Retry library</Button></StatusNotice>}
     <div className="library-summary"><strong role="status">{archive.done ? groups.length.toLocaleString() + (groups.length === 1 ? " game" : " games") : "Reading game library…"}
       {active && archive.done && " of " + archive.games.length.toLocaleString()}</strong>
-      {active && <button className="inline-link" onClick={()=>update(defaults)}>Clear filters</button>}</div>
+      {active && <Button size="compact" variant="quiet" onClick={()=>update(defaults)}>Clear filters</Button>}</div>
     {groups.length ? renderResults(groups.slice(offset,offset+PAGE_SIZE), !!(filter.book || filter.reason)) :
       archive.done && (active ? <div className="empty-games"><h3>No games match these filters.</h3>
         <p>{selectedBook && filter.reason ? "Try another opening decision for "+selectedBook.name+" or clear the opening search." : "Try a player, fewer opening moves or a different decision."}</p></div> : !recentOnly.length && empty)}

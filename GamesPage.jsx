@@ -1,9 +1,10 @@
+import { hasReviewDraft } from "./review_draft.js";
 import { GameLibrary, recordedFinding } from "./GameLibrary.jsx";
 import { GameWorkbench, readReviewMark } from "./GameWorkbench.jsx";
 import { readVisit, reviewAddress, reviewUrl, sameGame } from "./review_route.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import React, { useEffect, useRef, useState } from "react";
-import { Button, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, PageHeader, SectionHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
   chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, readGameJob, refreshGames,
   sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
@@ -46,21 +47,22 @@ function GameResults({ groups, showFindings, results, repertoires, history = fal
         const gameTitle = game ? game.white + " vs " + game.black : result.players ? result.players.white + " vs " + result.players.black : gameLink + " · " + result.learner;
         return (
           <li key={key}>
-            {onOpen && <div className="game-row"><div><button className="game-title" onClick={() => openGame(review)}>{gameTitle}</button>
+            {onOpen && <div className="game-row"><div><Button variant="quiet" size="compact" className="game-title" onClick={() => openGame(review)}>{gameTitle}</Button>
               <p>{source} · {game?.color ? "Played "+game.color : result.learner}{date != null && " · " + new Date(date).toLocaleDateString(undefined, {timeZone:"UTC"})}
                 </p>
               {game && <><p className="game-opening-name">{[game.eco,game.opening].filter(Boolean).join(" · ") || "Opening moves"}</p>
                 <p className="game-opening-moves">{game.moves.join(" ")}</p></>}
               {game && (showFindings || comparisons.length === 1) && comparisons.map(book => <p key={book.repertoire_id}>
                 At import · {repertoires.find(b=>b.id === book.repertoire_id)?.name ?? "Recorded repertoire"} · {recordedFinding(book, game.moves)}
-                {showFindings && comparisons.length > 1 && <> · <button className="inline-link" onClick={()=>openGame({...review,repertoire_id:book.repertoire_id})}>Review this decision</button></>}
+                {showFindings && comparisons.length > 1 && <> · <Button variant="quiet" size="compact" className="inline-link" onClick={()=>openGame({...review,repertoire_id:book.repertoire_id})}>Review this decision</Button></>}
               </p>)}
               {game && !game.repertoires.length && <p>No per-repertoire comparison was recorded.</p>}
               {visit?.comparison && <p><strong>Last compared with {repertoires.find(b => b.id === visit.comparison.repertoire_id)?.name ?? visit.comparison.name}</strong>
                 {" · "}{visit.comparison.text}</p>}
               {mark && <p>{mark.document_id === visit?.comparison?.document_id ? "You marked this comparison reviewed." : "You marked an earlier comparison reviewed."}</p>}
               {visit?.saved && <p>Saved through {visit.saved.endpoint} to {repertoires.find(b => b.id === visit.saved.repertoire_id)?.name ?? visit.saved.name}</p>}
-              {visit && <button className="inline-link" onClick={() => openGame(visit.address)}>Resume last position</button>}</div>
+              {dataset && hasReviewDraft(review) && <p>Unsaved continuation in this browser</p>}
+              {visit && <Button variant="quiet" size="compact" className="inline-link" onClick={() => openGame(visit.address)}>Resume last position</Button>}</div>
               <Button onClick={() => openGame(review)}>Review game</Button></div>}
             <details className="record-details"><summary>{rows.length ? "Import-time comparison"+(rows.length > 1 ? "s · "+rows.length : "") : "Tactics tools"}</summary>
               {rows.map((result, i) => {
@@ -833,9 +835,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
   return <div className="tempo-core">
     {analysis ? <AnalysisPage origin={analysis} onClose={returnFromAnalysis} /> : (
     <main className="tempo-core repertoire-page games-page">
-      <header className="games-heading"><div><button className="return-link" onClick={onStudy}>← Study</button>
-        <h1>Games</h1><p>Review your opening against your repertoire.</p></div>
-        <Button onClick={() => { setSource("pgn"); setImportOpen(true); }}>Import PGN</Button></header>
+      <Button size="compact" variant="quiet" onClick={onStudy}>← Study</Button>
+      <PageHeader title="Games" subtitle="Review your opening against your repertoire."
+        actions={<Button onClick={() => { setSource("pgn"); setImportOpen(true); }}>Import PGN</Button>} />
       <details className="game-import" open={importOpen || !!pending || !!issue || !!jobError || !!catalogError || recoveryStatus === "blocked"}
         onToggle={e => setImportOpen(e.currentTarget.open)}><summary>Import or refresh games</summary><Surface>
         <h2>{importing ? "Import a PGN" : "Compare completed games"}</h2>
@@ -922,7 +924,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
         </Surface></details>
       )}
       <Surface>
-        <h2>Game library</h2>
+        <SectionHeader title="Game library" />
         {repertoires?.length === 0 && <p>Add a repertoire to compare your games with prepared moves. <Button onClick={onRepertoires}>Open repertoires</Button></p>}
         {history?.lastSuccessfulRefresh != null ? (
           <p>Last successful provider refresh · {new Date(history.lastSuccessfulRefresh).toLocaleString()}</p>
