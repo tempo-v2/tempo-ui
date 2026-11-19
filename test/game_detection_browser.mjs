@@ -90,7 +90,7 @@ function panel(page) {
 }
 
 async function select(page, learner) {
-  await page.locator(".game-results > li").filter({ hasText: learner })
+  await page.locator(".game-results > li").filter({ hasText: learner.toLowerCase() })
     .getByRole("button", { name: "Analyze this game", exact: true }).click();
 }
 
@@ -137,8 +137,8 @@ try {
     assert.equal(report.new_games, 1, JSON.stringify(report));
   }
   const { results } = await api("games");
-  const accepted = learner => results.find(item => item.learner === learner);
-  assert.ok(accepted("South") && accepted("West"));
+  const accepted = learner => results.find(item => item.learner === learner.toLowerCase());
+  assert.ok(accepted("South") && accepted("West"), JSON.stringify(results));
   const study = await api("study", { command: "next" });
   assert.ok(study.attempt_id, JSON.stringify(study));
 
@@ -154,7 +154,7 @@ try {
   let before = databaseRows(database);
   page = await games();
   await select(page, "South");
-  await panel(page).getByLabel("Detector", { exact: true }).selectOption("contract-fixture");
+  await panel(page).getByRole("combobox", { name: "Detector", exact: true }).selectOption("contract-fixture");
   let mark = commands.length;
   const black = await run(page, "Half-move 0 · Black to move");
   assert.equal(black.findings[0].candidate_move.uci, "g8f6");
@@ -178,7 +178,7 @@ try {
   assert.equal(white.learner_color, "white");
   assert.notEqual(white.input_key, black.input_key);
 
-  await panel(page).getByLabel("Detector", { exact: true }).selectOption("contract-alternate");
+  await panel(page).getByRole("combobox", { name: "Detector", exact: true }).selectOption("contract-alternate");
   const alternate = await run(page, "Half-move 1 · White to move");
   assert.equal(alternate.input_key, white.input_key);
   assert.notEqual(alternate.analysis_key, white.analysis_key);
@@ -190,7 +190,7 @@ try {
   before = databaseRows(database);
   page = await games();
   await select(page, "South");
-  await panel(page).getByLabel("Detector", { exact: true }).selectOption("contract-fixture");
+  await panel(page).getByRole("combobox", { name: "Detector", exact: true }).selectOption("contract-fixture");
   const renamed = await run(page, "Half-move 0 · Black to move");
   assert.equal(renamed.analysis_key, black.analysis_key);
   assert.equal(renamed.findings[0].finding_id, black.findings[0].finding_id);
@@ -209,7 +209,7 @@ try {
     before = databaseRows(database);
     page = await games();
     await select(page, "South");
-    await panel(page).getByLabel("Detector", { exact: true }).selectOption("contract-fixture");
+    await panel(page).getByRole("combobox", { name: "Detector", exact: true }).selectOption("contract-fixture");
     await run(page, message);
     assert.equal(await panel(page).getByText("Half-move", { exact: false }).count(), 0, scenario);
     assert.deepEqual(databaseRows(database), before);
@@ -221,14 +221,14 @@ try {
   before = databaseRows(database);
   page = await games();
   await select(page, "South");
-  await panel(page).getByLabel("Detector", { exact: true }).selectOption("contract-fixture");
+  await panel(page).getByRole("combobox", { name: "Detector", exact: true }).selectOption("contract-fixture");
   mark = commands.length;
   const started = page.waitForResponse(response => response.url().endsWith("/api/games/detection")
     && response.status() === 202);
   await panel(page).getByRole("button", { name: "Run detector" }).click();
   await started;
   await select(page, "West");
-  await panel(page).getByLabel("Detector", { exact: true }).selectOption("contract-fixture");
+  await panel(page).getByRole("combobox", { name: "Detector", exact: true }).selectOption("contract-fixture");
   await panel(page).getByRole("button", { name: "Run detector" }).click();
   await panel(page).getByText("A detector is still working. Try again in a moment.", { exact: true }).waitFor();
   await pause(1400);
@@ -239,7 +239,7 @@ try {
   onlyDetectorRequestsSince(mark);
 
   await select(page, "South");
-  await panel(page).getByLabel("Detector", { exact: true }).selectOption("contract-fixture");
+  await panel(page).getByRole("combobox", { name: "Detector", exact: true }).selectOption("contract-fixture");
   const startedAgain = page.waitForResponse(response => response.url().endsWith("/api/games/detection")
     && response.status() === 202);
   await panel(page).getByRole("button", { name: "Run detector" }).click();
@@ -256,6 +256,14 @@ try {
   assert.ok(commands.every(request => !["answer", "acknowledge"].includes(request.body?.command)));
   await page.close();
   console.log("Browser verified real detector discovery, addressed findings, outcomes, ownership and preserved durable state.");
+} catch (error) {
+  for (const context of browser?.contexts() ?? []) {
+    for (const page of context.pages()) {
+      const panelText = await panel(page).allTextContents();
+      if (panelText.length) console.error("Detector panel at failure:", panelText);
+    }
+  }
+  throw error;
 } finally {
   await browser?.close();
   await stop();
