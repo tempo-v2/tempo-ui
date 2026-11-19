@@ -194,6 +194,12 @@ function matchesRefresh(job, command) {
     job.commandId === command.payload.command_id;
 }
 
+function checkedModelStatus(value) {
+  if (!["idle", "running", "complete", "incomplete"].includes(value?.status))
+    throw new TypeError("Invalid Maia status.");
+  return value;
+}
+
 function evidenceFor(resource, dataset, offset) {
   return resource?.dataset === dataset && resource.offset === offset ? resource : undefined;
 }
@@ -216,6 +222,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [jobError, setJobError] = useState("");
   const [evidence, setEvidence] = useState({});
   const [modelActionError, setModelActionError] = useState("");
+  const [modelActionDataset, setModelActionDataset] = useState(null);
   const [gapActionError, setGapActionError] = useState("");
   const [analysis,setAnalysis] = useState(null);
   const [workingGap, setWorkingGap] = useState(false);
@@ -237,6 +244,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const catalogDataset = useRef(null);
   const observedRunning = useRef({ dataset: null });
   const acknowledgedRetry = useRef(null);
+  const modelAction = useRef(null);
   const inFlight = useRef(false);
   const importing = source === "pgn";
   const job = observedJob?.datasetId && observedJob.datasetId !== dataset ? null : observedJob;
@@ -325,6 +333,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
         if (catalogDataset.current !== null && catalogDataset.current !== reply.dataset_id) {
           evidenceOwner.current?.abort();
           historyOwner.current?.abort();
+          modelAction.current = null;
+          setModelActionDataset(null);
+          setModelActionError("");
           setHistory(null);
           setJob(null);
           setHistoryError("");
@@ -411,9 +422,15 @@ export function GamesPage({ onStudy, onRepertoires }) {
         name: "model",
         read: modelStatus,
         apply(value) {
+          checkedModelStatus(value);
           const summary = value.projection?.dataset_id === dataset ? value.projection : undefined;
           pendingProjection = summary?.pending > 0;
           observeStatus("model", value, { projection: summary });
+          const action = modelAction.current;
+          if (action?.dataset === dataset && action.reconciling) {
+            modelAction.current = null;
+            setModelActionDataset(null);
+          }
         },
       },
       {
@@ -487,16 +504,32 @@ export function GamesPage({ onStudy, onRepertoires }) {
   }
 
   async function analyze() {
+    if (!dataset || modelAction.current || model?.status === "running") return;
     const signal = lifecycle.current.signal;
+    const action = { dataset, reconciling: false };
+    modelAction.current = action;
+    setModelActionDataset(dataset);
     setModelActionError("");
+    const current = () => !signal.aborted && modelAction.current === action && dataset === catalogDataset.current;
     try {
-      const status = await startModel({ dataset_id: dataset }, signal);
-      if (!signal.aborted && dataset === catalogDataset.current) {
+      const status = checkedModelStatus(await startModel({ dataset_id: dataset }, signal));
+      if (current()) {
         refreshEvidenceReads();
         recordJobStatus("model", status);
       }
     } catch (error) {
-      if (!signal.aborted && dataset === catalogDataset.current) setModelActionError(error.message);
+      if (current()) {
+        // The run may have started. Reconcile its status before permitting
+        // another explicit start, even if the original reply arrives late.
+        action.reconciling = true;
+        setModelActionError(`Tempo could not confirm the Maia start. ${error.message}`);
+        refreshEvidenceReads();
+      }
+    } finally {
+      if (current() && !action.reconciling) {
+        modelAction.current = null;
+        setModelActionDataset(null);
+      }
     }
   }
 
@@ -816,7 +849,8 @@ export function GamesPage({ onStudy, onRepertoires }) {
       <Surface>
         <h2>Opponent coverage gaps</h2>
         <div className="actions">
-          <Button disabled={!dataset || model?.status === "running"} onClick={() => void analyze()}>
+          <Button disabled={!dataset || modelActionDataset === dataset || model?.status === "running"}
+            onClick={() => void analyze()}>
             Analyze Maia probabilities
           </Button>
         </div>

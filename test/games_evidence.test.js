@@ -1243,3 +1243,33 @@ test("the normal addressed running Refresh keeps its envelope until the matching
   assert.match(page.text(), /Latest refresh.*Report for refresh-a/);
   assert.equal(page.count(refreshEndpoint), 1);
 });
+
+test("a lost Maia start acknowledgement waits for current model status before another start", async t => {
+  const acknowledgement = deferred();
+  const reconciliation = deferred();
+  let state = "idle";
+  const page = await openGames(t, {
+    "GET /api/games/model": () => state === "unreadable" ? reconciliation.promise : response(model(state)),
+    "POST /api/games/model": () => acknowledgement.promise,
+  });
+  await page.click(analyzeLabel);
+  assert.equal(page.button(analyzeLabel).disabled, true);
+  state = "unreadable";
+  await page.advance(10000);
+  assert.match(page.text(), /could not confirm the Maia start/);
+  assert.equal(page.button(analyzeLabel).disabled, true);
+  await page.click(analyzeLabel);
+  assert.equal(page.count("POST /api/games/model"), 1);
+
+  state = "running";
+  await page.flush(() => reconciliation.resolve(response(model(state))));
+  assert.match(page.text(), /Maia Rapid 1500 · running/);
+  assert.equal(page.button(analyzeLabel).disabled, true);
+  await page.flush(() => acknowledgement.resolve(response(model("complete"))));
+  assert.match(page.text(), /Maia Rapid 1500 · running/);
+  state = "complete";
+  await page.advance(2000);
+  assert.match(page.text(), /Maia Rapid 1500 · complete/);
+  assert.equal(page.button(analyzeLabel).disabled, false);
+  assert.equal(page.count("POST /api/games/model"), 1);
+});
