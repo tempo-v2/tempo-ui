@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
 
 export function TacticSettingsPage({ onStudy }) {
@@ -18,7 +19,8 @@ export function TacticSettingsPage({ onStudy }) {
     setError(null);
     setNotice(null);
     try {
-      const reply = await postCommand("/api/tactic-settings", command);
+      const timeoutMs = command.command === "get" ? SMALL_READ_TIMEOUT_MS : undefined;
+      const reply = await postCommand("/api/tactic-settings", command, undefined, undefined, { timeoutMs });
       if (reply.status === "error") {
         setError(reply);
         return;
@@ -29,7 +31,7 @@ export function TacticSettingsPage({ onStudy }) {
       setSelection(reply.selection);
       if (command.command === "save") setNotice("Tactics settings saved.");
     } catch (failure) {
-      setError({ message: failure.message });
+      setError({ message: failure.message, code: failure.code });
     } finally {
       requestInFlight.current = false;
       setBusy(false);

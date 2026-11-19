@@ -1,3 +1,5 @@
+import { waitForDelivery } from "./bounded_read.js";
+
 const storeName = "commands";
 
 function largeCommand(mode, run) {
@@ -56,6 +58,23 @@ export function commandRecovery(storageKey, summarize = () => null) {
     async load() {
       return (await entry()?.load()) ?? null;
     },
+    // Detaching the tab's replay record is separate from deleting an
+    // unreferenced payload. An explicit dismissal can detach corrupt metadata.
+    async clear() {
+      const raw = sessionStorage.getItem(largeKey);
+      let pointer;
+      try { pointer = JSON.parse(raw); } catch {}
+      sessionStorage.removeItem(storageKey);
+      if (raw === null) return { orphaned: false };
+      sessionStorage.removeItem(largeKey);
+      if (typeof pointer?.id !== "string" || !pointer.id) return { orphaned: true };
+      try {
+        await largeCommand("readwrite", store => store.delete(pointer.id));
+        return { orphaned: false };
+      } catch {
+        return { orphaned: true };
+      }
+    },
     async save(command) {
       const stored = external();
       if (!command) {
@@ -88,13 +107,58 @@ export function commandRecovery(storageKey, summarize = () => null) {
 
 export const studyMoveDetails = { "X-Tempo-Move-Details": "1" };
 
-export async function postCommand(path, command, signal, headers) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
-    body: JSON.stringify(command),
-    signal,
-  });
-  if (!response.ok) throw new Error(`Server returned ${response.status}`);
-  return response.json();
+export class JsonHttpError extends Error {
+  constructor(status, details, fallback = `Server returned HTTP ${status}.`) {
+    super(details?.message || fallback);
+    this.name = "JsonHttpError";
+    this.status = status;
+    this.code = details?.code;
+    this.retryable = details?.retryable;
+    this.details = details;
+  }
+}
+
+function structuredError(value) {
+  if (value?.status !== "error" || typeof value.code !== "string" || !value.code.trim() ||
+      (Object.hasOwn(value, "message") && typeof value.message !== "string") ||
+      (Object.hasOwn(value, "retryable") && typeof value.retryable !== "boolean")) return undefined;
+  return value;
+}
+
+// Successful JSON is passed unchanged to its endpoint validator, including
+// domain errors carried in HTTP 200 responses.
+export function requestJson(path, { method, payload, headers, cache, signal, timeoutMs, expectedStatus } = {}) {
+  return waitForDelivery(signal, async requestSignal => {
+    const response = await fetch(path, {
+      ...(method !== undefined && { method }),
+      ...(cache !== undefined && { cache }),
+      ...(headers !== undefined && { headers }),
+      ...(payload !== undefined && {
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(payload),
+      }),
+      signal: requestSignal,
+    });
+    // A late response from a noncooperative fetch has no caller.
+    requestSignal?.throwIfAborted();
+    if (response.ok) {
+      if (expectedStatus !== undefined && response.status !== expectedStatus) {
+        throw new JsonHttpError(response.status, undefined,
+          `Tempo returned HTTP ${response.status} where HTTP ${expectedStatus} was expected.`);
+      }
+      return response.json();
+    }
+    let details;
+    try {
+      details = structuredError(await response.json());
+    } catch {
+      // HTML, an empty reply and malformed JSON still carry the HTTP status.
+    }
+    throw new JsonHttpError(response.status, details);
+  }, timeoutMs);
+}
+
+// PGN uploads and saves keep caller-selected waiting. They have no shared deadline.
+export function postCommand(path, command, signal, headers, { timeoutMs } = {}) {
+  return requestJson(path, { method: "POST", payload: command, headers, signal, timeoutMs });
 }
