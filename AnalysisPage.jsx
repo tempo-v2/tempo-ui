@@ -3,6 +3,7 @@ import { Board, Button, PageHeader } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
 import { AnalysisEvidence } from "./AnalysisEvidence.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
+import { moveArrow as shape } from "./move_evidence.js";
 import { playBoardMove } from "./board_move.js";
 import { MarkedLinesForm, useMarkedLines } from "./MarkedLinesForm.jsx";
 
@@ -14,12 +15,6 @@ const colors = {
   masters: "red",
   maia: "maia",
 };
-const shape = (move, brush) => ({
-  orig: move.slice(0, 2),
-  dest: move.slice(2, 4),
-  brush,
-});
-
 export function AnalysisPage({ origin, onClose }) {
   const root = origin.fen || start;
   const [path, setPath] = useState([]);

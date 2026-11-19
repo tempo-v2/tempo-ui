@@ -1,5 +1,6 @@
 import { Board } from "@tempo-v2/core-components";
 import React, { useEffect, useState } from "react";
+import { candidateMoves, engineCells, explorerCells, probabilityCells } from "./move_evidence.js";
 import { usePositionEvidence } from "./position_evidence.js";
 
 export const sources = {
@@ -10,25 +11,9 @@ export const sources = {
   maia: "Maia Rapid 1500",
 };
 
-const pct = (n) => (100 * n).toFixed(1) + "%";
-function stats(data) {
-  if (!data) return {};
-  const total = data.white + data.draws + data.black;
-  return Object.fromEntries(
-    data.moves.map((row) => {
-      const n = row.white + row.draws + row.black;
-      return [
-        row.uci,
-        total
-          ? pct(n / total) +
-            " · " +
-            n.toLocaleString() +
-            " games · " +
-            [row.white, row.draws, row.black].join("/")
-          : "0 games",
-      ];
-    }),
-  );
+function labels(cells, withResults = false) {
+  return Object.fromEntries(Object.entries(cells).map(([move, cell]) =>
+    [move, cell.text + (withResults && cell.text !== "0 games" ? " games · " + cell.results : "")]));
 }
 
 export function AnalysisEvidence({
@@ -83,24 +68,12 @@ export function AnalysisEvidence({
       similar.set(row.uci, support);
     }
   }
-  const sign = fen.split(" ")[1] === "w" ? 1 : -1;
-  const stockfish = Object.fromEntries(
-    (fish.data?.candidates || []).map((row) => [
-      row.uci,
-      row.mate != null
-        ? "Mate " + row.mate * sign
-        : ((row.centipawns * sign) / 100).toFixed(2),
-    ]),
-  );
-  const probabilities = Object.entries(maia.data?.probabilities || {}).sort(
-    (a, b) => b[1] - a[1],
-  );
   const columns = {
     repertoire: Object.fromEntries([...Object.keys(repertoire), ...similar.keys()].map((m) => [m, repertoire[m]])),
-    stockfish,
-    rated: stats(rapid.data),
-    masters: stats(masters.data),
-    maia: Object.fromEntries(probabilities.map(([m, p]) => [m, pct(p)])),
+    stockfish: labels(engineCells(fen, fish.data)),
+    rated: labels(explorerCells(rapid.data), true),
+    masters: labels(explorerCells(masters.data), true),
+    maia: labels(probabilityCells(maia.data)),
   };
   const overlay = Object.keys(sources).flatMap((source) =>
     enabled[source]
@@ -113,13 +86,7 @@ export function AnalysisEvidence({
   useEffect(() => {
     onOverlay(overlay);
   }, [fen, overlayKey]);
-  const rows = [
-    ...new Set([
-      ...pins,
-      ...Object.values(columns).flatMap((column) => Object.keys(column)),
-      ...moves.keys(),
-    ]),
-  ].filter((m) => moves.has(m));
+  const rows = candidateMoves(moves, [pins, ...Object.values(columns).map(Object.keys), [...moves.keys()]]);
   return (
     <section aria-label="Move comparison">
       <div className="actions">

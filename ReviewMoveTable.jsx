@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useState } from "react";
+import {candidateMoves, engineCells, engineRankShapes, explorerCells, leadingMeasuredMoves, measurementText, probabilityCells} from "./move_evidence.js";
 import { usePositionEvidence } from "./position_evidence.js";
 
 const labels = {exact:"Prepared", nearby:"Nearby", stockfish:"Stockfish", rated:"Lichess Rapid", maia:"Maia"};
@@ -9,63 +10,48 @@ const descriptions = {
   rated:"Move frequency in the Lichess Rapid 1400–1599 sample. Counts show games with the move.",
   maia:"Predicted move probability for Maia’s Rapid 1500 profile.",
 };
-const pct = n => (n*100).toFixed(1) + "%";
 
-export function ReviewMoveTable({ fen, book, review, legal, prepared, play, locked, circle, setCircle, onEngineMarks }) {
+
+export function ReviewMoveTable({ fen, book, review, legal, prepared, played, onPlayedLine, repertoireEvidence,
+  retryRepertoire, play, locked, circle, setCircle, onEngineMarks }) {
   const [columns,setColumns] = useState(Object.keys(labels));
   const [enabled,setEnabled] = useState({exact:true,nearby:true,stockfish:true});
   const [count,setCount] = useState(3);
   const [retry,setRetry] = useState(0);
   const [sortOverride,setSortOverride] = useState(null);
   const whiteToMove = fen.split(" ")[1] === "w";
-  const sort = sortOverride ?? {column:"stockfish",desc:whiteToMove};
+  const preferredSort = sortOverride ?? {column:"stockfish",desc:whiteToMove};
+  const sort = preferredSort.column === "move" || enabled[preferredSort.column] ? preferredSort : {column:"move",desc:false};
   const [showRanks,setShowRanks] = useState(false);
-  const repertoire = usePositionEvidence(fen,"repertoire",{dataset_id:review.dataset_id,
-    learner_color:review.learner_color,repertoire_id:book?.id},[review.revision,retry],legal,
-    !!book && (enabled.exact || enabled.nearby));
+  const repertoire = book ? repertoireEvidence : {error:"Select a repertoire"};
   const fish = usePositionEvidence(fen,"stockfish",{pins:[],candidate_count:count},retry,legal,enabled.stockfish ?? false);
   useLayoutEffect(() => {
-    const squares = new Map();
-    if (showRanks && enabled.stockfish) {
-      for (const [i,row] of (fish.data?.candidates || []).entries()) {
-        const dest = row.uci.slice(2,4);
-        if (!squares.has(dest)) squares.set(dest,[]);
-        squares.get(dest).push(i+1);
-      }
-    }
-    onEngineMarks({fen, shapes:[...squares].map(([orig,ranks]) => ({
-      orig,brush:"blue",label:{text:ranks.join("/"),fill:"#285473"},
-    }))});
+    const shapes = showRanks && enabled.stockfish ? engineRankShapes(fish.data?.candidates) : [];
+    onEngineMarks({fen, shapes});
   },[fen,fish.data,showRanks,enabled.stockfish,onEngineMarks]);
   const rapid = usePositionEvidence(fen,"rated",{ratings:"around1500"},retry,legal,enabled.rated ?? false);
   const maia = usePositionEvidence(fen,"maia",{},retry,legal,enabled.maia ?? false);
-  const replies = {exact:repertoire,nearby:repertoire,stockfish:fish,rated:rapid,maia};
-  const rows = new Map();
-  function cell(move,column,score,text) {
-    if (!enabled[column] || !legal.has(move)) return;
-    if (!rows.has(move)) rows.set(move,{});
-    rows.get(move)[column] = {score,text};
-  }
-  for (const move of prepared) cell(move,"exact",1,"Saved");
-  for (const row of repertoire.data?.exact || []) if (row.repertoire_id === book?.id) cell(row.uci,"exact",1,"Saved");
-  for (const row of repertoire.data?.similar_responses.current || []) cell(row.uci,"nearby",row.position_count,row.position_count);
-  const sign = whiteToMove ? 1 : -1;
-  for (const row of fish.data?.candidates || []) {
-    const score = row.centipawns != null ? sign*row.centipawns/100 : null;
-    cell(row.uci,"stockfish",score ?? sign*Math.sign(row.mate)*(1e6-Math.abs(row.mate)),
-      score == null ? "M" + (sign*row.mate) : (score>0?"+":"") + score.toFixed(2));
-  }
-  if (rapid.data) {
-    const {white,draws,black,moves} = rapid.data;
-    for (const row of moves) {
-      const n = row.white + row.draws + row.black;
-      cell(row.uci,"rated",n,pct(n/(white+draws+black || 1))+" · "+n.toLocaleString());
-    }
-  }
-  for (const [move,p] of Object.entries(maia.data?.probabilities || {})) cell(move,"maia",p,pct(p));
+  // The played timeline already carries the authored answers at its addressed version.
+  // Exploration receives those facts only after the evidence owner confirms the same document.
+  const exactAvailable = !repertoire.stale && !!book && review.comparison?.source_available && (onPlayedLine || !!repertoire.data);
+  const replies = {exact:exactAvailable ? {data:true} : repertoire, nearby:repertoire, stockfish:fish, rated:rapid, maia};
+  const savedMoves = exactAvailable ? prepared : [];
+  const values = {
+    exact:Object.fromEntries(savedMoves.map(move => [move,{score:1,text:"Saved"}])),
+    nearby:Object.fromEntries((repertoire.data?.similar_responses.current ?? [])
+      .map(row => [row.uci,{score:row.position_count,text:String(row.position_count)}])),
+    stockfish:engineCells(fen,fish.data), rated:explorerCells(rapid.data), maia:probabilityCells(maia.data),
+  };
+  const rows = candidateMoves(legal, [
+    savedMoves, [played, circle],
+    ...(enabled.nearby ? [leadingMeasuredMoves(values.nearby)] : []),
+    ...(enabled.stockfish ? [Object.keys(values.stockfish)] : []),
+    ...(enabled.rated ? [leadingMeasuredMoves(values.rated)] : []),
+    ...(enabled.maia ? [leadingMeasuredMoves(values.maia)] : []),
+  ]);
   const visible = columns.filter(c => enabled[c]);
-  const sorted = [...rows.keys()].sort((a,b) => {
-    const first = rows.get(a)[sort.column]?.score, second = rows.get(b)[sort.column]?.score;
+  const sorted = rows.sort((a,b) => {
+    const first = values[sort.column]?.[a]?.score, second = values[sort.column]?.[b]?.score;
     if (first != null && second == null) return -1;
     if (first == null && second != null) return 1;
     return (first != null && second != null ? (first-second)*(sort.desc?-1:1) : 0)
@@ -78,6 +64,7 @@ export function ReviewMoveTable({ fen, book, review, legal, prepared, play, lock
   if (sort.column==="move" && sort.desc) sorted.reverse();
   return <section className="candidate-panel" aria-label="Move comparison">
     <details><summary>Comparison sources and columns</summary>
+      <p>Prepared, played and circled moves stay in the list. Each enabled source contributes up to three ranked moves with positive support, or the number of Stockfish lines you choose.</p>
       {columns.map((key,i) => <div className="review-source" key={key}>
         <label><input type="checkbox" checked={!!enabled[key]} onChange={e=>setEnabled({...enabled,[key]:e.target.checked})}/>{labels[key]}</label>
         <button aria-label={"Move "+labels[key]+" column left"} disabled={!i} onClick={()=>{
@@ -89,10 +76,10 @@ export function ReviewMoveTable({ fen, book, review, legal, prepared, play, lock
       {showRanks && <small> Numbers show engine rank for the side to move.</small>}</div>}
     {visible.filter(c=>!replies[c].data).map(c=><small key={c} role="status">{labels[c]} · {
       (c==="exact" || c==="nearby") && !book ? "Select a repertoire" : replies[c].error || "Checking position…"}</small>)}
-    {Object.values(replies).some(r=>r.error) && <button onClick={()=>setRetry(n=>n+1)}>Retry sources</button>}
+    {Object.values(replies).some(r=>r.error) && <button onClick={()=>{setRetry(n=>n+1);retryRepertoire();}}>Retry sources</button>}
     <div className="review-comparison-scroll"><table><thead><tr>{header("move","Move")}{visible.map(k=>header(k,labels[k]))}<th>Mark</th></tr></thead>
       <tbody>{sorted.map(m=><tr key={m}><td><button disabled={locked} onClick={()=>play(m)}>{legal.get(m).san}</button></td>
-        {visible.map(k=><td key={k}>{rows.get(m)[k]?.text ?? "—"}</td>)}
+        {visible.map(k=><td key={k}>{measurementText(values[k][m],replies[k])}</td>)}
         <td><button aria-label={"Circle "+legal.get(m).san} aria-pressed={circle===m} onClick={()=>setCircle(circle===m?null:m)}>◎</button></td></tr>)}</tbody></table></div>
     {!sorted.length && <p>No candidate moves from the selected sources yet.</p>}
     <small>Positive engine scores favor White. A dash means the source supplied no value for that move.</small>
