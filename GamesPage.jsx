@@ -1,6 +1,8 @@
+import { GameWorkbench, readReviewMark } from "./GameWorkbench.jsx";
+import { readVisit, reviewAddress, reviewUrl, sameGame } from "./review_route.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import React, { useEffect, useRef, useState } from "react";
-import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
   chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, readGameJob, refreshGames,
   sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
@@ -12,20 +14,49 @@ import { GameDetectionPanel } from "./GameDetectionPanel.jsx";
 import { readGapContinuation } from "./gap_save.js";
 import { commandRecovery } from "./content_transport.js";
 
-function GameResults({ results, repertoires, history = false, onChoose, dataset }) {
+// History is newest-comparison first. Group only the history window; a command report
+// keeps its original per-result rows and command outcomes.
+function groupGames(results, history) {
+  if (!history) return results.map((result, index) => ({key:index, rows:[result]}));
+  const rowsByGame = new Map();
+  for (const result of results) {
+    const key = JSON.stringify([result.source, result.game_id, result.learner]);
+    if (!rowsByGame.has(key)) rowsByGame.set(key, []);
+    rowsByGame.get(key).push(result);
+  }
+  return [...rowsByGame].map(([key, rows]) => ({key, rows}));
+}
+
+function GameResults({ results, repertoires, history = false, onChoose, dataset, onOpen }) {
   const [detectorRow, setDetectorRow] = useState(null);
   return (
     <ul className="game-results">
-      {results.map((result, index) => {
-        const repertoire = repertoires.find(item => item.id === result.repertoire_id);
+      {groupGames(results, history).map(({rows, key}) => {
+        const result = rows[0];
         const source = Object.hasOwn(sourceNames, result.source) ? sourceNames[result.source] : "Game";
-        const gameLink = `${source} game`;
-        // Reports can repeat a comparison and legacy receipts may omit its ID.
-        const key = history && result.comparison_id
-          ? result.comparison_id
-          : JSON.stringify([result.comparison_id, index]);
+        const gameLink = source + " game";
+        const destination = result.repertoire_id || (result.repertoires?.length === 1 ? result.repertoires[0].repertoire_id : null);
+        const review = { dataset_id: dataset, source: result.source, game_id: result.game_id,
+          learner: result.learner, repertoire_id: destination };
+        const visit = dataset && readVisit(review);
+        const mark = dataset && readReviewMark(visit?.address ?? review);
+        const date = result.players?.played_date_ms ?? result.occurrence_end_ms;
+        const gameTitle = result.players ? result.players.white + " vs " + result.players.black : gameLink + " · " + result.learner;
         return (
           <li key={key}>
+            {onOpen && <div className="game-row"><div><button className="game-title" onClick={() => onOpen(review)}>{gameTitle}</button>
+              <p>{source} · {result.learner}{date != null && " · " + new Date(date).toLocaleDateString(undefined, {timeZone:"UTC"})}
+                </p>
+              {visit?.comparison && <p><strong>Last compared with {repertoires.find(b => b.id === visit.comparison.repertoire_id)?.name ?? visit.comparison.name}</strong>
+                {" · "}{visit.comparison.text}</p>}
+              {mark && <p>{mark.document_id === visit?.comparison?.document_id ? "You marked this comparison reviewed." : "You marked an earlier comparison reviewed."}</p>}
+              {visit?.saved && <p>Saved through {visit.saved.endpoint} to {repertoires.find(b => b.id === visit.saved.repertoire_id)?.name ?? visit.saved.name}</p>}
+              {visit && <button className="inline-link" onClick={() => onOpen(visit.address)}>Resume last position</button>}</div>
+              <Button onClick={() => onOpen(review)}>Review game</Button></div>}
+            <details className="record-details"><summary>Import-time comparison{rows.length > 1 ? "s · " + rows.length : ""}</summary>
+              {rows.map((result, i) => {
+                const repertoire = repertoires.find(item => item.id === result.repertoire_id);
+                return <div key={result.comparison_id || i} className="comparison-record">
             <div>
               {result.url
                 ? <a href={result.url} target="_blank" rel="noopener noreferrer">{gameLink}</a>
@@ -75,11 +106,12 @@ function GameResults({ results, repertoires, history = false, onChoose, dataset 
               </div>
             ))}
             <p>{result.matches} matched · {result.deviations} learner misses · {result.opponent_deviations} opponent deviations · {result.coverage_gaps} outside coverage</p>
+            </div>; })}
             {history && dataset && (
               <>
                 <Button onClick={() => setDetectorRow(detectorRow === key ? null : key)}
                   aria-expanded={detectorRow === key}>
-                  {detectorRow === key ? "Close detector" : "Analyze this game"}
+                  {detectorRow === key ? "Close detector" : "Open tactics detector"}
                 </Button>
                 {detectorRow === key && (
                   <GameDetectionPanel key={JSON.stringify([dataset, result.source, result.game_id, result.learner])}
@@ -87,6 +119,7 @@ function GameResults({ results, repertoires, history = false, onChoose, dataset 
                 )}
               </>
             )}
+            </details>
           </li>
         );
       })}
@@ -149,7 +182,7 @@ function HistoricalImport({ job, disabled, onStart, onRetry }) {
   );
 }
 
-function GameReport({ report, importing, repertoires }) {
+function GameReport({ report, importing, repertoires, dataset, onOpen, history }) {
   return (
     <>
       <dl className="content-preview">
@@ -168,7 +201,10 @@ function GameReport({ report, importing, repertoires }) {
           <ul>{report.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>
         </StatusNotice>
       )}
-      <GameResults results={report.results} repertoires={repertoires} />
+      <GameResults results={report.results.map(row => {
+        const match = history?.results.find(candidate => sameGame(candidate,row));
+        return match ? { ...row, players: match.players } : row;
+      })} repertoires={repertoires} dataset={dataset} onOpen={onOpen} />
     </>
   );
 }
@@ -203,6 +239,22 @@ function gapKey(gap) {
 }
 
 export function GamesPage({ onStudy, onRepertoires }) {
+  const [review, setReview] = useState(reviewAddress);
+  const [importOpen, setImportOpen] = useState(false);
+  useEffect(() => {
+    function sync() { setReview(reviewAddress()); }
+    window.addEventListener("popstate", sync);
+    window.addEventListener("hashchange", sync);
+    return () => { window.removeEventListener("popstate", sync); window.removeEventListener("hashchange", sync); };
+  }, []);
+  function openReview(next) {
+    window.history.pushState(null, "", reviewUrl(next)); setReview(next);
+    window.scrollTo?.(0, 0);
+  }
+  function closeReview() {
+    window.history.pushState(null, "", "#games"); setReview(null);
+    refreshHistory(); refreshEvidenceReads();
+  }
   const [source, setSource] = useState("lichess");
   const [repertoires, setRepertoires] = useState(null);
   const [dataset, setDataset] = useState(null);
@@ -761,12 +813,18 @@ export function GamesPage({ onStudy, onRepertoires }) {
       refreshEvidenceReads();
     }
   }
+  if (review && !activeGap) return <GameWorkbench address={review} dataset={dataset} books={repertoires ?? []}
+    onClose={closeReview} changeBook={id => openReview({...review, repertoire_id:id, ply:null, start:null, branch:[]})}
+    onSaved={() => {refreshHistory(); refreshEvidenceReads();}} />;
   return <div className="tempo-core">
     {analysis ? <AnalysisPage origin={analysis} onClose={returnFromAnalysis} /> : (
     <main className="tempo-core repertoire-page games-page">
-      <PageHeader title="Games" actions={<Button onClick={onStudy}>Study</Button>} />
-      <Surface>
-        <h2>Compare completed games</h2>
+      <header className="games-heading"><div><button className="return-link" onClick={onStudy}>← Study</button>
+        <h1>Games</h1><p>Review your opening against your repertoire.</p></div>
+        <Button onClick={() => { setSource("pgn"); setImportOpen(true); }}>Import PGN</Button></header>
+      <details className="game-import" open={importOpen || !!pending || !!issue || !!jobError || !!catalogError || recoveryStatus === "blocked"}
+        onToggle={e => setImportOpen(e.currentTarget.open)}><summary>Import or refresh games</summary><Surface>
+        <h2>{importing ? "Import a PGN" : "Compare completed games"}</h2>
         {catalogError && <StatusNotice kind="error">{catalogError}</StatusNotice>}
         {repertoires?.length === 0 && (
           <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
@@ -835,7 +893,39 @@ export function GamesPage({ onStudy, onRepertoires }) {
             refreshEvidenceReads();
           }}>Reload Games</Button>
         )}
+      </Surface></details>
+      {confirmedRefresh && (!shownAsCurrent || importReport) && (
+        <Surface>
+          <h2>Recovered refresh results</h2>
+          <GameReport report={confirmedRefresh.report} importing={false} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />
+        </Surface>
+      )}
+      {(refreshFailed || report) && (
+        <Surface>
+          <h2>{importReport ? "Import results" : "Latest refresh"}</h2>
+          {refreshFailed && <StatusNotice kind="error">{job.error}</StatusNotice>}
+          {report && <GameReport report={report} importing={!!importReport} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />}
+        </Surface>
+      )}
+      <Surface>
+        <h2>Game library</h2>
+        {history?.results.length > 0 && <p className="library-window">Games from the latest 100 comparisons.</p>}
+        {repertoires?.length === 0 && <p>Add a repertoire to compare your games with prepared moves. <Button onClick={onRepertoires}>Open repertoires</Button></p>}
+        {history?.lastSuccessfulRefresh != null ? (
+          <p>Last successful provider refresh · {new Date(history.lastSuccessfulRefresh).toLocaleString()}</p>
+        ) : null}
+        {historyError && (
+          <>
+            <StatusNotice kind="error">{historyError}</StatusNotice>
+            <Button onClick={refreshHistory}>Reload game evidence</Button>
+          </>
+        )}
+        {history ? history.results.length > 0
+          ? <GameResults key={dataset} dataset={dataset} history onOpen={openReview} onChoose={commandsBlocked || busy || refreshing ? undefined : choose} results={history.results} repertoires={repertoires ?? []} />
+          : <div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>
+          : !historyError && <p role="status">Loading game evidence…</p>}
       </Surface>
+      <details className="advanced-games"><summary>Provider history and opponent coverage gaps</summary>
       <HistoricalImport key={backfill?.job_id ?? "idle"} job={backfill}
         disabled={!dataset || busy || commandsBlocked || refreshing} onStart={beginBackfill}
         onRetry={() => void run(() => ({ kind: "backfill-retry", payload: {
@@ -880,35 +970,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           ))}</ul>
         )}
       </Surface>
-      {confirmedRefresh && (!shownAsCurrent || importReport) && (
-        <Surface>
-          <h2>Recovered refresh results</h2>
-          <GameReport report={confirmedRefresh.report} importing={false} repertoires={repertoires ?? []} />
-        </Surface>
-      )}
-      {(refreshFailed || report) && (
-        <Surface>
-          <h2>{importReport ? "Import results" : "Latest refresh"}</h2>
-          {refreshFailed && <StatusNotice kind="error">{job.error}</StatusNotice>}
-          {report && <GameReport report={report} importing={!!importReport} repertoires={repertoires ?? []} />}
-        </Surface>
-      )}
-      <Surface>
-        <h2>Game evidence</h2>
-        {history?.lastSuccessfulRefresh != null ? (
-          <p>Last successful provider refresh · {new Date(history.lastSuccessfulRefresh).toLocaleString()}</p>
-        ) : history && <p>No successful provider refresh recorded.</p>}
-        {historyError && (
-          <>
-            <StatusNotice kind="error">{historyError}</StatusNotice>
-            <Button onClick={refreshHistory}>Reload game evidence</Button>
-          </>
-        )}
-        {history ? history.results.length > 0
-          ? <GameResults key={dataset} dataset={dataset} history onChoose={commandsBlocked || busy || refreshing ? undefined : choose} results={history.results} repertoires={repertoires ?? []} />
-          : <p>No games recorded yet.</p>
-          : !historyError && <p role="status">Loading game evidence…</p>}
-      </Surface>
+      </details>
     </main>)}
       {activeGap && (
         <GapEditor key={gapKey(activeGap.address)} gap={activeGap} suspended={!!analysis} onAnalyze={setAnalysis}
