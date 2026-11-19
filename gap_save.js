@@ -1,5 +1,5 @@
 import { gapDraft } from "./game_commands.js";
-import { readPendingRepertoireCommand } from "./repertoire_commands.js";
+import { pendingRepertoireEntry } from "./repertoire_recovery.js";
 
 export const staleGapCodes = new Set(["stale_dataset", "stale_draft", "stale_gap", "stale_preview", "stale_repertoire", "unavailable_repertoire"]);
 
@@ -33,13 +33,14 @@ const continuationKey = "tempo-gap-save-continuation-v1";
 export function readGapContinuation() {
   try {
     const saved = JSON.parse(sessionStorage.getItem(continuationKey) || "null");
-    const pending = readPendingRepertoireCommand();
+    const entry = pendingRepertoireEntry();
+    const pending = entry?.command;
     if (!saved?.token || !saved.gap?.address?.dataset_id || !saved.gap.address.repertoire_id ||
         !saved.gap.details?.draft?.legal_moves?.includes(saved.response) ||
         !Array.isArray(saved.gap.passed) || !Number.isSafeInteger(saved.gap.offset)) return null;
     if (pending) return pending.command === "save" && pending.token === saved.token &&
       pending.dataset_id === saved.gap.address.dataset_id && pending.repertoire_id === saved.gap.address.repertoire_id
-      ? { ...saved, pending } : null;
+      ? { ...saved, loadPending: entry.load } : null;
     return saved.accepted ? saved : null;
   } catch {
     return null;

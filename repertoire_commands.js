@@ -1,18 +1,12 @@
 import { boundedRead } from "./bounded_read.js";
-import { commandRecovery, postCommand } from "./content_transport.js";
+import { postCommand } from "./content_transport.js";
 import { freeze, string, validateErrorView } from "./wire_values.js";
 
-const recovery = commandRecovery("tempo-repertoire-recovery-v4");
-export const readPendingRepertoireCommand = recovery.load;
-export const savePendingRepertoireCommand = recovery.save;
-
-export function hasPendingRepertoireCommand() {
-  try {
-    return !!recovery.load();
-  } catch {
-    return false;
-  }
-}
+export {
+  hasPendingRepertoireCommand,
+  readPendingRepertoireCommand,
+  savePendingRepertoireCommand,
+} from "./repertoire_recovery.js";
 
 export async function sendRepertoireCommand(command, signal) {
   const reply = validateRepertoireReply(await postCommand("/api/repertoires", command, signal), command.command);

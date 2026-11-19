@@ -5,7 +5,7 @@ import { playBoardMove } from "./board_move.js";
 import { GapAnalysis, GapExplorer } from "./GapAnalysis.jsx";
 import { previewGapResponse, repertoireError, staleGapCodes, writeGapContinuation } from "./gap_save.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
-import { readPendingRepertoireCommand, savePendingRepertoireCommand, sendRepertoireCommand } from "./repertoire_commands.js";
+import { hasPendingRepertoireCommand, savePendingRepertoireCommand, sendRepertoireCommand } from "./repertoire_commands.js";
 
 const percent = value => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
 const shape = (uci, brush) => ({ orig: uci.slice(0, 2), dest: uci.slice(2, 4), brush });
@@ -21,7 +21,8 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   const [issue, setIssue] = useState("");
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState(recovery?.pending ?? null);
+  const [pending, setPending] = useState(null);
+  const [loadPending, setLoadPending] = useState(() => recovery?.loadPending);
   const [settled, setSettled] = useState(recovery?.accepted ? { status: "repertoires" } : null);
   const saveToken = useRef(recovery?.token);
   const inFlight = useRef(false);
@@ -58,7 +59,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     ...(selected ? [shape(selected, "green")] : []),
     ...(compare ? [shape(preview, "blue")] : []),
   ];
-  const locked = busy || !!pending || !!settled || stale;
+  const locked = busy || !!pending || !!loadPending || !!settled || stale;
   const moveNumber = Number(draft.fen.split(" ")[5]) - (color === "white" ? 1 : 0);
   const opponentLabel = `${moveNumber}${color === "white" ? "…" : "."}${actual_san}`;
 
@@ -116,8 +117,9 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     setSettled(reply);
     if (reply.status !== "error" && clearRecovery) remember(saveToken.current, true);
     if (clearRecovery) {
-      savePendingRepertoireCommand(null);
+      await savePendingRepertoireCommand(null);
       setPending(null);
+      setLoadPending(undefined);
     }
     if (reply.status === "error") {
       writeGapContinuation(null);
@@ -130,7 +132,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   }
 
   function close() {
-    if (!inFlight.current && !pending) {
+    if (!inFlight.current && !pending && !loadPending) {
       if (settled) writeGapContinuation(null);
       onClose(settled?.status === "repertoires" ? selectedLabel : undefined);
     }
@@ -145,12 +147,17 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     setFocus("");
     try {
       if (settled) {
-        await finish(settled, !!pending);
+        await finish(settled, !!pending || !!loadPending);
         return;
       }
       let command = pending;
+      if (loadPending) {
+        command = await loadPending();
+        setPending(command);
+        setLoadPending(undefined);
+      }
       if (!command) {
-        if (readPendingRepertoireCommand()) throw new Error("A repertoire save is still pending. Reload Tempo to recover it.");
+        if (hasPendingRepertoireCommand()) throw new Error("A repertoire save is still pending. Reload Tempo to recover it.");
         try {
           command = await previewGapResponse(gap, selected, AbortSignal.timeout(10_000));
         } catch (error) {
@@ -158,7 +165,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
           throw error;
         }
         remember(command.token);
-        savePendingRepertoireCommand(command);
+        await savePendingRepertoireCommand(command);
         saveToken.current = command.token;
         setPending(command);
       }
@@ -199,7 +206,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
             <Button disabled={busy} onClick={() => void save()}>
               {busy ? "Loading next gap…" : settled.status === "error" ? "Finish recovery" : "Retry loading next gap"}
             </Button>
-            <Button disabled={busy || !!pending} onClick={close}>Close</Button>
+            <Button disabled={busy || !!pending || !!loadPending} onClick={close}>Close</Button>
           </div>
         ) : (
           <>
@@ -240,9 +247,9 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               })}>Analyze lines</Button>
               {selected && <Button disabled={locked} onClick={() => select("")}>Clear response</Button>}
               <Button variant="primary" disabled={busy || !selected} onClick={() => void save()}>
-                {busy ? "Saving response…" : pending ? "Retry save" : "Save response"}
+                {busy ? "Saving response…" : pending || loadPending ? "Retry save" : "Save response"}
               </Button>
-              <Button disabled={busy || !!pending} onClick={close}>Close</Button>
+              <Button disabled={busy || !!pending || !!loadPending} onClick={close}>Close</Button>
             </div>
           </>
         )}

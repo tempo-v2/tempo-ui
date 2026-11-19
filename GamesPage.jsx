@@ -2,13 +2,14 @@ import { AnalysisPage } from "./AnalysisPage.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
-  chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, maxGameCommandBytes, readGameHistory, readGameJob, refreshGames,
+  chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, readGameJob, refreshGames,
   sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
   readGaps, retryHistorical, startHistorical, startModel,
 } from "./game_commands.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
 import { GapEditor } from "./GapEditor.jsx";
 import { readGapContinuation } from "./gap_save.js";
+import { commandRecovery } from "./content_transport.js";
 
 function GameResults({ results, repertoires, history = false, onChoose }) {
   return (
@@ -158,12 +159,12 @@ function GameReport({ report, importing, repertoires }) {
   );
 }
 
-const pendingKey = "tempo.games.pending.v1";
+const gameRecovery = commandRecovery("tempo.games.pending.v1");
 const evidencePollMs = 2000;
 const gapDraftTimeoutMs = 5000;
 
 function pendingGame() {
-  try { return JSON.parse(sessionStorage.getItem(pendingKey)); }
+  try { return gameRecovery.entry(); }
   catch { return null; }
 }
 
@@ -179,7 +180,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [source, setSource] = useState("lichess");
   const [repertoires, setRepertoires] = useState(null);
   const [dataset, setDataset] = useState(null);
-  const [pending, setPending] = useState(pendingGame);
+  const [savedGame] = useState(pendingGame);
+  const [pending, setPending] = useState(savedGame?.command ?? null);
+  const [loadingRecovery, setLoadingRecovery] = useState(!!savedGame && !savedGame.command);
+  const [recoveryError, setRecoveryError] = useState(false);
   const [catalogError, setCatalogError] = useState("");
   const [history, setHistory] = useState(null);
   const [historyError, setHistoryError] = useState("");
@@ -514,11 +518,23 @@ export function GamesPage({ onStudy, onRepertoires }) {
     }
   }
 
-  function remember(command) {
+  useEffect(() => {
+    if (!loadingRecovery) return;
+    let current = true;
+    savedGame.load().then(command => {
+      if (current) setPending(command);
+    }).catch(() => {
+      if (current) setRecoveryError(true);
+    }).finally(() => {
+      if (current) setLoadingRecovery(false);
+    });
+    return () => { current = false; };
+  }, [loadingRecovery, savedGame]);
+
+  async function remember(command) {
     setPending(command);
     try {
-      if (command) sessionStorage.setItem(pendingKey, JSON.stringify(command));
-      else sessionStorage.removeItem(pendingKey);
+      await gameRecovery.save(command);
     } catch { /* Keep the command in memory when the browser limits storage. */ }
   }
 
@@ -535,7 +551,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
         }
       }
       refreshEvidenceReads();
-      remember(null);
+      await remember(null);
     } else if (command.kind !== "refresh") {
       const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
       const result = await submitGame(command.payload, signal);
@@ -543,7 +559,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       setImportReport(result);
       refreshHistory();
       refreshEvidenceReads();
-      remember(null);
+      await remember(null);
     } else {
       await refreshGames(command.payload, signal);
       if (signal.aborted) return;
@@ -554,11 +570,11 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   useEffect(() => {
     if (pending?.kind === "refresh" && job?.status === "complete" &&
-        job.commandId === pending.payload.command_id) remember(null);
+        job.commandId === pending.payload.command_id) void remember(null);
   }, [job, pending]);
 
   async function run(build, { recovering = false } = {}) {
-    if (inFlight.current || (!recovering && (!job || jobError))) return;
+    if (loadingRecovery || recoveryError || inFlight.current || (!recovering && (!job || jobError))) return;
     const signal = lifecycle.current.signal;
     inFlight.current = true;
     setBusy(true);
@@ -567,8 +583,8 @@ export function GamesPage({ onStudy, onRepertoires }) {
     try {
       const command = await build();
       if (!signal.aborted) {
-        if (!recovering) remember(command);
-        await deliver(command, signal);
+        if (!recovering) await remember(command);
+        if (!signal.aborted) await deliver(command, signal);
       }
     } catch (error) {
       if (!signal.aborted) {
@@ -594,7 +610,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
       const identity = { command_id: crypto.randomUUID(), dataset_id: dataset };
       if (importing) {
         const file = form.get("file");
-        if (file.size > maxGameCommandBytes) throw new Error("Choose a PGN file under 2 MiB.");
         const pgn = file.size ? await file.text() : form.get("pgn");
         if (!pgn.trim()) throw new Error("Choose a PGN file or paste a completed game.");
         if (file.size && form.get("pgn").trim())
@@ -637,7 +652,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
         )}
         <form className="repertoire-form" onSubmit={submit}>
-          <fieldset disabled={busy || !!pending || refreshing || !dataset}>
+          <fieldset disabled={busy || loadingRecovery || recoveryError || !!pending || refreshing || !dataset}>
             <div className="repertoire-fields">
               <label>Source <select value={source} onChange={event => setSource(event.target.value)}>
                 {Object.entries(sourceNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
@@ -668,10 +683,20 @@ export function GamesPage({ onStudy, onRepertoires }) {
           </fieldset>
         </form>
         {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
+        {recoveryError && (
+          <div className="actions">
+            <StatusNotice kind="error">Tempo could not read the pending Games request.</StatusNotice>
+            <Button onClick={() => { setRecoveryError(false); setLoadingRecovery(true); }}>Retry recovery</Button>
+            <Button onClick={async () => {
+              await remember(null);
+              setRecoveryError(false);
+            }}>Dismiss pending request</Button>
+          </div>
+        )}
         {pending && !busy && !refreshing && (
           <div className="actions">
             <Button onClick={() => void run(() => pending, { recovering: true })}>Retry same request</Button>
-            <Button onClick={() => { remember(null); setIssue(""); }}>Dismiss pending request</Button>
+            <Button onClick={() => { void remember(null); setIssue(""); }}>Dismiss pending request</Button>
           </div>
         )}
         {jobError && <StatusNotice kind="error">{jobError}</StatusNotice>}

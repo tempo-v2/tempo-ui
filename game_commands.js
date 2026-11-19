@@ -3,7 +3,6 @@ import { string } from "./wire_values.js";
 
 const endpoint = "/api/games";
 export const utcDayMs = 86_400_000;
-export const maxGameCommandBytes = 2 * 1024 * 1024;
 
 export const sourceNames = Object.freeze({
   lichess: "Lichess",
@@ -98,9 +97,6 @@ function gameReport(reply) {
 
 async function request(path, payload, signal) {
   const json = payload === undefined ? undefined : JSON.stringify(payload);
-  if (path === "/import" && new TextEncoder().encode(json).length > maxGameCommandBytes) {
-    throw new Error("This PGN import exceeds 2 MiB. Split the games into smaller batches.");
-  }
   const init = json === undefined
     ? { cache: "no-store", signal }
     : {

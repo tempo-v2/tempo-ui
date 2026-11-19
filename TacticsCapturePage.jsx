@@ -128,6 +128,7 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
   const [dirtyRows, setDirtyRows] = useState([]);
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [recovering, setRecovering] = useState(true);
   const [issue, setIssue] = useState(null);
   const [notice, setNotice] = useState(null);
   const file = useRef(null);
@@ -136,7 +137,7 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
   const saveGeneration = useRef(null);
   const fileRead = useRef(0);
   const inFlight = useRef(false);
-  const locked = busy || !!pending;
+  const locked = busy || recovering || !!pending;
   const validRows = preview?.rows.filter(row => row.status === "valid" && !dirtyRows.includes(row.record)) ?? [];
 
   async function loadDataset() {
@@ -145,22 +146,22 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
     setDataset(reply.dataset_id);
   }
 
-  async function request(command, durable = false) {
+  async function request(command, durable = false, stored = false) {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setIssue(null);
     if (command.command === "save") setNotice(null);
     const requestedGeneration = generation.current;
-    if (durable && command !== pending) saveGeneration.current = requestedGeneration;
+    if (durable && !stored) saveGeneration.current = requestedGeneration;
     try {
       if (durable) {
-        tacticRecovery.save(command);
+        if (!stored) await tacticRecovery.save(command);
         setPending(command);
       }
       const reply = await sendTacticCommand(command);
       if (durable && (reply.status !== "error" || !reply.retryable)) {
-        tacticRecovery.save(null);
+        await tacticRecovery.save(null);
         setPending(null);
       }
       if (reply.status === "error") {
@@ -197,19 +198,24 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
     }
   }
 
-  useEffect(() => {
+  async function resumeRecovery() {
+    setRecovering(true);
+    setIssue(null);
     try {
-      const recovered = tacticRecovery.load();
+      const recovered = await tacticRecovery.load();
+      setRecovering(false);
       if (recovered) {
         setDataset(recovered.dataset_id);
-        request(recovered, true);
+        await request(recovered, true, true);
       } else if (!datasetId) {
-        loadDataset().catch((error) => setIssue(error.message));
+        await loadDataset();
       }
     } catch (error) {
       setIssue(error.message);
     }
-  }, []);
+  }
+
+  useEffect(() => { void resumeRecovery(); }, []);
 
   function changePgn(value) {
     ++generation.current;
@@ -266,7 +272,8 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
           {notice.alternateSolutions > 0 && <p>{notice.alternateSolutions} saved tactics have another solution at the same position.</p>}
         </StatusNotice>
       )}
-      {pending && <Button pending={busy} onClick={() => request(pending, true)}>Retry capture</Button>}
+      {recovering && issue && <Button onClick={resumeRecovery}>Retry recovery</Button>}
+      {pending && <Button pending={busy} onClick={() => request(pending, true, true)}>Retry capture</Button>}
       <Surface>
         <h2>Import PGN</h2>
         <form className="repertoire-form" onSubmit={startPreview}>
