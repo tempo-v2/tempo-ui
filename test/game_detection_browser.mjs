@@ -21,9 +21,9 @@ let browser;
 let base;
 let diagnostics;
 
-async function start(scenario) {
+async function start(scenario, label) {
   child = scenario
-    ? spawn(fixture, [database, ui, "0", scenario])
+    ? spawn(fixture, [database, ui, "0", scenario, ...(label ? [label] : [])])
     : spawn(tempo, ["serve", database, ui, "0"]);
   diagnostics = "";
   child.stderr.on("data", data => { diagnostics += data; });
@@ -197,6 +197,32 @@ try {
   assert.deepEqual(databaseRows(database), before);
   await page.close();
   await stop();
+
+  let repeated;
+  for (const label of [undefined, "Renamed detector fixture"]) {
+    await start("repeated", label);
+    before = databaseRows(database);
+    page = await games();
+    await select(page, "South");
+    const detectorControl = panel(page).getByRole("combobox", { name: "Detector", exact: true });
+    await detectorControl.selectOption("contract-fixture");
+    if (label) await detectorControl.getByRole("option", { name: label }).waitFor({ state: "attached" });
+    const observed = await run(page, "Half-move 0 · Black to move");
+    assert.deepEqual(observed.findings.map(item => item.occurrence), [0, 4]);
+    assert.equal(observed.findings[0].position, observed.findings[1].position);
+    assert.notEqual(observed.findings[0].finding_id, observed.findings[1].finding_id);
+    await panel(page).getByRole("combobox", { name: "Observation", exact: true })
+      .selectOption(observed.findings[1].finding_id);
+    await panel(page).getByText("Half-move 4 · Black to move", { exact: true }).waitFor();
+    if (repeated) {
+      assert.equal(observed.analysis_key, repeated.analysis_key);
+      assert.deepEqual(observed.findings, repeated.findings);
+    }
+    repeated = observed;
+    assert.deepEqual(databaseRows(database), before);
+    await page.close();
+    await stop();
+  }
 
   for (const [scenario, message] of [
     ["empty", "The selected detector reported no observations."],
