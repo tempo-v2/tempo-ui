@@ -98,6 +98,7 @@ function HistoricalImport({ job, disabled, onStart, onRetry }) {
             <label>Lichess account <input name="lichess" maxLength={40} defaultValue={job?.request?.lichess ?? ""} /></label>
             <label>Chess.com account <input name="chess_com" maxLength={40} defaultValue={job?.request?.chess_com ?? ""} /></label>
           </div>
+          <p>Accounts entered here stay recognized. Leave a provider blank to skip it for this import.</p>
           <div className="repertoire-fields">
             <label>First day (UTC) <input type="date" name="from" defaultValue={utcDate(today - 90 * utcDayMs)} required /></label>
             <label>Last day (UTC) <input type="date" name="to" defaultValue={utcDate(today - utcDayMs)}
@@ -155,10 +156,16 @@ function GameReport({ report, importing, repertoires }) {
 }
 
 const pendingKey = "tempo.games.pending.v1";
+const evidencePollMs = 2000;
+const evidenceTimeoutMs = 5000;
 
 function pendingGame() {
   try { return JSON.parse(sessionStorage.getItem(pendingKey)); }
   catch { return null; }
+}
+
+function evidenceFor(resource, dataset, offset) {
+  return resource?.dataset === dataset && resource.offset === offset ? resource : undefined;
 }
 
 export function GamesPage({ onStudy, onRepertoires, onGap }) {
@@ -171,12 +178,10 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
   const [historyError, setHistoryError] = useState("");
   const [job, setJob] = useState(null);
   const [jobError, setJobError] = useState("");
-  const [backfill, setBackfill] = useState(null);
-  const [model, setModel] = useState(null);
-  const [gaps, setGaps] = useState([]);
-  const [moreGaps, setMoreGaps] = useState(false);
+  const [evidence, setEvidence] = useState({});
   const [gapOffset, setGapOffset] = useState(0);
-  const [evidenceError, setEvidenceError] = useState("");
+  const [modelActionError, setModelActionError] = useState("");
+  const [gapActionError, setGapActionError] = useState("");
   const [workingGap, setWorkingGap] = useState(false);
   const [evidenceRevision, setEvidenceRevision] = useState(0);
   const [importReport, setImportReport] = useState(null);
@@ -186,11 +191,46 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
   const [historyRevision, setHistoryRevision] = useState(0);
   const [jobRevision, setJobRevision] = useState(0);
   const lifecycle = useRef(null);
+  const evidenceOwner = useRef(null);
+  const observedRunning = useRef({ dataset: null });
   const inFlight = useRef(false);
   const importing = source === "pgn";
   const refreshing = job?.status === "running";
   const report = importReport ?? job?.report;
   const refreshFailed = !importReport && job?.status === "failed";
+  const backfillRead = evidenceFor(evidence.backfill, dataset);
+  const modelRead = evidenceFor(evidence.model, dataset);
+  const gapRead = evidenceFor(evidence.gaps, dataset, gapOffset);
+  const backfill = backfillRead?.value;
+  const model = modelRead?.value;
+  const projection = modelRead?.projection;
+  const gapPage = gapRead?.value;
+  const evidenceErrors = [
+    ["Historical backfill status", backfillRead?.error],
+    ["Maia run status", modelRead?.error],
+    ["Opponent gaps", gapRead?.error],
+  ].filter(([, message]) => message);
+
+  function updateEvidence(name, changes, offset) {
+    setEvidence(current => ({
+      ...current,
+      [name]: { ...evidenceFor(current[name], dataset, offset), dataset, offset, ...changes },
+    }));
+  }
+
+  function recordJobStatus(name, value, readChanges) {
+    if (observedRunning.current.dataset !== dataset) observedRunning.current = { dataset };
+    const activity = observedRunning.current;
+    const settled = activity[name] && value.status !== "running";
+    activity[name] = value.status === "running";
+    updateEvidence(name, { value, ...readChanges });
+    return settled;
+  }
+
+  function refreshEvidenceReads() {
+    evidenceOwner.current?.abort();
+    setEvidenceRevision(value => value + 1);
+  }
 
   useEffect(() => {
     lifecycle.current = new AbortController();
@@ -234,7 +274,10 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
         setJobError("");
         setJob(next);
         if (next.status === "running") timer = setTimeout(check, 1000);
-        else setHistoryRevision(revision => revision + 1);
+        else {
+          setHistoryRevision(revision => revision + 1);
+          if (next.status !== "idle") refreshEvidenceReads();
+        }
       } catch (error) {
         if (!request.signal.aborted) {
           setJobError(error.message || "Could not check the refresh.");
@@ -250,30 +293,95 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
   }, [jobRevision]);
 
   useEffect(() => {
-    const request = new AbortController();
-    let timer;
-    let wasRunning = false;
-    async function check() {
-      try {
-        const [historical, inference, coverage] = await Promise.all([
-          historicalStatus(request.signal), modelStatus(request.signal), readGaps(request.signal, gapOffset),
-        ]);
-        if (request.signal.aborted) return;
-        setBackfill(historical);
-        setModel(inference);
-        setGaps(coverage.gaps);
-        setMoreGaps(coverage.more === true);
-        const running = historical.status === "running" || inference.status === "running";
-        if (wasRunning && !running) setHistoryRevision(value => value + 1);
-        wasRunning = running;
-        if (running) timer = setTimeout(check, 2000);
-      } catch (error) {
-        if (!request.signal.aborted) setEvidenceError(error.message);
+    if (!dataset) return;
+    const owner = new AbortController();
+    evidenceOwner.current = owner;
+    let pendingProjection = false;
+    let refreshGaps = false;
+
+    function observeStatus(name, value, readChanges) {
+      if (recordJobStatus(name, value, { error: "", ...readChanges })) {
+        setHistoryRevision(revision => revision + 1);
+        refreshGaps = true;
       }
     }
-    void check();
-    return () => { request.abort(); clearTimeout(timer); };
-  }, [evidenceRevision, historyRevision, gapOffset]);
+
+    const resources = [
+      {
+        name: "backfill",
+        read: historicalStatus,
+        apply: value => observeStatus("backfill", value),
+      },
+      {
+        name: "model",
+        read: modelStatus,
+        apply(value) {
+          const summary = value.projection?.dataset_id === dataset ? value.projection : undefined;
+          pendingProjection = summary?.pending > 0;
+          observeStatus("model", value, { projection: summary });
+        },
+      },
+      {
+        name: "gaps",
+        offset: gapOffset,
+        read(signal) {
+          refreshGaps = false;
+          return readGaps(signal, gapOffset);
+        },
+        apply(value) {
+          if (value.dataset_id !== dataset) throw new Error("Opponent gaps belong to a different dataset.");
+          if (!Array.isArray(value.gaps)) throw new Error("Invalid opponent gaps response.");
+          updateEvidence("gaps", { value, error: "" }, gapOffset);
+        },
+      },
+    ];
+
+    function shouldPoll(resource) {
+      const activity = observedRunning.current;
+      const running = activity.dataset === dataset && (activity.backfill || activity.model);
+      return resource.failed || running || pendingProjection || (resource.name === "gaps" && refreshGaps);
+    }
+
+    function schedule() {
+      if (owner.signal.aborted) return;
+      for (const resource of resources) {
+        if (resource.reading || resource.timer !== undefined || !shouldPoll(resource)) continue;
+        resource.timer = setTimeout(() => {
+          resource.timer = undefined;
+          if (!owner.signal.aborted && shouldPoll(resource)) void check(resource);
+        }, evidencePollMs);
+      }
+    }
+
+    // Each resource publishes and reschedules as soon as its own request settles.
+    async function check(resource) {
+      resource.reading = true;
+      const timeout = AbortSignal.timeout(evidenceTimeoutMs);
+      const signal = AbortSignal.any([owner.signal, timeout]);
+      try {
+        const next = await resource.read(signal);
+        if (!owner.signal.aborted) {
+          resource.apply(next);
+          resource.failed = false;
+        }
+      } catch (error) {
+        if (!owner.signal.aborted) {
+          resource.failed = true;
+          const message = timeout.aborted ? "The evidence read timed out." : error.message;
+          updateEvidence(resource.name, { error: message || "Could not load this evidence." }, resource.offset);
+        }
+      } finally {
+        resource.reading = false;
+        schedule();
+      }
+    }
+
+    for (const resource of resources) void check(resource);
+    return () => {
+      owner.abort();
+      for (const resource of resources) clearTimeout(resource.timer);
+    };
+  }, [dataset, evidenceRevision, gapOffset]);
 
   function beginBackfill(event) {
     event.preventDefault();
@@ -287,26 +395,35 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
   }
 
   async function analyze() {
-    setEvidenceError("");
+    const signal = lifecycle.current.signal;
+    setModelActionError("");
     try {
-      setModel(await startModel({ dataset_id: dataset }, lifecycle.current.signal));
-      setEvidenceRevision(value => value + 1);
-    } catch (error) { setEvidenceError(error.message); }
+      const status = await startModel({ dataset_id: dataset }, signal);
+      if (!signal.aborted) {
+        refreshEvidenceReads();
+        recordJobStatus("model", status);
+      }
+    } catch (error) {
+      if (!signal.aborted) setModelActionError(error.message);
+    }
   }
 
   async function openGap(gap) {
-    setEvidenceError("");
+    const signal = lifecycle.current.signal;
+    setGapActionError("");
     setWorkingGap(true);
     try {
       const address = {
         dataset_id: dataset, repertoire_id: gap.repertoire_id, position: gap.position,
         actual_move: gap.actual_move, document_revision: gap.document_revision,
       };
-      const details = await gapDraft(address, lifecycle.current.signal);
-      onGap({ address, details });
+      const details = await gapDraft(address, signal);
+      if (!signal.aborted) onGap({ address, details });
     } catch (error) {
-      if (!lifecycle.current.signal.aborted) setEvidenceError(error.message);
-    } finally { setWorkingGap(false); }
+      if (!signal.aborted) setGapActionError(error.message);
+    } finally {
+      if (!signal.aborted) setWorkingGap(false);
+    }
   }
 
   function remember(command) {
@@ -323,8 +440,8 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
       const submit = command.kind === "backfill" ? startHistorical : retryHistorical;
       const status = await submit(command.payload, signal);
       if (signal.aborted) return;
-      setBackfill(status);
-      setEvidenceRevision(value => value + 1);
+      refreshEvidenceReads();
+      recordJobStatus("backfill", status);
       remember(null);
     } else if (command.kind !== "refresh") {
       const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
@@ -332,6 +449,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
       if (signal.aborted) return;
       setImportReport(result);
       setHistoryRevision(revision => revision + 1);
+      refreshEvidenceReads();
       remember(null);
     } else {
       await refreshGames(command.payload, signal);
@@ -360,6 +478,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
       if (!signal.aborted) {
         setIssue(error.message || "Could not process these games.");
         setHistoryRevision(revision => revision + 1);
+        refreshEvidenceReads();
         setJobRevision(revision => revision + 1);
       }
     } finally {
@@ -458,6 +577,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
             setJob(null);
             setJobRevision(value => value + 1);
             setReload(value => value + 1);
+            refreshEvidenceReads();
           }}>Reload Games</Button>
         )}
       </Surface>
@@ -477,13 +597,24 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
           <p role="status">{model.profile} · {model.status} · {model.completed} of {model.total} positions
             {model.error && ` · ${model.error}`}</p>
         )}
-        {evidenceError && <StatusNotice kind="error">{evidenceError}</StatusNotice>}
-        {(moreGaps || gapOffset > 0) && <div className="actions">
+        {projection && (
+          <p role="status">Modeled reach · {projection.complete_current} complete · {projection.partial_current} partial
+            {" · "}{projection.unavailable} unavailable · {projection.pending} pending</p>
+        )}
+        {modelActionError && <StatusNotice kind="error">{modelActionError}</StatusNotice>}
+        {gapActionError && <StatusNotice kind="error">{gapActionError}</StatusNotice>}
+        {evidenceErrors.map(([label, message]) => (
+          <StatusNotice key={label} kind="error">{label} · {message}</StatusNotice>
+        ))}
+        {evidenceErrors.length > 0 && <Button onClick={refreshEvidenceReads}>Retry evidence reads</Button>}
+        {(gapPage?.more || gapOffset > 0) && <div className="actions">
           <Button disabled={gapOffset === 0 || workingGap} onClick={() => setGapOffset(offset => offset - 100)}>Previous gaps</Button>
-          <Button disabled={!moreGaps || workingGap} onClick={() => setGapOffset(offset => offset + 100)}>Next gaps</Button>
+          <Button disabled={!gapPage?.more || workingGap} onClick={() => setGapOffset(offset => offset + 100)}>Next gaps</Button>
         </div>}
-        {gaps.length === 0 ? <p>No confirmed opponent gaps in the current documents.</p> : (
-          <ul className="game-results">{gaps.map(gap => (
+        {!gapPage && !gapRead?.error && <p role="status">Loading opponent gaps…</p>}
+        {gapPage?.gaps.length === 0 && <p>No confirmed opponent gaps in the current documents.</p>}
+        {gapPage?.gaps.length > 0 && (
+          <ul className="game-results">{gapPage.gaps.map(gap => (
             <li key={`${gap.repertoire_id}:${gap.position}:${gap.actual_move}`}>
               <strong>{repertoires?.find(book => book.id === gap.repertoire_id)?.name ?? gap.repertoire_id}</strong>
               <p>{gap.actual_move} · {gap.games} {gap.games === 1 ? "game" : "games"}</p>

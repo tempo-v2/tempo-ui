@@ -169,7 +169,23 @@ export async function reprocessGames(payload, signal) {
 export const historicalStatus = signal => request("/backfill", undefined, signal);
 export const startHistorical = (payload, signal) => request("/backfill", payload, signal);
 export const retryHistorical = (payload, signal) => request("/backfill/retry", payload, signal);
-export const modelStatus = signal => request("/model", undefined, signal);
+
+export async function modelStatus(signal) {
+  const reply = await request("/model", undefined, signal);
+  if (reply.projection == null) return reply;
+  const projection = reply.projection;
+  return {
+    ...reply,
+    projection: {
+      dataset_id: string(projection.dataset_id, "projection dataset", true),
+      complete_current: count(projection.complete_current, "complete projections"),
+      partial_current: count(projection.partial_current, "partial projections"),
+      unavailable: count(projection.unavailable, "unavailable projections"),
+      pending: count(projection.pending, "pending projections"),
+    },
+  };
+}
+
 export const startModel = (payload, signal) => request("/model", payload, signal);
 export const readGaps = (signal, offset = 0) => request("/gaps", offset ? { offset } : undefined, signal);
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
