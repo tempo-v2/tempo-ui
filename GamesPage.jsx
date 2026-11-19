@@ -204,6 +204,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const historyOwner = useRef(null);
   const catalogDataset = useRef(null);
   const observedRunning = useRef({ dataset: null });
+  const acknowledgedRetry = useRef(null);
   const inFlight = useRef(false);
   const importing = source === "pgn";
   const refreshing = job?.status === "running";
@@ -242,6 +243,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
         const settlement = JSON.stringify([value.job_id, value.status, value.windows.map(window => [
           window.source, window.learner, window.from_ms, window.to_ms, window.attempt, window.status,
         ])]);
+        // A local Retry can commit batches and pause again between status reads.
+        const retry = acknowledgedRetry.current;
+        if (retry?.dataset === dataset && retry.jobId === value.job_id) {
+          acknowledgedRetry.current = null;
+          settled = true;
+        }
         settled = settled || settlement !== activity.backfillSettlement;
         activity.backfillSettlement = settlement;
       } else {
@@ -274,6 +281,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     setCatalogError("");
     readRepertoireCatalog(owner.signal).then(reply => {
       if (!owner.signal.aborted) {
+        if (acknowledgedRetry.current?.dataset !== reply.dataset_id) acknowledgedRetry.current = null;
         if (catalogDataset.current !== null && catalogDataset.current !== reply.dataset_id) {
           evidenceOwner.current?.abort();
           setHistory(null);
@@ -518,6 +526,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
       await submit(command.payload, signal);
       if (signal.aborted) return;
       // Only the status read can identify the current job. The acknowledged job may be older.
+      if (command.kind === "backfill-retry") {
+        const { dataset_id, job_id } = command.payload;
+        if (catalogDataset.current === null || catalogDataset.current === dataset_id) {
+          acknowledgedRetry.current = { dataset: dataset_id, jobId: job_id };
+        }
+      }
       refreshEvidenceReads();
       remember(null);
     } else if (command.kind !== "refresh") {

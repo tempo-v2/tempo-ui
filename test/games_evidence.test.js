@@ -786,6 +786,75 @@ test("paused historical work may expose durable rows before a window completes",
   assert.equal(page.count("GET /api/games"), reads + 1);
 });
 
+for (const interruptedRead of ["none", "failed", "timed out", "foreign", "cancelled"]) {
+  test(`same-tab acknowledged paused Retry refreshes history with identical status (${interruptedRead})`, async t => {
+    const paused = backfill("paused", "same-job");
+    paused.pending_windows = 1;
+    paused.windows[0] = { ...paused.windows[0], status: "pending", received: 0, accepted: 0 };
+    delete paused.active_window;
+    paused.error = "Paused after applying a batch";
+    const staleRead = deferred();
+    const ownedRead = deferred();
+    let staleSignal;
+    let retried = false;
+    let recover = false;
+    const page = await openGames(t, {
+      "GET /api/games/backfill": ({ signal }) => {
+        if (retried && !recover) {
+          if (interruptedRead === "failed") return failure("Status unavailable");
+          if (interruptedRead === "timed out") return hang(signal);
+          if (interruptedRead === "foreign") {
+            return response({ ...paused, request: { ...paused.request, dataset_id: "foreign" } });
+          }
+          if (interruptedRead === "cancelled") {
+            staleSignal = signal;
+            return staleRead.promise;
+          }
+        }
+        if (recover && interruptedRead === "cancelled") return ownedRead.promise;
+        return response(structuredClone(paused));
+      },
+      "GET /api/games/model": () => response(model("running")),
+      "GET /api/games/gaps": () => response(gapPage("a7a6", true)),
+      "POST /api/games/gaps": () => response(gapPage("h7h6")),
+      "GET /api/games": () => gameHistory(retried ? "later-48-games" : "first-24-games"),
+      "POST /api/games/backfill/retry": ({ payload }) => {
+        assert.equal(payload.job_id, "same-job");
+        assert.equal(payload.dataset_id, "evidence-fixture");
+        retried = true;
+        return response({ ...paused, status: "running", error: undefined });
+      },
+    });
+    assert.match(page.text(), /first-24-games · Book/);
+    const reads = page.count("GET /api/games");
+    const statusReads = page.count("GET /api/games/backfill");
+    await page.click("Retry remaining windows");
+    assert.equal(page.stored(), null);
+    if (interruptedRead !== "none") {
+      if (interruptedRead === "timed out") await page.advance(5000);
+      assert.match(page.text(), /first-24-games · Book/);
+      assert.equal(page.count("GET /api/games"), reads);
+      recover = true;
+      if (interruptedRead === "cancelled") {
+        await page.click("Next gaps");
+        assert.equal(staleSignal.aborted, true);
+        await page.flush(() => staleRead.resolve(response(structuredClone(paused))));
+        assert.equal(page.count("GET /api/games"), reads);
+        await page.flush(() => ownedRead.resolve(response(structuredClone(paused))));
+      } else {
+        await page.advance(2000);
+      }
+    }
+    assert.match(page.text(), /later-48-games · Book/);
+    assert.doesNotMatch(page.text(), /first-24-games/);
+    assert.ok(page.button("Retry remaining windows"));
+    await page.advance(10000);
+    assert.ok(page.count("GET /api/games/backfill") > statusReads + 1);
+    assert.equal(page.count("GET /api/games"), reads + 1);
+    assert.equal(page.count("POST /api/games/backfill/retry"), 1);
+  });
+}
+
 test("changing dataset while Games reads are pending clears old rows and ignores late replies", async t => {
   const oldHistory = deferred();
   const oldStatus = deferred();
