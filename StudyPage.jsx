@@ -43,7 +43,9 @@ export function StudyPage({
   const attempt = view && !stopped && ["ready", "complete", "abandoned"].includes(view.status);
   const lesson = view?.lesson;
   const inGameReplay = !!gameContext && historyIndex !== null;
-  const precedingMoves = gameContext?.line.moves.slice(0, -1).map(move => move.notation);
+  // The source is contiguous, so only a leading Black move needs its own number.
+  const precedingMoves = gameContext?.line.moves.slice(0, -1).map(({ notation }, index) =>
+    index === 0 ? notation : notation.replace(/^\d+\.\.\. /, ""));
   const { summary, unavailable, repairsRemaining } = useStudyProgress(view, stopped);
   const replayBlocked = state.busy || state.canRetry || !!choice || !!dialog;
   const title = attempt
