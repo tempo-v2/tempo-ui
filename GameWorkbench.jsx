@@ -195,9 +195,13 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
   const exactLearner = book && board.turn() === review.learner_color[0];
   const shapes = candidates && engineMarks?.fen === fen ? [...engineMarks.shapes] : [];
   if (arrows && exactLearner && prepared.length) {
-    for (const move of prepared) shapes.push({orig:move.slice(0,2),dest:move.slice(2,4),brush:"green"});
     const played = !inBranch && current.played_uci;
-    if (played && !prepared.includes(played)) shapes.push({orig:played.slice(0,2),dest:played.slice(2,4),brush:"red"});
+    const arrows = prepared.map(move => ({move, brush:"green"}));
+    if (played && !prepared.includes(played)) arrows.push({move:played, brush:"red"});
+    // On one diagonal, the shorter arrowhead must stay visible within the longer arrow.
+    const length = ({move}) => Math.max(Math.abs(move.charCodeAt(0)-move.charCodeAt(2)), Math.abs(Number(move[1])-Number(move[3])));
+    arrows.sort((a,b) => length(b)-length(a));
+    for (const {move, brush} of arrows) shapes.push({orig:move.slice(0,2),dest:move.slice(2,4),brush});
   }
   if (circle && legal.has(circle)) shapes.push({orig:circle.slice(2,4),brush:"blue"});
   const draftLine = inBranch || (!!dep && dep.kind !== "learner_move" && ply >= decision);

@@ -1,3 +1,4 @@
+import { GameLibrary, recordedFinding } from "./GameLibrary.jsx";
 import { GameWorkbench, readReviewMark } from "./GameWorkbench.jsx";
 import { readVisit, reviewAddress, reviewUrl, sameGame } from "./review_route.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
@@ -27,33 +28,41 @@ function groupGames(results, history) {
   return [...rowsByGame].map(([key, rows]) => ({key, rows}));
 }
 
-function GameResults({ results, repertoires, history = false, onChoose, dataset, onOpen }) {
+function GameResults({ groups, showFindings, results, repertoires, history = false, onChoose, dataset, onOpen }) {
   const [detectorRow, setDetectorRow] = useState(null);
   return (
     <ul className="game-results">
-      {groupGames(results, history).map(({rows, key}) => {
-        const result = rows[0];
+      {(groups ?? groupGames(results, history)).map(({rows, key, game, comparisons, destination:archiveDestination}) => {
+        const result = rows[0] ?? game;
         const source = Object.hasOwn(sourceNames, result.source) ? sourceNames[result.source] : "Game";
         const gameLink = source + " game";
-        const destination = result.repertoire_id || (result.repertoires?.length === 1 ? result.repertoires[0].repertoire_id : null);
+        const destination = game ? archiveDestination : result.repertoire_id || (result.repertoires?.length === 1 ? result.repertoires[0].repertoire_id : null);
         const review = { dataset_id: dataset, source: result.source, game_id: result.game_id,
           learner: result.learner, repertoire_id: destination };
+        const openGame = (address) => onOpen(address, game?.repertoires ?? result.repertoires ?? []);
         const visit = dataset && readVisit(review);
         const mark = dataset && readReviewMark(visit?.address ?? review);
-        const date = result.players?.played_date_ms ?? result.occurrence_end_ms;
-        const gameTitle = result.players ? result.players.white + " vs " + result.players.black : gameLink + " · " + result.learner;
+        const date = game?.played_ms ?? result.players?.played_date_ms ?? result.occurrence_end_ms;
+        const gameTitle = game ? game.white + " vs " + game.black : result.players ? result.players.white + " vs " + result.players.black : gameLink + " · " + result.learner;
         return (
           <li key={key}>
-            {onOpen && <div className="game-row"><div><button className="game-title" onClick={() => onOpen(review)}>{gameTitle}</button>
-              <p>{source} · {result.learner}{date != null && " · " + new Date(date).toLocaleDateString(undefined, {timeZone:"UTC"})}
+            {onOpen && <div className="game-row"><div><button className="game-title" onClick={() => openGame(review)}>{gameTitle}</button>
+              <p>{source} · {game?.color ? "Played "+game.color : result.learner}{date != null && " · " + new Date(date).toLocaleDateString(undefined, {timeZone:"UTC"})}
                 </p>
+              {game && <><p className="game-opening-name">{[game.eco,game.opening].filter(Boolean).join(" · ") || "Opening moves"}</p>
+                <p className="game-opening-moves">{game.moves.join(" ")}</p></>}
+              {game && (showFindings || comparisons.length === 1) && comparisons.map(book => <p key={book.repertoire_id}>
+                At import · {repertoires.find(b=>b.id === book.repertoire_id)?.name ?? "Recorded repertoire"} · {recordedFinding(book, game.moves)}
+                {showFindings && comparisons.length > 1 && <> · <button className="inline-link" onClick={()=>openGame({...review,repertoire_id:book.repertoire_id})}>Review this decision</button></>}
+              </p>)}
+              {game && !game.repertoires.length && <p>No per-repertoire comparison was recorded.</p>}
               {visit?.comparison && <p><strong>Last compared with {repertoires.find(b => b.id === visit.comparison.repertoire_id)?.name ?? visit.comparison.name}</strong>
                 {" · "}{visit.comparison.text}</p>}
               {mark && <p>{mark.document_id === visit?.comparison?.document_id ? "You marked this comparison reviewed." : "You marked an earlier comparison reviewed."}</p>}
               {visit?.saved && <p>Saved through {visit.saved.endpoint} to {repertoires.find(b => b.id === visit.saved.repertoire_id)?.name ?? visit.saved.name}</p>}
-              {visit && <button className="inline-link" onClick={() => onOpen(visit.address)}>Resume last position</button>}</div>
-              <Button onClick={() => onOpen(review)}>Review game</Button></div>}
-            <details className="record-details"><summary>Import-time comparison{rows.length > 1 ? "s · " + rows.length : ""}</summary>
+              {visit && <button className="inline-link" onClick={() => openGame(visit.address)}>Resume last position</button>}</div>
+              <Button onClick={() => openGame(review)}>Review game</Button></div>}
+            <details className="record-details"><summary>{rows.length ? "Import-time comparison"+(rows.length > 1 ? "s · "+rows.length : "") : "Tactics tools"}</summary>
               {rows.map((result, i) => {
                 const repertoire = repertoires.find(item => item.id === result.repertoire_id);
                 return <div key={result.comparison_id || i} className="comparison-record">
@@ -247,8 +256,11 @@ export function GamesPage({ onStudy, onRepertoires }) {
     window.addEventListener("hashchange", sync);
     return () => { window.removeEventListener("popstate", sync); window.removeEventListener("hashchange", sync); };
   }, []);
-  function openReview(next) {
-    window.history.pushState(null, "", reviewUrl(next)); setReview(next);
+  function openReview(next, recordedComparisons) {
+    const previous = window.history.state?.reviewLibrary;
+    const comparisons = recordedComparisons ?? (previous?.dataset_id === next.dataset_id && sameGame(previous,next) ? previous.comparisons : []);
+    const reviewLibrary = {dataset_id:next.dataset_id, source:next.source, game_id:next.game_id, learner:next.learner, comparisons};
+    window.history.pushState({reviewLibrary}, "", reviewUrl(next)); setReview(next);
     window.scrollTo?.(0, 0);
   }
   function closeReview() {
@@ -813,7 +825,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
       refreshEvidenceReads();
     }
   }
-  if (review && !activeGap) return <GameWorkbench address={review} dataset={dataset} books={repertoires ?? []}
+  const libraryOrigin = window.history.state?.reviewLibrary;
+  const recordedComparisons = review && libraryOrigin?.dataset_id === review.dataset_id && sameGame(libraryOrigin, review) ? libraryOrigin.comparisons : [];
+  if (review && !activeGap) return <GameWorkbench recordedComparisons={recordedComparisons} address={review} dataset={dataset} books={repertoires ?? []}
     onClose={closeReview} changeBook={(id, cursor) => openReview({...review, repertoire_id:id, ...cursor})}
     onSaved={() => {refreshHistory(); refreshEvidenceReads();}} />;
   return <div className="tempo-core">
@@ -901,29 +915,34 @@ export function GamesPage({ onStudy, onRepertoires }) {
         </Surface>
       )}
       {(refreshFailed || report) && (
-        <Surface>
+        <details className="game-import" key={importReport ? "import" : "refresh"} open={!!importReport || refreshFailed}><summary>{importReport ? "Import results" : "Latest refresh"}</summary><Surface>
           <h2>{importReport ? "Import results" : "Latest refresh"}</h2>
           {refreshFailed && <StatusNotice kind="error">{job.error}</StatusNotice>}
           {report && <GameReport report={report} importing={!!importReport} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />}
-        </Surface>
+        </Surface></details>
       )}
       <Surface>
         <h2>Game library</h2>
-        {history?.results.length > 0 && <p className="library-window">Games from the latest 100 comparisons.</p>}
         {repertoires?.length === 0 && <p>Add a repertoire to compare your games with prepared moves. <Button onClick={onRepertoires}>Open repertoires</Button></p>}
         {history?.lastSuccessfulRefresh != null ? (
           <p>Last successful provider refresh · {new Date(history.lastSuccessfulRefresh).toLocaleString()}</p>
         ) : null}
+        {!history && !historyError && <p role="status">Loading game evidence…</p>}
         {historyError && (
           <>
             <StatusNotice kind="error">{historyError}</StatusNotice>
             <Button onClick={refreshHistory}>Reload game evidence</Button>
           </>
         )}
-        {history ? history.results.length > 0
-          ? <GameResults key={dataset} dataset={dataset} history onOpen={openReview} onChoose={commandsBlocked || busy || refreshing ? undefined : choose} results={history.results} repertoires={repertoires ?? []} />
-          : <div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>
-          : !historyError && <p role="status">Loading game evidence…</p>}
+        {!dataset && history && (history.results.length > 0
+          ? <GameResults results={history.results} history repertoires={repertoires ?? []} />
+          : <p>No games recorded yet.</p>)}
+        {dataset && <GameLibrary key={dataset} dataset={dataset} refresh={historyRevision} books={repertoires ?? []} recent={history?.results}
+          renderRecent={results=><GameResults history results={results} dataset={dataset} onOpen={openReview}
+            onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
+          renderResults={(groups,showFindings)=><GameResults groups={groups} showFindings={showFindings} dataset={dataset} history onOpen={openReview}
+            onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
+          empty={<div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>} />}
       </Surface>
       <details className="advanced-games"><summary>Provider history and opponent coverage gaps</summary>
       <HistoricalImport key={backfill?.job_id ?? "idle"} job={backfill}
