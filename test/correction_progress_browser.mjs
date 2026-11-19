@@ -65,7 +65,16 @@ try {
     throw Error(`${await page.locator("body").innerText()}\n${pageErrors.join("\n")}`, { cause: error });
   });
   await prefix.waitFor();
-  assert.equal((await prefix.innerText()).trim(), "Moves before the decision\n1. e4 1... e5");
+  assert.equal((await prefix.innerText()).trim(), "Moves before the decision\n1. e4 e5");
+
+  await page.route("**/api/study/game-context", route => route.fulfill({ json: {
+    context: { ...context, line: { start_fen: context.line.moves[0].fen, moves: context.line.moves.slice(1) } },
+  } }), { times: 1 });
+  await page.reload();
+  await prefix.waitFor();
+  assert.equal((await prefix.innerText()).trim(), "Moves before the decision\n1... e5");
+  await page.reload();
+  await prefix.waitFor();
 
   await page.setViewportSize({ width: 390, height: 820 });
   const commandsBeforeReplay = commands.length;
