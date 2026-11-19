@@ -1,3 +1,4 @@
+import { boundedRead } from "./bounded_read.js";
 import { string } from "./wire_values.js";
 
 const endpoint = "/api/games";
@@ -123,8 +124,12 @@ async function request(path, payload, signal) {
   return body;
 }
 
+function read(path, signal, payload) {
+  return boundedRead(signal, readSignal => request(path, payload, readSignal));
+}
+
 export async function readGameHistory(signal) {
-  const reply = await request("", undefined, signal);
+  const reply = await read("", signal);
   return {
     results: gameResults(reply.results),
     lastSuccessfulRefresh: reply.last_successful_refresh_ms === null
@@ -133,7 +138,7 @@ export async function readGameHistory(signal) {
 }
 
 export async function readGameJob(signal) {
-  const reply = await request("/job", undefined, signal);
+  const reply = await read("/job", signal);
   switch (reply.status) {
     case "idle":
     case "running":
@@ -168,12 +173,24 @@ export async function reprocessGames(payload, signal) {
   return gameReport(await request("/reprocess", payload, signal));
 }
 
-export const historicalStatus = signal => request("/backfill", undefined, signal);
-export const startHistorical = (payload, signal) => request("/backfill", payload, signal);
-export const retryHistorical = (payload, signal) => request("/backfill/retry", payload, signal);
+export const historicalStatus = signal => read("/backfill", signal);
+
+async function acknowledgeHistorical(path, payload, jobId, signal) {
+  const reply = await request(path, payload, signal);
+  if (!jobId || !payload.dataset_id || reply?.job_id !== jobId || reply?.request?.dataset_id !== payload.dataset_id)
+    throw new Error("The historical reply belongs to a different job or dataset.");
+  if (!["running", "incomplete", "complete"].includes(reply.status))
+    throw new Error("Tempo did not acknowledge the historical request.");
+  return reply;
+}
+
+export const startHistorical = (payload, signal) =>
+  acknowledgeHistorical("/backfill", payload, payload.command_id, signal);
+export const retryHistorical = (payload, signal) =>
+  acknowledgeHistorical("/backfill/retry", payload, payload.job_id, signal);
 
 export async function modelStatus(signal) {
-  const reply = await request("/model", undefined, signal);
+  const reply = await read("/model", signal);
   if (reply.projection == null) return reply;
   const projection = reply.projection;
   return {
@@ -189,7 +206,7 @@ export async function modelStatus(signal) {
 }
 
 export const startModel = (payload, signal) => request("/model", payload, signal);
-export const readGaps = (signal, offset = 0) => request("/gaps", offset ? { offset } : undefined, signal);
+export const readGaps = (signal, offset = 0) => read("/gaps", signal, offset ? { offset } : undefined);
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
 export const startGapAnalysis = (payload, signal) => request("/gap-analysis", payload, signal);
 export const readGapAnalysis = signal => request("/gap-analysis", undefined, signal);
