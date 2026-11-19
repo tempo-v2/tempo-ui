@@ -135,7 +135,9 @@ try {
     sourceCalls.push(req);
     let data;
     if(req.source==="stockfish") data={engine:"Test engine",comparison_complete:true,candidates:[
-      {uci:"f1c4",centipawns:32},{uci:"f1b5",centipawns:18}].slice(0,req.candidate_count)};
+      {uci:"f1c4",centipawns:32},{uci:"f1b5",centipawns:18},{uci:"c2c4",centipawns:2}].slice(0,req.candidate_count)};
+    if(req.source==="stockfish" && req.fen.split(" ")[1]==="b") data={engine:"Test engine",comparison_complete:true,
+      candidates:[{uci:"a7a6",centipawns:70},{uci:"g8f6",centipawns:-15}]};
     if(req.source==="rated") data={white:5,draws:3,black:2,moves:[{uci:"f1b5",white:3,draws:1,black:2}]};
     if(req.source==="maia") data={profile:"Rapid 1500",terminal:false,
       probabilities:Object.fromEntries(new Chess(req.fen).moves({verbose:true}).map(({lan})=>[lan,lan==="f1c4"?.7:lan==="f1b5"?.3:0]))};
@@ -147,6 +149,10 @@ try {
   await page.waitForFunction(()=>!!document.querySelector(".review-board svg circle"));
   await table.getByText("Comparison sources and columns").click();
   await table.getByText("+0.32",{exact:true}).waitFor();
+  const ranks = page.locator(".review-board svg");
+  await table.getByLabel("Stockfish on board").check();
+  await ranks.getByText("1/3",{exact:true}).waitFor();
+  await ranks.getByText("2",{exact:true}).waitFor();
   assert.equal(sourceCalls.some(r=>r.source==="rated" || r.source==="maia"),false);
   await table.getByRole("checkbox",{name:"Lichess Rapid"}).check();
   await table.getByRole("checkbox",{name:"Maia"}).check();
@@ -158,12 +164,22 @@ try {
   await page.waitForFunction(()=>!document.body.textContent.includes("+0.18"));
   await table.getByText("+0.32",{exact:true}).waitFor();
   assert(sourceCalls.some(r=>r.candidate_count===1));
+  await ranks.getByText("1",{exact:true}).waitFor();
+  assert.equal(await ranks.getByText("1/3",{exact:true}).count(),0);
   await table.getByLabel("Move Nearby column left").click();
-  await table.getByRole("checkbox",{name:"Stockfish"}).uncheck();
+  await table.getByRole("checkbox",{name:"Stockfish",exact:true}).uncheck();
+  await ranks.getByText("1",{exact:true}).waitFor({state:"detached"});
   assert.equal(await table.getByRole("columnheader",{name:"Stockfish"}).count(),0);
   await button("Hide candidate moves").click();
-  await page.unroute("**/api/analysis/evidence");
   await verifyDrop([5,1],[1,5],"piece.bishop.white");
+  await button("Compare candidate moves").click();
+  await table.getByText("-0.70",{exact:true}).waitFor();
+  assert.match(await table.locator("tbody tr").first().innerText(),/a6/);
+  await table.getByLabel("Stockfish on board").check();
+  await ranks.getByText("1",{exact:true}).waitFor();
+  await button("Hide candidate moves").click();
+  await ranks.getByText("1",{exact:true}).waitFor({state:"detached"});
+  await page.unroute("**/api/analysis/evidence");
   await choose("a7a6");
   await verifyDrop([1,5],[2,6],"piece.bishop.white","piece.black.knight");
   await expectPiece(page,"c",6,"white bishop");
@@ -212,6 +228,9 @@ try {
   await heading("Add to White repertoire").waitFor();
   await button("Save selected line").click();
   await page.getByText("Saved through 5. O-O to White repertoire.").waitFor();
+  await page.getByText(/Earlier comparison · 3… Nd4 · Opponent played an unprepared move/).waitFor();
+  await page.reload();
+  await page.getByText(/Earlier comparison · 3… Nd4/).waitFor();
   await button("Preview through 5. O-O").click();
   await heading("Already saved").waitFor();
   await button("Return to played line").click(); await choose("c2c3");

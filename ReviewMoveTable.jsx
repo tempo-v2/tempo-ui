@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useLayoutEffect, useState } from "react";
 import { usePositionEvidence } from "./position_evidence.js";
 
 const labels = {exact:"Prepared", nearby:"Nearby", stockfish:"Stockfish", rated:"Lichess Rapid", maia:"Maia"};
@@ -11,16 +11,32 @@ const descriptions = {
 };
 const pct = n => (n*100).toFixed(1) + "%";
 
-export function ReviewMoveTable({ fen, book, review, legal, prepared, play, locked, circle, setCircle }) {
+export function ReviewMoveTable({ fen, book, review, legal, prepared, play, locked, circle, setCircle, onEngineMarks }) {
   const [columns,setColumns] = useState(Object.keys(labels));
   const [enabled,setEnabled] = useState({exact:true,nearby:true,stockfish:true});
   const [count,setCount] = useState(3);
   const [retry,setRetry] = useState(0);
-  const [sort,setSort] = useState({column:"stockfish",desc:true});
+  const [sortOverride,setSortOverride] = useState(null);
+  const whiteToMove = fen.split(" ")[1] === "w";
+  const sort = sortOverride ?? {column:"stockfish",desc:whiteToMove};
+  const [showRanks,setShowRanks] = useState(false);
   const repertoire = usePositionEvidence(fen,"repertoire",{dataset_id:review.dataset_id,
     learner_color:review.learner_color,repertoire_id:book?.id},[review.revision,retry],legal,
     !!book && (enabled.exact || enabled.nearby));
   const fish = usePositionEvidence(fen,"stockfish",{pins:[],candidate_count:count},retry,legal,enabled.stockfish ?? false);
+  useLayoutEffect(() => {
+    const squares = new Map();
+    if (showRanks && enabled.stockfish) {
+      for (const [i,row] of (fish.data?.candidates || []).entries()) {
+        const dest = row.uci.slice(2,4);
+        if (!squares.has(dest)) squares.set(dest,[]);
+        squares.get(dest).push(i+1);
+      }
+    }
+    onEngineMarks({fen, shapes:[...squares].map(([orig,ranks]) => ({
+      orig,brush:"blue",label:{text:ranks.join("/"),fill:"#285473"},
+    }))});
+  },[fen,fish.data,showRanks,enabled.stockfish,onEngineMarks]);
   const rapid = usePositionEvidence(fen,"rated",{ratings:"around1500"},retry,legal,enabled.rated ?? false);
   const maia = usePositionEvidence(fen,"maia",{},retry,legal,enabled.maia ?? false);
   const replies = {exact:repertoire,nearby:repertoire,stockfish:fish,rated:rapid,maia};
@@ -33,7 +49,7 @@ export function ReviewMoveTable({ fen, book, review, legal, prepared, play, lock
   for (const move of prepared) cell(move,"exact",1,"Saved");
   for (const row of repertoire.data?.exact || []) if (row.repertoire_id === book?.id) cell(row.uci,"exact",1,"Saved");
   for (const row of repertoire.data?.similar_responses.current || []) cell(row.uci,"nearby",row.position_count,row.position_count);
-  const sign = fen.split(" ")[1] === "w" ? 1 : -1;
+  const sign = whiteToMove ? 1 : -1;
   for (const row of fish.data?.candidates || []) {
     const score = row.centipawns != null ? sign*row.centipawns/100 : null;
     cell(row.uci,"stockfish",score ?? sign*Math.sign(row.mate)*(1e6-Math.abs(row.mate)),
@@ -57,7 +73,7 @@ export function ReviewMoveTable({ fen, book, review, legal, prepared, play, lock
   });
   function header(key,label) {
     return <th key={key} aria-sort={sort.column===key ? sort.desc ? "descending":"ascending" : undefined}>
-      <button onClick={() => setSort({column:key, desc:sort.column===key ? !sort.desc : key!=="move"})}>{label}{sort.column===key ? sort.desc?" ↓":" ↑":""}</button></th>;
+      <button onClick={() => setSortOverride({column:key, desc:sort.column===key ? !sort.desc : key==="stockfish" ? whiteToMove : key!=="move"})}>{label}{sort.column===key ? sort.desc?" ↓":" ↑":""}</button></th>;
   }
   if (sort.column==="move" && sort.desc) sorted.reverse();
   return <section className="candidate-panel" aria-label="Move comparison">
@@ -68,8 +84,9 @@ export function ReviewMoveTable({ fen, book, review, legal, prepared, play, lock
           const next=[...columns]; [next[i-1],next[i]]=[next[i],next[i-1]]; setColumns(next);
         }}>←</button><small>{descriptions[key]}{!enabled[key] && " Source off."}</small></div>)}
     </details>
-    {enabled.stockfish && <label>Stockfish lines <select value={count} onChange={e=>setCount(Number(e.target.value))}>
-      {[1,2,3,4,5].map(n=><option key={n}>{n}</option>)}</select></label>}
+    {enabled.stockfish && <div><label>Stockfish lines <select value={count} onChange={e=>setCount(Number(e.target.value))}>
+      {[1,2,3,4,5].map(n=><option key={n}>{n}</option>)}</select></label>{" "}<label><input type="checkbox" checked={showRanks} onChange={e=>setShowRanks(e.target.checked)}/> Stockfish on board</label>
+      {showRanks && <small> Numbers show engine rank for the side to move.</small>}</div>}
     {visible.filter(c=>!replies[c].data).map(c=><small key={c} role="status">{labels[c]} · {
       (c==="exact" || c==="nearby") && !book ? "Select a repertoire" : replies[c].error || "Checking position…"}</small>)}
     {Object.values(replies).some(r=>r.error) && <button onClick={()=>setRetry(n=>n+1)}>Retry sources</button>}
