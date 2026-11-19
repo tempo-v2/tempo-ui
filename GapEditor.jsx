@@ -40,6 +40,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance }) {
     }
     return { bySquare, destinations, legal: new Set(draft.legal_moves) };
   }, [draft.legal_moves]);
+  const selectedLabel = labels[selected] ?? "response";
   const preview = hover || focus;
   const stagedBoard = useMemo(() => {
     if (!selected) return null;
@@ -77,12 +78,12 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance }) {
   }
 
   function moveButton(move, description) {
-    if (!moveOptions.legal.has(move) || !labels[move]) return null;
+    if (!moveOptions.legal.has(move)) return null;
     return (
       <button className="gap-move" type="button" aria-pressed={selected === move} disabled={locked}
         onPointerEnter={() => setHover(move)} onPointerLeave={() => setHover("")}
         onFocus={() => setFocus(move)} onBlur={() => setFocus("")} onClick={() => select(move)}>
-        <strong>{labels[move]}</strong><span>{description}</span>
+        <strong>{labels[move] ?? "Legal move"}</strong><span>{description}</span>
       </button>
     );
   }
@@ -105,14 +106,14 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance }) {
       setStale(staleGapCodes.has(reply.code));
       throw repertoireError(reply);
     }
-    await onAdvance(labels[selected]);
+    await onAdvance(selectedLabel);
     writeGapContinuation(null);
   }
 
   function close() {
     if (!inFlight.current && !pending) {
       if (settled) writeGapContinuation(null);
-      onClose(settled?.status === "repertoires" ? labels[selected] : undefined);
+      onClose(settled?.status === "repertoires" ? selectedLabel : undefined);
     }
   }
 
@@ -165,7 +166,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance }) {
       <div className="gap-editor">
         <p className="gap-repertoire">{gap.details.repertoire_name}</p>
         {settled && settled.status !== "error" && (
-          <p role="status">Saved {labels[selected]}.</p>
+          <p role="status">Saved {selectedLabel}.</p>
         )}
         {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
         {stale ? (
@@ -206,7 +207,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance }) {
               </div>
             </div>
             <div className="actions gap-editor-actions">
-              <span role="status">{selected ? `Selected ${labels[selected]}` : "Play a move on the board."}</span>
+              <span role="status">{selected ? `Selected ${selectedLabel}` : "Play a move on the board."}</span>
               {selected && <Button disabled={locked} onClick={() => select("")}>Clear response</Button>}
               <Button variant="primary" disabled={busy || !selected} onClick={() => void save()}>
                 {busy ? "Saving response…" : pending ? "Retry save" : "Save response"}

@@ -1,5 +1,5 @@
 import { gapDraft } from "./game_commands.js";
-import { readPendingRepertoireCommand, sendRepertoireCommand } from "./repertoire_commands.js";
+import { readPendingRepertoireCommand } from "./repertoire_commands.js";
 
 export const staleGapCodes = new Set(["stale_dataset", "stale_draft", "stale_gap", "stale_preview", "stale_repertoire", "unavailable_repertoire"]);
 
@@ -8,27 +8,24 @@ export function repertoireError(reply) {
 }
 
 export async function previewGapResponse(gap, response, signal) {
-  const next = await gapDraft({ ...gap.address, response }, signal);
-  if (next.content_revision !== gap.details.content_revision || !next.draft?.pgn) {
-    throw Object.assign(new Error("The repertoire changed. Reopen this gap before saving."), { code: "stale_repertoire" });
+  const next = await gapDraft({
+    ...gap.address,
+    response,
+    base_revision: gap.details.content_revision,
+  }, signal);
+  if (next.content_revision !== gap.details.content_revision ||
+      typeof next.draft?.pgn !== "string" || typeof next.save_token !== "string" || !next.save_token) {
+    throw Object.assign(new Error("The gap preview is no longer current. Reopen it before saving."), { code: "stale_repertoire" });
   }
-  const input = {
+  return {
+    command: "save",
     dataset_id: gap.address.dataset_id,
     repertoire_id: gap.address.repertoire_id,
     name: next.repertoire_name,
     learner_color: next.learner_color,
     pgn: next.draft.pgn,
+    token: next.save_token,
   };
-  const preview = await sendRepertoireCommand({
-    command: "edit_preview",
-    ...input,
-    base_revision: next.content_revision,
-  }, signal);
-  if (preview.status === "error") throw repertoireError(preview);
-  if (preview.removed || preview.changed || preview.affected_learning) {
-    throw new Error("This response would change existing repertoire positions or learning. It was not saved.");
-  }
-  return { command: "save", ...input, token: preview.token };
 }
 
 const continuationKey = "tempo-gap-save-continuation-v1";
