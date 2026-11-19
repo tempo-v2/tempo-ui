@@ -156,7 +156,7 @@ async function openGames(t, handlers, { pending } = {}) {
   window.fetch = async (url, { method = "GET", body, signal } = {}) => {
     const path = new URL(url, window.location.href).pathname;
     const endpoint = `${method} ${path}`;
-    const request = { endpoint, signal, payload: body === undefined ? undefined : JSON.parse(body) };
+    const request = { endpoint, signal, body, payload: body === undefined ? undefined : JSON.parse(body) };
     calls.push(request);
     const handle = handlers[endpoint] ?? defaults[endpoint];
     if (handle) return handle(request);
@@ -232,6 +232,32 @@ test("historical backfill settles despite a failed Maia status read", async t =>
   assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
   assert.equal(page.button(backfillLabel).closest("fieldset").disabled, false);
   assert.match(page.text(), /Maia status unavailable/);
+  assert.equal(page.count("GET /api/games"), historyReads + 1);
+});
+
+test("replaying an accepted backfill request can observe completion and refresh history once", async t => {
+  let status = "running";
+  const payload = {
+    command_id: "accepted-backfill", dataset_id: "evidence-fixture",
+    lichess: "example", chess_com: null, from_ms: Date.UTC(2026, 10, 9), to_ms: Date.UTC(2026, 10, 10),
+  };
+  const pending = JSON.stringify({ kind: "backfill", payload });
+  const page = await openGames(t, {
+    "GET /api/games/backfill": () => response(backfill(status)),
+    "POST /api/games/backfill": ({ body }) => {
+      assert.equal(body, JSON.stringify(payload));
+      status = "complete";
+      return response(backfill(status));
+    },
+  }, { pending });
+  assert.match(page.text(), /0 complete · 0 incomplete · 1 pending/);
+  const historyReads = page.count("GET /api/games");
+  await page.click("Retry same request");
+  assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
+  assert.equal(page.count("POST /api/games/backfill"), 1);
+  assert.equal(page.stored(), null);
+  assert.equal(page.count("GET /api/games"), historyReads + 1);
+  await page.advance(6000);
   assert.equal(page.count("GET /api/games"), historyReads + 1);
 });
 

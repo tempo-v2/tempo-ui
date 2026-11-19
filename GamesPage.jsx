@@ -224,6 +224,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
     const settled = activity[name] && value.status !== "running";
     activity[name] = value.status === "running";
     updateEvidence(name, { value, ...readChanges });
+    if (settled) setHistoryRevision(revision => revision + 1);
     return settled;
   }
 
@@ -301,7 +302,6 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
 
     function observeStatus(name, value, readChanges) {
       if (recordJobStatus(name, value, { error: "", ...readChanges })) {
-        setHistoryRevision(revision => revision + 1);
         refreshGaps = true;
       }
     }
