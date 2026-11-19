@@ -115,7 +115,9 @@ async function request(path, payload, signal) {
     throw new Error(`Unexpected Games response (HTTP ${response.status}).`);
   }
   if (!response.ok || body?.status === "error") {
-    throw new Error(body?.message || body?.error || `Games request failed (HTTP ${response.status}).`);
+    const error = new Error(body?.message || body?.error || `Games request failed (HTTP ${response.status}).`);
+    error.code = body?.code;
+    throw error;
   }
   if (path === "/refresh") throw new Error("Tempo did not confirm that the refresh started.");
   return body;
@@ -191,6 +193,9 @@ export const readGaps = (signal, offset = 0) => request("/gaps", offset ? { offs
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
 export const startGapAnalysis = (payload, signal) => request("/gap-analysis", payload, signal);
 export const readGapAnalysis = signal => request("/gap-analysis", undefined, signal);
+
+export const startGapExplorer = (payload, signal) => request("/gap-explorer", payload, signal);
+export const readGapExplorer = signal => request("/gap-explorer", undefined, signal);
 
 export function utcDateRange(first, last, limit = 31) {
   const day = value => {

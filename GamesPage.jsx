@@ -6,6 +6,8 @@ import {
   readGaps, retryHistorical, startHistorical, startModel,
 } from "./game_commands.js";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
+import { GapEditor } from "./GapEditor.jsx";
+import { readGapContinuation } from "./gap_save.js";
 
 function GameResults({ results, repertoires, history = false, onChoose }) {
   return (
@@ -168,7 +170,11 @@ function evidenceFor(resource, dataset, offset) {
   return resource?.dataset === dataset && resource.offset === offset ? resource : undefined;
 }
 
-export function GamesPage({ onStudy, onRepertoires, onGap }) {
+function gapKey(gap) {
+  return JSON.stringify([gap.repertoire_id, gap.position, gap.actual_move]);
+}
+
+export function GamesPage({ onStudy, onRepertoires }) {
   const [source, setSource] = useState("lichess");
   const [repertoires, setRepertoires] = useState(null);
   const [dataset, setDataset] = useState(null);
@@ -179,10 +185,13 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
   const [job, setJob] = useState(null);
   const [jobError, setJobError] = useState("");
   const [evidence, setEvidence] = useState({});
-  const [gapOffset, setGapOffset] = useState(0);
   const [modelActionError, setModelActionError] = useState("");
   const [gapActionError, setGapActionError] = useState("");
   const [workingGap, setWorkingGap] = useState(false);
+  const [recovery] = useState(readGapContinuation);
+  const [gapOffset, setGapOffset] = useState(() => recovery?.gap.offset ?? 0);
+  const [activeGap, setActiveGap] = useState(() => recovery?.gap ?? null);
+  const [gapNotice, setGapNotice] = useState("");
   const [evidenceRevision, setEvidenceRevision] = useState(0);
   const [importReport, setImportReport] = useState(null);
   const [issue, setIssue] = useState("");
@@ -408,21 +417,61 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
     }
   }
 
-  async function openGap(gap) {
+  async function loadGap(gap, passed, offset, signal, datasetId = dataset) {
+    const address = {
+      dataset_id: datasetId, repertoire_id: gap.repertoire_id, position: gap.position,
+      actual_move: gap.actual_move, document_revision: gap.document_revision,
+    };
+    const details = await gapDraft(address, AbortSignal.any([signal, AbortSignal.timeout(evidenceTimeoutMs)]));
+    if (!signal.aborted) setActiveGap({ address, details, passed, offset });
+  }
+
+  async function openGap(gap, index) {
     const signal = lifecycle.current.signal;
     setGapActionError("");
+    setGapNotice("");
     setWorkingGap(true);
     try {
-      const address = {
-        dataset_id: dataset, repertoire_id: gap.repertoire_id, position: gap.position,
-        actual_move: gap.actual_move, document_revision: gap.document_revision,
-      };
-      const details = await gapDraft(address, signal);
-      if (!signal.aborted) onGap({ address, details });
+      await loadGap(gap, gapPage.gaps.slice(0, index + 1).map(gapKey), gapOffset, signal);
     } catch (error) {
-      if (!signal.aborted) setGapActionError(error.message);
+      if (!signal.aborted) {
+        setGapActionError(error.message);
+        refreshEvidenceReads();
+      }
     } finally {
       if (!signal.aborted) setWorkingGap(false);
+    }
+  }
+
+  async function advanceGap(san) {
+    const signal = lifecycle.current.signal;
+    const timeout = AbortSignal.any([signal, AbortSignal.timeout(evidenceTimeoutMs)]);
+    const { address, passed, offset } = activeGap;
+    async function freshPage(pageOffset) {
+      const page = await readGaps(timeout, pageOffset);
+      if (page.dataset_id !== address.dataset_id) throw new Error("The active dataset changed.");
+      if (page.gaps.some(gap => gapKey(gap) === gapKey(address)))
+        throw new Error("Tempo could not confirm the refreshed gap list. Try loading it again.");
+      return page;
+    }
+    let nextOffset = offset;
+    let page = await freshPage(nextOffset);
+    // Stable gap identity keeps earlier rows from becoming the next task when ranks shift.
+    let index = page.gaps.findIndex(gap => !passed.includes(gapKey(gap)));
+    if (index < 0 && page.more) {
+      nextOffset += 100;
+      page = await freshPage(nextOffset);
+      index = page.gaps.findIndex(gap => !passed.includes(gapKey(gap)));
+    }
+    if (signal.aborted) return;
+    if (!page.gaps.length && nextOffset > 0) nextOffset -= 100;
+    refreshEvidenceReads();
+    if (page.gaps.length || nextOffset === 0) updateEvidence("gaps", { value: page, error: "" }, nextOffset);
+    setGapOffset(nextOffset);
+    if (index >= 0) await loadGap(page.gaps[index], page.gaps.slice(0, index + 1).map(gapKey), nextOffset, signal, address.dataset_id);
+    else {
+      setActiveGap(null);
+      setGapNotice(`Saved ${san}.`);
     }
   }
 
@@ -602,6 +651,7 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
             {" · "}{projection.unavailable} unavailable · {projection.pending} pending</p>
         )}
         {modelActionError && <StatusNotice kind="error">{modelActionError}</StatusNotice>}
+        {gapNotice && <StatusNotice>{gapNotice}</StatusNotice>}
         {gapActionError && <StatusNotice kind="error">{gapActionError}</StatusNotice>}
         {evidenceErrors.map(([label, message]) => (
           <StatusNotice key={label} kind="error">{label} · {message}</StatusNotice>
@@ -614,11 +664,11 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
         {!gapPage && !gapRead?.error && <p role="status">Loading opponent gaps…</p>}
         {gapPage?.gaps.length === 0 && <p>No confirmed opponent gaps in the current documents.</p>}
         {gapPage?.gaps.length > 0 && (
-          <ul className="game-results">{gapPage.gaps.map(gap => (
-            <li key={`${gap.repertoire_id}:${gap.position}:${gap.actual_move}`}>
+          <ul className="game-results">{gapPage.gaps.map((gap, index) => (
+            <li key={gapKey(gap)}>
               <strong>{repertoires?.find(book => book.id === gap.repertoire_id)?.name ?? gap.repertoire_id}</strong>
-              <p>{gap.actual_move} · {gap.games} {gap.games === 1 ? "game" : "games"}</p>
-              <Button disabled={workingGap || !dataset} onClick={() => void openGap(gap)}>Open response editor</Button>
+              <p>{gap.actual_san ?? "Opponent move"} · {gap.games} {gap.games === 1 ? "game" : "games"}</p>
+              <Button disabled={workingGap || !dataset} onClick={() => void openGap(gap, index)}>Fix response</Button>
             </li>
           ))}</ul>
         )}
@@ -646,6 +696,18 @@ export function GamesPage({ onStudy, onRepertoires, onGap }) {
           : <p>No games recorded yet.</p>
           : !historyError && <p role="status">Loading game evidence…</p>}
       </Surface>
+      {activeGap && (
+        <GapEditor key={gapKey(activeGap.address)} gap={activeGap}
+          recovery={activeGap === recovery?.gap ? recovery : null} onAdvance={advanceGap}
+          onClose={san => {
+            setActiveGap(null);
+            if (san) setGapNotice(`Saved ${san}.`);
+          }}
+          onStale={() => {
+            setActiveGap(null);
+            refreshEvidenceReads();
+          }} />
+      )}
     </main>
   );
 }

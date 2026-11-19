@@ -13,8 +13,8 @@ export function hasPendingRepertoireCommand() {
   }
 }
 
-export async function sendRepertoireCommand(command) {
-  const reply = validateRepertoireReply(await postCommand("/api/repertoires", command), command.command);
+export async function sendRepertoireCommand(command, signal) {
+  const reply = validateRepertoireReply(await postCommand("/api/repertoires", command, signal), command.command);
   if (reply.status === "progress_reset" &&
       (reply.dataset_id !== command.dataset_id || reply.repertoire_id !== command.repertoire_id))
     throw new Error("The reset reply belongs to a different repertoire.");

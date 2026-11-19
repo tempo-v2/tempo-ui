@@ -1,13 +1,10 @@
 import { Chess } from "chess.js";
+import { playBoardMove } from "./board_move.js";
 
 const clips = ["move-self", "move-opponent", "capture", "check", "castle", "promote", "illegal"];
 const preferenceKey = "tempo-v2-board-sounds";
 const playbackDeadlineMs = 250;
 const preloadDeadlineMs = 500;
-
-function applyMove(board, uci) {
-  return board.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
-}
 
 function cue(move, board, ordinary) {
   if (board.isCheck()) return "check";
@@ -21,7 +18,7 @@ function cue(move, board, ordinary) {
 export function learnerCue(fen, uci) {
   try {
     const board = new Chess(fen);
-    return cue(applyMove(board, uci), board, "move-self");
+    return cue(playBoardMove(board, uci), board, "move-self");
   } catch {
     return "move-self";
   }
@@ -31,9 +28,9 @@ export function replyCue(fen, uci, autoplay) {
   if (!autoplay.length) return null;
   try {
     const board = new Chess(fen);
-    applyMove(board, uci);
+    playBoardMove(board, uci);
     let reply;
-    for (const { uci } of autoplay) reply = applyMove(board, uci);
+    for (const { uci } of autoplay) reply = playBoardMove(board, uci);
     // Tempo renders the replies in one transition to the final position.
     return cue(reply, board, "move-opponent");
   } catch {

@@ -50,7 +50,7 @@ export function renderStudy(input, { busy = false, canRetry = false } = {}) {
   if (view?.feedback) {
     body += `<p role="status">${escape(view.feedback.message)}</p>`;
     if (view.feedback.autoplay.length) {
-      body += `<p>Autoplay: ${view.feedback.autoplay.map((move) => escape(move.uci)).join(", ")}</p>`;
+      body += "<p>The line continued automatically.</p>";
     }
   }
   if (view?.assessment) body += `<p>Assessment: ${escape(view.assessment)}</p>`;

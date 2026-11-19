@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { moveSan } from "./board_move.js";
 import { Button, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
 import { StudyBoard, turnFromFen } from "./StudyBoard.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
@@ -40,6 +41,8 @@ export function StudyPage({
 }) {
   const attempt = view && !stopped && ["ready", "complete", "abandoned"].includes(view.status);
   const lesson = view?.lesson;
+  const lessonSan = lesson && (lesson.move_san !== lesson.move_uci
+    ? lesson.move_san : moveSan(view.display_fen, lesson.move_uci));
   const [selectionReason, setSelectionReason] = useState(null);
   const attemptId = attempt ? view.attempt_id : null;
   const datasetId = view?.dataset_id;
@@ -131,11 +134,11 @@ export function StudyPage({
                 <div className="lesson">
                   {view.corrective_repair && <strong>Game correction</strong>}
                   <h2>Learn this move</h2>
-                  <p>Play <strong>{lesson.move_san}</strong> on the board.</p>
+                  <p>Play <strong>{lessonSan ?? "the highlighted move"}</strong> on the board.</p>
                   {lesson.comments.map((comment, index) => <p key={index}>{comment}</p>)}
                   {guided && (guided.uci
                     ? <p role="status">Move reproduced. Continue to save {view.corrective_repair ? "the repair" : "the lesson"}.</p>
-                    : <StatusNotice>Follow the arrow and try {lesson.move_san}.</StatusNotice>)}
+                    : <StatusNotice>Follow the arrow and try {lessonSan ?? "the highlighted move"}.</StatusNotice>)}
                 </div>
               )}
               {!showSuccess && <StudyOutcome view={view} />}
