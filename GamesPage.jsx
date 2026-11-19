@@ -814,7 +814,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     }
   }
   if (review && !activeGap) return <GameWorkbench address={review} dataset={dataset} books={repertoires ?? []}
-    onClose={closeReview} changeBook={id => openReview({...review, repertoire_id:id, ply:null, start:null, branch:[]})}
+    onClose={closeReview} changeBook={(id, cursor) => openReview({...review, repertoire_id:id, ...cursor})}
     onSaved={() => {refreshHistory(); refreshEvidenceReads();}} />;
   return <div className="tempo-core">
     {analysis ? <AnalysisPage origin={analysis} onClose={returnFromAnalysis} /> : (

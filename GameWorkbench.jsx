@@ -128,6 +128,17 @@ export function GameWorkbench({ address, dataset, books, onClose, changeBook, on
     return () => abort.abort();
   }, [key, book?.id]);
   const current = load.key === key ? load : {};
+  const opening = {ply:null, start:null, branch:[]};
+  function switchBook(id) {
+    setNotice("");
+    const cursor = reviewAddress();
+    if (cursor?.ply != null) {
+      changeBook(id, {ply:cursor.ply, start:cursor.start, branch:cursor.branch});
+    } else if (book && current.review) {
+      const comparison = current.review.comparison;
+      changeBook(id, {ply:decisionPly(comparison), start:Math.max(0,(comparison?.first_departure?.ply ?? 1)-1), branch:[]});
+    } else changeBook(id, opening);
+  }
   return <main className="tempo-core review-page">
     <header className="review-header"><div>
       <button className="return-link" disabled={locked} onClick={onClose}>← Games</button>
@@ -135,14 +146,14 @@ export function GameWorkbench({ address, dataset, books, onClose, changeBook, on
       {current.review && <p>{address.learner} as {current.review.learner_color} · {current.review.result}</p>}
     </div><label>Destination repertoire
       <select value={address.repertoire_id || ""} disabled={locked}
-        onChange={e => { setNotice(""); changeBook(e.target.value || null); }}>
+        onChange={e => switchBook(e.target.value || null)}>
         <option value="">Select a repertoire</option>
         {books.filter(b => !current.review || b.learner_color === current.review.learner_color).map(b =>
           <option key={b.id} value={b.id}>{b.name} · {b.learner_color}</option>)}
       </select>
     </label></header>
     {notice && <p role="status" className="review-saved">{notice}</p>}
-    {current.error ? <section className="review-card" role="alert"><p>{current.error}</p><Button onClick={() => setAttempt(n => n + 1)}>Retry review</Button> <Button onClick={() => changeBook(book?.id || null)}>Open opening decision</Button></section>
+    {current.error ? <section className="review-card" role="alert"><p>{current.error}</p><Button onClick={() => setAttempt(n => n + 1)}>Retry review</Button> <Button onClick={() => changeBook(book?.id || null, opening)}>Open opening decision</Button></section>
       : current.review ? <ReviewBoard key={key} address={address} review={current.review} sheet={current.sheet}
         book={book} locked={locked} setLocked={setLocked} onSaved={label => {
           setNotice(label); onSaved(); setAttempt(n => n + 1);
