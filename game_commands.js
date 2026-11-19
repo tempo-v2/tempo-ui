@@ -171,8 +171,10 @@ export const startHistorical = (payload, signal) => request("/backfill", payload
 export const retryHistorical = (payload, signal) => request("/backfill/retry", payload, signal);
 export const modelStatus = signal => request("/model", undefined, signal);
 export const startModel = (payload, signal) => request("/model", payload, signal);
-export const readGaps = signal => request("/gaps", undefined, signal);
+export const readGaps = (signal, offset = 0) => request("/gaps", offset ? { offset } : undefined, signal);
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
+export const startGapAnalysis = (payload, signal) => request("/gap-analysis", payload, signal);
+export const readGapAnalysis = signal => request("/gap-analysis", undefined, signal);
 
 export function utcDateRange(first, last, limit = 31) {
   const day = value => {
