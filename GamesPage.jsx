@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
   chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, maxGameCommandBytes, readGameHistory, readGameJob, refreshGames,
-  sourceNames, utcDateRange, utcDayMs,
+  sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
+  readGaps, retryHistorical, startHistorical, startModel,
 } from "./game_commands.js";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
 
@@ -43,6 +44,20 @@ function GameResults({ results, repertoires, history = false, onChoose }) {
                 ))}</ul>
               </details>
             )}
+            {result.repertoires.length > 0 && (
+              <details>
+                <summary>Repertoire compatibility</summary>
+                <ul>{result.repertoires.map(book => (
+                  <li key={book.repertoire_id}>
+                    <strong>{repertoires.find(item => item.id === book.repertoire_id)?.name ?? book.repertoire_id}</strong>
+                    {" · "}{book.source_available
+                      ? book.first_departure ? `${departureLabels[book.first_departure.kind]} on half-move ${book.first_departure.ply}` : "Compatible through the played line"
+                      : "Authored context unavailable"}
+                    {book.reentry_ply && ` · Reentered on half-move ${book.reentry_ply}`}
+                  </li>
+                ))}</ul>
+              </details>
+            )}
             {onChoose && result.choices.map(choice => (
               <div className="actions" key={choice.ply}>
                 <span>Corrective target for half-move {choice.ply}</span>
@@ -58,6 +73,60 @@ function GameResults({ results, repertoires, history = false, onChoose }) {
         );
       })}
     </ul>
+  );
+}
+
+const departureLabels = {
+  learner_move: "Learner departure",
+  opponent_gap: "Opponent coverage gap",
+  authored_endpoint: "Authored line ended",
+  outside_context: "Outside authored context",
+};
+
+const utcDate = time => new Date(time).toISOString().slice(0, 10);
+
+function HistoricalImport({ job, disabled, onStart, onRetry }) {
+  const today = Math.floor(Date.now() / utcDayMs) * utcDayMs;
+  const state = job?.status;
+  const active = job?.windows?.[job.active_window];
+  return (
+    <Surface>
+      <h2>Historical backfill</h2>
+      <form className="repertoire-form" onSubmit={onStart}>
+        <fieldset disabled={disabled || ["running", "paused"].includes(state)}>
+          <div className="repertoire-fields">
+            <label>Lichess account <input name="lichess" maxLength={40} defaultValue={job?.request?.lichess ?? ""} /></label>
+            <label>Chess.com account <input name="chess_com" maxLength={40} defaultValue={job?.request?.chess_com ?? ""} /></label>
+          </div>
+          <div className="repertoire-fields">
+            <label>First day (UTC) <input type="date" name="from" defaultValue={utcDate(today - 90 * utcDayMs)} required /></label>
+            <label>Last day (UTC) <input type="date" name="to" defaultValue={utcDate(today - utcDayMs)}
+              max={utcDate(today - utcDayMs)} required /></label>
+          </div>
+          <p>Qualifying historical misses can add new Game Agains. A later repertoire reset stops this job from adding more for that repertoire.</p>
+          <Button type="submit">Start historical backfill</Button>
+        </fieldset>
+      </form>
+      {job?.windows && (
+        <div>
+          <p role="status">{job.windows.filter(window => window.status === "complete").length} complete · {job.incomplete_windows} incomplete · {job.pending_windows} pending</p>
+          {active && <p>Processing {sourceNames[active.source]} · {active.learner} · {utcDate(active.from_ms)} to {utcDate(active.to_ms - 1)}</p>}
+          {job.error && <StatusNotice kind="error">{job.error}</StatusNotice>}
+          {(state === "incomplete" || state === "paused") &&
+            <Button disabled={disabled} onClick={onRetry}>Retry remaining windows</Button>}
+          <details>
+            <summary>Provider windows</summary>
+            <ul className="game-results">{job.windows.map(window => (
+              <li key={`${window.source}:${window.learner}:${window.from_ms}`}>
+                <strong>{sourceNames[window.source]} · {window.learner} · {utcDate(window.from_ms)} to {utcDate(window.to_ms - 1)}</strong>
+                <p>{window.status} · {window.accepted} processed of {window.received} returned{window.split && " · split after provider limit"}</p>
+                {window.notes.length > 0 && <ul>{window.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
+              </li>
+            ))}</ul>
+          </details>
+        </div>
+      )}
+    </Surface>
   );
 }
 
@@ -92,7 +161,7 @@ function pendingGame() {
   catch { return null; }
 }
 
-export function GamesPage({ onStudy, onRepertoires }) {
+export function GamesPage({ onStudy, onRepertoires, onGap }) {
   const [source, setSource] = useState("lichess");
   const [repertoires, setRepertoires] = useState(null);
   const [dataset, setDataset] = useState(null);
@@ -102,6 +171,13 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [historyError, setHistoryError] = useState("");
   const [job, setJob] = useState(null);
   const [jobError, setJobError] = useState("");
+  const [backfill, setBackfill] = useState(null);
+  const [model, setModel] = useState(null);
+  const [gaps, setGaps] = useState([]);
+  const [moreGaps, setMoreGaps] = useState(false);
+  const [evidenceError, setEvidenceError] = useState("");
+  const [workingGap, setWorkingGap] = useState(false);
+  const [evidenceRevision, setEvidenceRevision] = useState(0);
   const [importReport, setImportReport] = useState(null);
   const [issue, setIssue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -168,6 +244,66 @@ export function GamesPage({ onStudy, onRepertoires }) {
     };
   }, [jobRevision]);
 
+  useEffect(() => {
+    const request = new AbortController();
+    let timer;
+    let wasRunning = false;
+    async function check() {
+      try {
+        const [historical, inference, coverage] = await Promise.all([
+          historicalStatus(request.signal), modelStatus(request.signal), readGaps(request.signal),
+        ]);
+        if (request.signal.aborted) return;
+        setBackfill(historical);
+        setModel(inference);
+        setGaps(coverage.gaps);
+        setMoreGaps(coverage.more === true);
+        const running = historical.status === "running" || inference.status === "running";
+        if (wasRunning && !running) setHistoryRevision(value => value + 1);
+        wasRunning = running;
+        if (running) timer = setTimeout(check, 2000);
+      } catch (error) {
+        if (!request.signal.aborted) setEvidenceError(error.message);
+      }
+    }
+    void check();
+    return () => { request.abort(); clearTimeout(timer); };
+  }, [evidenceRevision, historyRevision]);
+
+  function beginBackfill(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void run(() => ({ kind: "backfill", payload: {
+      command_id: crypto.randomUUID(), dataset_id: dataset,
+      lichess: form.get("lichess").trim() || null,
+      chess_com: form.get("chess_com").trim() || null,
+      ...utcDateRange(form.get("from"), form.get("to"), 366),
+    } }));
+  }
+
+  async function analyze() {
+    setEvidenceError("");
+    try {
+      setModel(await startModel({ dataset_id: dataset }, lifecycle.current.signal));
+      setEvidenceRevision(value => value + 1);
+    } catch (error) { setEvidenceError(error.message); }
+  }
+
+  async function openGap(gap) {
+    setEvidenceError("");
+    setWorkingGap(true);
+    try {
+      const address = {
+        dataset_id: dataset, repertoire_id: gap.repertoire_id, position: gap.position,
+        actual_move: gap.actual_move, document_revision: gap.document_revision,
+      };
+      const details = await gapDraft(address, lifecycle.current.signal);
+      onGap({ address, details });
+    } catch (error) {
+      if (!lifecycle.current.signal.aborted) setEvidenceError(error.message);
+    } finally { setWorkingGap(false); }
+  }
+
   function remember(command) {
     setPending(command);
     try {
@@ -178,7 +314,14 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   async function deliver(command, signal) {
     remember(command);
-    if (command.kind !== "refresh") {
+    if (command.kind === "backfill" || command.kind === "backfill-retry") {
+      const submit = command.kind === "backfill" ? startHistorical : retryHistorical;
+      const status = await submit(command.payload, signal);
+      if (signal.aborted) return;
+      setBackfill(status);
+      setEvidenceRevision(value => value + 1);
+      remember(null);
+    } else if (command.kind !== "refresh") {
       const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
       const result = await submitGame(command.payload, signal);
       if (signal.aborted) return;
@@ -311,6 +454,34 @@ export function GamesPage({ onStudy, onRepertoires }) {
             setJobRevision(value => value + 1);
             setReload(value => value + 1);
           }}>Reload Games</Button>
+        )}
+      </Surface>
+      <HistoricalImport key={backfill?.job_id ?? "idle"} job={backfill}
+        disabled={!dataset || busy || !!pending || refreshing} onStart={beginBackfill}
+        onRetry={() => void run(() => ({ kind: "backfill-retry", payload: {
+          command_id: crypto.randomUUID(), dataset_id: dataset, job_id: backfill.job_id,
+        } }))} />
+      <Surface>
+        <h2>Opponent coverage gaps</h2>
+        <div className="actions">
+          <Button disabled={!dataset || model?.status === "running"} onClick={() => void analyze()}>
+            Analyze Maia probabilities
+          </Button>
+        </div>
+        {model && model.status !== "idle" && (
+          <p role="status">{model.profile} · {model.status} · {model.completed} of {model.total} positions
+            {model.error && ` · ${model.error}`}</p>
+        )}
+        {evidenceError && <StatusNotice kind="error">{evidenceError}</StatusNotice>}
+        {moreGaps && <p>Showing the 100 most frequent gaps.</p>}
+        {gaps.length === 0 ? <p>No confirmed opponent gaps in the current documents.</p> : (
+          <ul className="game-results">{gaps.map(gap => (
+            <li key={`${gap.repertoire_id}:${gap.position}:${gap.actual_move}`}>
+              <strong>{repertoires?.find(book => book.id === gap.repertoire_id)?.name ?? gap.repertoire_id}</strong>
+              <p>{gap.actual_move} · {gap.games} {gap.games === 1 ? "game" : "games"}</p>
+              <Button disabled={workingGap || !dataset} onClick={() => void openGap(gap)}>Open response editor</Button>
+            </li>
+          ))}</ul>
         )}
       </Surface>
       {(refreshFailed || report) && (

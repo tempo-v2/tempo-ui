@@ -61,6 +61,12 @@ function gameResults(results) {
         repertoire_id: string(item.repertoire_id, "disagreement repertoire", true),
         plies: item.plies.map(ply => count(ply, "disagreement ply")),
       })),
+      repertoires: (result.repertoires ?? []).map(book => ({
+        repertoire_id: string(book.repertoire_id, "comparison repertoire", true),
+        source_available: book.source_available === true,
+        first_departure: book.first_departure ?? null,
+        reentry_ply: book.reentry_ply ?? null,
+      })),
       effect,
     };
   });
@@ -160,7 +166,15 @@ export async function reprocessGames(payload, signal) {
   return gameReport(await request("/reprocess", payload, signal));
 }
 
-export function utcDateRange(first, last) {
+export const historicalStatus = signal => request("/backfill", undefined, signal);
+export const startHistorical = (payload, signal) => request("/backfill", payload, signal);
+export const retryHistorical = (payload, signal) => request("/backfill/retry", payload, signal);
+export const modelStatus = signal => request("/model", undefined, signal);
+export const startModel = (payload, signal) => request("/model", payload, signal);
+export const readGaps = signal => request("/gaps", undefined, signal);
+export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
+
+export function utcDateRange(first, last, limit = 31) {
   const day = value => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN;
     const time = Date.parse(`${value}T00:00:00Z`);
@@ -170,6 +184,6 @@ export function utcDateRange(first, last) {
   const from_ms = day(first);
   const to_ms = day(last) + utcDayMs;
   if (!(from_ms >= 0 && to_ms > from_ms)) throw new Error("Enter a valid date range.");
-  if (to_ms - from_ms > 31 * utcDayMs) throw new Error("Choose a range of up to 31 UTC days.");
+  if (to_ms - from_ms > limit * utcDayMs) throw new Error(`Choose a range of up to ${limit} UTC days.`);
   return { from_ms, to_ms };
 }

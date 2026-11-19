@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Button, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
 import { StudyBoard, turnFromFen } from "./StudyBoard.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
@@ -40,6 +40,24 @@ export function StudyPage({
 }) {
   const attempt = view && !stopped && ["ready", "complete", "abandoned"].includes(view.status);
   const lesson = view?.lesson;
+  const [selectionReason, setSelectionReason] = useState(null);
+  const attemptId = attempt ? view.attempt_id : null;
+  const datasetId = view?.dataset_id;
+  useEffect(() => {
+    if (!attemptId || !datasetId) return;
+    const request = new AbortController();
+    fetch("/api/study/relevance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataset_id: datasetId, attempt_id: attemptId }),
+      signal: request.signal,
+    }).then(reply => reply.ok ? reply.json() : null).then(reply => {
+      if (!request.signal.aborted && typeof reply?.reason === "string") {
+        setSelectionReason({ attemptId, datasetId, text: reply.reason });
+      }
+    }).catch(() => {});
+    return () => request.abort();
+  }, [attemptId, datasetId]);
   return (
     <main className={`tempo-core study-layout${attempt ? " has-board" : ""}`}>
       {attempt && (
@@ -107,6 +125,8 @@ export function StudyPage({
               {attempt && <p>{({ teach: "Teach", test: "Test", practice: "Practice" })[view.activity]}
                 {view.exercise_name && ` · ${view.exercise_name}`}
                 {view.prompt && ` · Move ${view.prompt.decision_index + 1} of ${view.prompt.decision_count}`}</p>}
+              {attempt && selectionReason?.attemptId === attemptId && selectionReason.datasetId === datasetId &&
+                <p className="game-source-note">{selectionReason.text}</p>}
               {lesson && (
                 <div className="lesson">
                   {view.corrective_repair && <strong>Game correction</strong>}
