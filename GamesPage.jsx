@@ -13,6 +13,7 @@ import {
 import { readRepertoireCatalog } from "./repertoire_commands.js";
 import { GapEditor } from "./GapEditor.jsx";
 import { GameDetectionPanel } from "./GameDetectionPanel.jsx";
+import { TacticalHistory } from "./TacticalHistory.jsx";
 import { readGapContinuation } from "./gap_save.js";
 import { commandRecovery } from "./content_transport.js";
 
@@ -836,7 +837,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     {analysis ? <AnalysisPage origin={analysis} onClose={returnFromAnalysis} /> : (
     <main className="tempo-core repertoire-page games-page">
       <Button size="compact" variant="quiet" onClick={onStudy}>← Study</Button>
-      <PageHeader title="Games" subtitle="Review your opening against your repertoire."
+      <PageHeader title="Games" subtitle="Review your openings and tactical opportunities."
         actions={<Button onClick={() => { setSource("pgn"); setImportOpen(true); }}>Import PGN</Button>} />
       <details className="game-import" open={importOpen || !!pending || !!issue || !!jobError || !!catalogError || recoveryStatus === "blocked"}
         onToggle={e => setImportOpen(e.currentTarget.open)}><summary>Import or refresh games</summary><Surface>
@@ -923,6 +924,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           {report && <GameReport report={report} importing={!!importReport} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />}
         </Surface></details>
       )}
+      {dataset && <TacticalHistory dataset={dataset} onOpen={openReview} />}
       <Surface>
         <SectionHeader title="Game library" />
         {repertoires?.length === 0 && <p>Add a repertoire to compare your games with prepared moves. <Button onClick={onRepertoires}>Open repertoires</Button></p>}
