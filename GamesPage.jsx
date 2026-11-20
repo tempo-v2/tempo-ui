@@ -36,7 +36,7 @@ function GameResults({ groups, showFindings, results, repertoires, history = fal
   async function enqueue(game, key) {
     setQueueStatus(current => ({...current, [key]: "Queueing…"}));
     try {
-      await commandTacticalAnalysis(dataset, "enqueue", {source: game.source, game_id: game.game_id});
+      await commandTacticalAnalysis(dataset, "enqueue", {source: game.source, game_id: game.game_id, learner: game.learner});
       setQueueStatus(current => ({...current, [key]: "Queued"}));
     } catch {
       setQueueStatus(current => ({...current, [key]: "Could not queue. Try again."}));
