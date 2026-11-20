@@ -170,7 +170,11 @@ export function validateTacticalHistory(value, dataset, before) {
   valid(total === value.statistics.observations && Array.isArray(value.observations) && value.observations.length <= 30);
   let previous = before ?? Infinity;
   for (const row of value.observations) {
-    object(row, ["id", "source", "game_id", "learner", "ply", "outcome", "details", "puzzle", "request_id", "fulfilled", "analysis_version"], "tactical observation");
+    object(row, [...(Object.hasOwn(row, "producer") ? ["producer"] : []), "id", "source", "game_id", "learner", "ply", "outcome", "details", "puzzle", "request_id", "fulfilled", "analysis_version"], "tactical observation");
+    if (Object.hasOwn(row, "producer") && row.producer !== null) {
+      object(row.producer, ["id", "revision", "configuration_fingerprint"], "finding producer");
+      Object.values(row.producer).forEach(nonempty);
+    }
     count(row.id, true);
     valid(row.id < previous);
     previous = row.id;
