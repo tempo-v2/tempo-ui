@@ -5,6 +5,8 @@ import { playBoardMove } from "./board_move.js";
 import { GapAnalysis, GapExplorer } from "./GapAnalysis.jsx";
 import { previewGapResponse, repertoireError, staleGapCodes, writeGapContinuation } from "./gap_save.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
+import { LichessControl } from "./LichessControl.jsx";
+import { boardWithLeadIn, lineFromBoard } from "./lichess_analysis.js";
 import { hasPendingRepertoireCommand, savePendingRepertoireCommand, sendRepertoireCommand } from "./repertoire_commands.js";
 
 const percent = value => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
@@ -53,6 +55,11 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   }, [draft.fen, selected, suggestion]);
   const compare = preview && preview !== selected;
   const fen = !compare && stagedBoard ? stagedBoard.fen() : draft.fen;
+  const exportLine = useMemo(() => {
+    const anchored = boardWithLeadIn(draft.fen, gap.details.anchor_route);
+    if (!compare && stagedBoard) playBoardMove(anchored, selected);
+    return lineFromBoard(anchored);
+  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, compare]);
   const turn = fen.split(" ")[1] === "w" ? "white" : "black";
   const check = useMemo(() => new Chess(fen).isCheck() ? turn : false, [fen, turn]);
   const shapes = [
@@ -245,6 +252,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
                 datasetId: gap.address.dataset_id, repertoireId: gap.address.repertoire_id,
                 fen: draft.fen, color, name: gap.details.repertoire_name, anchorRoute: gap.details.anchor_route,
               })}>Analyze lines</Button>
+              <LichessControl fen={fen} line={exportLine} orientation={color} />
               {selected && <Button disabled={locked} onClick={() => select("")}>Clear response</Button>}
               <Button variant="primary" disabled={busy || !selected} onClick={() => void save()}>
                 {busy ? "Saving response…" : pending || loadPending ? "Retry save" : "Save response"}

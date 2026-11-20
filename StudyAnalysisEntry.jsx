@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Button, StatusNotice } from "@tempo-v2/core-components";
 import { AnalysisPage } from "./AnalysisPage.jsx";
+import { useStudyLineExport } from "./StudyLineExport.jsx";
 import { postCommand } from "./content_transport.js";
 import { UCI } from "./validate_study_view.js";
 
@@ -8,7 +9,7 @@ const ANALYSIS_CONTEXT_TIMEOUT_MS = 10_000;
 
 // Mount the analysis board only after the server discloses the addressed decision.
 // Retries here are reads, including after a recovered review concession.
-export function StudyAnalysisEntry({ visit, issue, onClose }) {
+export function StudyAnalysisEntry({ visit, issue, launch, onClose }) {
   const [result, setResult] = useState(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -35,7 +36,9 @@ export function StudyAnalysisEntry({ visit, issue, onClose }) {
     return () => owner.abort();
   }, [visit, retry]);
   const current = result?.visit === visit && result.retry === retry ? result : null;
-  if (current?.origin && !issue) return <AnalysisPage origin={current.origin} onClose={onClose} />;
+  const renderRootLineAction = useStudyLineExport(visit, current?.origin, launch, Boolean(issue || current?.error));
+  if (current?.origin && !issue) return <AnalysisPage origin={current.origin} onClose={onClose}
+    renderRootLineAction={renderRootLineAction} />;
   return <main className="tempo-core">
     <h1>Position analysis</h1>
     {issue || current?.error ? <StatusNotice kind="error">{issue || current.error}</StatusNotice>

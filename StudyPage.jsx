@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Button, Dialog, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
-import { StudyBoard, turnFromFen } from "./StudyBoard.jsx";
+import { StudyBoard, studyOrientation, turnFromFen } from "./StudyBoard.jsx";
+import { LichessControl } from "./LichessControl.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
 import { StudyOutcome } from "./StudyOutcome.jsx";
@@ -54,6 +55,9 @@ export function StudyPage({
     index === 0 ? notation : notation.replace(/^\d+\.\.\. /, ""));
   const { summary, unavailable, repairsRemaining } = useStudyProgress(view, stopped);
   const replayBlocked = state.busy || state.canRetry || !!choice || !!dialog;
+  const canAnalyze = !!actions.analyze && attempt &&
+    (view.status !== "abandoned" || (view.activity === "test" && view.assessment === "again"));
+  const analysisBlocked = replayBlocked || advancing || state.refreshRequired || state.storageUnavailable;
   const title = attempt
     ? view.exercise_name ?? (view.corrective_repair ? "Opening move" :
       ({ teach: "Learn the move", test: "Find the move", practice: "Practice" })[view.activity])
@@ -187,10 +191,15 @@ export function StudyPage({
           {(panelContinuation || others) && (
             <div className="actions">{panelContinuation}{others}</div>
           )}
-          {actions.analyze && attempt && historyIndex === null &&
-            (view.status !== "abandoned" || (view.activity === "test" && view.assessment === "again")) && (
-            <Button size="compact" disabled={replayBlocked || advancing || state.refreshRequired || state.storageUnavailable}
-              onClick={actions.analyze}>Analyze</Button>
+          {canAnalyze && (
+            <div className="actions study-analysis-actions">
+              {historyIndex === null &&
+                <Button size="compact" disabled={analysisBlocked} onClick={actions.analyze}>Analyze</Button>}
+              {inGameReplay
+                ? <LichessControl fen={gameContext.line.start_fen} line={gameContext.line}
+                    orientation={studyOrientation(view.learner_color, flipped)} />
+                : <LichessControl disabled={analysisBlocked} onClick={actions.analyzeInLichess} />}
+            </div>
           )}
           {gameContext && (
             <div className="actions game-replay-links">

@@ -45,8 +45,8 @@ function renderSection(page, goTo, datasetId) {
     onTactics={() => goTo("tactics")} />;
 }
 
-function renderAnalysis(visit, issue, onClose) {
-  return <StudyAnalysisEntry visit={visit} issue={issue} onClose={onClose} />;
+function renderAnalysis(visit, issue, onClose, launch) {
+  return <StudyAnalysisEntry visit={visit} issue={issue} onClose={onClose} launch={launch} />;
 }
 
 export function DesktopApp() {

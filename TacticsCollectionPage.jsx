@@ -5,6 +5,7 @@ import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
 import { studyChangeKey, studyChangeStamp } from "./study_presence.js";
 import { turnFromFen } from "./StudyBoard.jsx";
+import { LichessControl } from "./LichessControl.jsx";
 
 const endpoint = "/api/tactics-collection";
 const readOptions = { timeoutMs: SMALL_READ_TIMEOUT_MS };
@@ -120,7 +121,10 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
                 <Button onClick={onStudy}>Return to Study</Button>
               </>
             ) : detail.solution
-              ? <MoveTrail line={detail.solution} index={index} onInspect={setIndex} />
+              ? <>
+                <MoveTrail line={detail.solution} index={index} onInspect={setIndex} />
+                <LichessControl fen={fen} line={detail.solution} orientation={detail.learner_color} />
+              </>
               : <Button onClick={() => loadDetail(true)}>Show solution</Button>}
           </> : !issue && <p role="status">Loading tactic…</p>}
         </Surface>
