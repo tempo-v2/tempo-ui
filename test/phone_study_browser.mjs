@@ -25,13 +25,21 @@ const ui = resolve("tempo-ui/dist");
 const scratch = await mkdtemp(join(tmpdir(), "tempo-phone-study-"));
 const database = join(scratch, "study.sqlite");
 const tactics = [
-  { source_id: "kingside", solver_fen: "7k/8/5KQ1/8/8/8/8/8 w - - 0 1", solution: ["g6g7"] },
-  { source_id: "queenside", solver_fen: "k7/8/1QK5/8/8/8/8/8 w - - 0 1", solution: ["b6b7"] },
+  {
+    source_id: "kingside", solver_fen: "7k/8/5KQ1/8/8/8/8/8 w - - 0 1", solution: ["g6g7"],
+    opponent_lead_in: { before_fen: "8/7k/5KQ1/8/8/8/8/8 b - - 0 1", uci: "h7h8" },
+  },
+  {
+    source_id: "queenside", solver_fen: "k7/8/1QK5/8/8/8/8/8 w - - 0 1", solution: ["b6b7"],
+    opponent_lead_in: { before_fen: "8/k7/1QK5/8/8/8/8/8 b - - 0 1", uci: "a7a8" },
+  },
 ];
 let tempo, proxy, browser, sql;
 
 async function tapMove(page, move) {
   const board = page.locator(".study-board cg-board");
+  await page.waitForFunction(() =>
+    document.querySelector('[aria-label="Study chessboard"]')?.getAttribute("aria-disabled") === "false");
   await board.scrollIntoViewIfNeeded();
   const box = await board.boundingBox();
   assert(box);
@@ -180,6 +188,11 @@ try {
   };
   await page.goto(`http://127.0.0.1:${proxy.address().port}`);
   await button("Show move").waitFor();
+  const { before_fen, uci } = issued[0].opponent_lead_in;
+  assert.ok(tactics.some(tactic => tactic.opponent_lead_in.before_fen === before_fen));
+  await page.waitForFunction(uci =>
+    [...document.querySelectorAll(".study-board svg.cg-shapes g[cgHash]")].some(shape =>
+      shape.getAttribute("cgHash").includes(`,${uci.slice(0, 2)},${uci.slice(2, 4)},red`)), uci);
   assert.equal(await page.title(), "Tempo Study");
   assert.equal(await page.getByRole("navigation", { name: "Tempo sections" }).count(), 0);
   assert.equal(await button("Analyze").count(), 0);
@@ -264,6 +277,7 @@ try {
   });
   await button("Check again").click();
   await page.getByText(/You played Bc4 in your game/).waitFor();
+  assert.equal(issued.at(-1).opponent_lead_in?.uci, "e7e5");
   await button("Replay game").click();
   await button("Return to exercise").click();
   await page.getByText("Play Nf3 on the board.").waitFor();

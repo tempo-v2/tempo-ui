@@ -4,10 +4,11 @@ import { StudyPage } from "./StudyPage.jsx";
 import { identity, studyOrientation } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { completedReviewAddress, studyReviewAddresses, useReviewMark } from "./saved_review_commands.js";
-import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
+import { createBoardSounds, learnerCue, opponentCue, replyCue } from "./board_sounds.js";
 
 import { studyTransport } from "./study_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
+import { useStudyLeadIn } from "./use_study_lead_in.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
 import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
@@ -59,6 +60,17 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
     replyTimer = useRef(null),
     advanced = useRef(null),
     pausedAdvance = useRef(null);
+  function showStudyView(view, state, keepMove) {
+    setModel(previous => {
+      const samePosition = !!view?.attempt_id && !!previous.view?.attempt_id &&
+        identity(view) === identity(previous.view) &&
+        view.display_fen === previous.view.display_fen &&
+        view.prompt?.decision_index === previous.view.prompt?.decision_index;
+      const opponentMove = view?.feedback?.autoplay.at(-1)?.uci ??
+        (samePosition ? previous.opponentMove : null) ?? view?.opponent_lead_in?.uci;
+      return { view, state, keepMove, opponentMove };
+    });
+  }
   if (!controller.current)
     controller.current = createStudyController({
       transport,
@@ -68,7 +80,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
         if (view?.status === "complete") lastCompleted.current = completedReviewAddress(view);
         const move = preview.current;
         if (state.busy || !move) {
-          setModel({ view, state, keepMove: state.busy && !!move });
+          showStudyView(view, state, state.busy && !!move);
           return;
         }
         preview.current = null;
@@ -76,7 +88,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
         const replies = view !== move.view && view?.feedback?.correct ? view.feedback.autoplay : [];
         const showResult = () => {
           replyTimer.current = null;
-          setModel({ view, state, keepMove: false });
+          showStudyView(view, state, false);
           if (sounds.enabled && replies.length && studyVisit.current === move.studyVisit) {
             sounds.play(replyCue(move.view.display_fen, move.uci, replies));
           }
@@ -122,6 +134,11 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
   const gameContext = useStudyGameContext(view?.dataset_id, readyRepair ? view.attempt_id : null);
   const historyLine = gameContext?.line ?? view?.history;
   const inspecting = history?.view === view;
+  const onLeadInPlayed = useCallback((fen, uci) => {
+    if (sounds.enabled) sounds.play(opponentCue(fen, uci));
+  }, [sounds]);
+  const showingCard = studying && !stopped && !inspecting && view?.status === "ready";
+  const leadIn = useStudyLeadIn(showingCard ? identity(view) : null, view?.opponent_lead_in, onLeadInPlayed);
   useEffect(() => { setHistory(null); }, [view]);
   const autoAdvance = studying && !stopped && !dialog && !inspecting && canAutoAdvance(view?.status, view?.activity, view?.assessment) &&
     !state.busy && !state.canRetry && !state.refreshRequired && !state.storageUnavailable && advanced.current !== view && pausedAdvance.current !== view;
@@ -279,7 +296,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
     if (
       !v ||
       v.status !== "ready" ||
-      dialog || inspecting || snapshot.analysis ||
+      leadIn || dialog || inspecting || snapshot.analysis ||
       state.busy ||
       state.canRetry ||
       state.refreshRequired || state.storageUnavailable ||
@@ -377,6 +394,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
   return (
     <StudyPage
       {...model}
+      leadIn={leadIn}
       showSuccess={autoAdvance && view.activity === "test"}
       advancing={state.busy && advanced.current === view}
       actions={actions}

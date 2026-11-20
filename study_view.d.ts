@@ -51,6 +51,7 @@ export interface ReadyView extends AttemptViewBase {
   readonly status: "ready";
   readonly prompt: Prompt;
   readonly lesson?: Lesson;
+  readonly opponent_lead_in?: { readonly before_fen: string; readonly uci: string };
 }
 /** No further answer is accepted through this displayed attempt. */
 export interface FinishedView extends AttemptViewBase {

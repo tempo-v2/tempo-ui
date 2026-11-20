@@ -93,7 +93,7 @@ export function validateStudyView(value) {
       "legal_moves",
       "in_check",
       "activity",
-      ...["lesson", "exercise_name", "history", "corrective_repair"].filter((key) => Object.hasOwn(value, key)),
+      ...["lesson", "exercise_name", "history", "corrective_repair", "opponent_lead_in"].filter((key) => Object.hasOwn(value, key)),
     ],
     "attempt view",
   );
@@ -140,6 +140,19 @@ export function validateStudyView(value) {
   if (Object.hasOwn(value, "corrective_repair")) {
     if (value.activity !== "teach") throw new TypeError("A corrective repair must be guided");
     context.corrective_repair = boolean(value.corrective_repair, "corrective_repair");
+  }
+  if (Object.hasOwn(value, "opponent_lead_in")) {
+    const leadIn = value.opponent_lead_in;
+    object(leadIn, ["before_fen", "uci"], "opponent lead-in");
+    const before_fen = string(leadIn.before_fen, "opponent position", true);
+    const uci = string(leadIn.uci, "opponent move", true);
+    const fields = before_fen.split(/\s+/);
+    const opponentTurn = value.learner_color === "white" ? "b" : "w";
+    if (!prompt || prompt.decision_index !== 0 || value.revision !== 0 ||
+        fields.length !== 6 || fields[1] !== opponentTurn || !UCI.test(uci)) {
+      throw new TypeError("Invalid opponent lead-in");
+    }
+    context.opponent_lead_in = { before_fen, uci };
   }
   if (Object.hasOwn(value, "history")) context.history = validateRevealedLine(value.history);
   if (Object.hasOwn(value, "exercise_name"))

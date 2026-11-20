@@ -9,7 +9,7 @@ export const studyOrientation = (color, flipped) =>
   flipped ? (color === "white" ? "black" : "white") : color;
 
 export const StudyBoard = forwardRef(function StudyBoard(
-  { view, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
+  { view, leadIn, opponentMove, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
   ref,
 ) {
   const destinations = useMemo(() => {
@@ -28,12 +28,17 @@ export const StudyBoard = forwardRef(function StudyBoard(
     playBoardMove(position, guidedMove);
     return position.fen();
   }, [guidedMove, view.display_fen]);
-  const fen = historyFen ?? previewFen ?? view.display_fen;
+  const fen = historyFen ?? leadIn?.before_fen ?? previewFen ?? view.display_fen;
   const turn = turnFromFen(fen);
   const demonstration = view.lesson?.move_uci ?? view.feedback?.correction_uci;
-  const lastMove = guidedMove || view.lesson?.previous_move;
+  const lastMove = guidedMove || opponentMove || view.lesson?.previous_move;
   const arrows = [];
-  if (!historyFen && !previewFen) {
+  if (!historyFen && !previewFen && !leadIn) {
+    if (opponentMove) {
+      arrows.push({
+        orig: opponentMove.slice(0, 2), dest: opponentMove.slice(2, 4), brush: "red",
+      });
+    }
     if (gameDeviation) {
       const sameSquares = gameDeviation.slice(0, 4) === demonstration?.slice(0, 4);
       arrows.push({
@@ -56,16 +61,16 @@ export const StudyBoard = forwardRef(function StudyBoard(
       theme={prefs?.theme}
       pieceSet={prefs?.pieceSet}
       turn={turn}
-      check={!historyFen && !previewFen && view.in_check ? turn : false}
+      check={!historyFen && !previewFen && !leadIn && view.in_check ? turn : false}
       mode="legal"
       destinations={destinations}
       positionIdentity={historyFen ? `${identity(view)}:history:${historyFen}` : identity(view)}
       positionRevision={view.revision}
-      locked={locked || view.status !== "ready"}
+      locked={locked || !!leadIn || view.status !== "ready"}
       retainMoveOnLock={!historyFen && retainMoveOnLock}
       coordinates="edges"
       maxSize={Number.MAX_SAFE_INTEGER}
-      lastMove={!historyFen && lastMove ? [lastMove.slice(0, 2), lastMove.slice(2, 4)] : undefined}
+      lastMove={!historyFen && !leadIn && lastMove ? [lastMove.slice(0, 2), lastMove.slice(2, 4)] : undefined}
       shapes={arrows}
       onMove={onMove}
       onRejectedMove={onRejectedMove}

@@ -8,7 +8,9 @@ export const studyTransport = {
     const statusRead = command.command === "study_status";
     if (!statusRead) signalStudyChange();
     try {
-      return await postCommand("/api/study", command, undefined, studyMoveDetails, {
+      return await postCommand("/api/study", command, undefined, {
+        ...studyMoveDetails, "X-Tempo-Study-Lead-In": "1",
+      }, {
         timeoutMs: statusRead ? SMALL_READ_TIMEOUT_MS : SHORT_ACK_TIMEOUT_MS,
       });
     } finally {
