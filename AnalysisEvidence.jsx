@@ -1,6 +1,6 @@
 import { Board, Button } from "@tempo-v2/core-components";
 import { LichessControl } from "./LichessControl.jsx";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { comparisonCandidates, leadingMeasuredMoves, measurementText, engineCells, explorerCells, probabilityCells } from "./move_evidence.js";
 import { commandTacticalAnalysis } from "./tactical_history.js";
 import { usePositionEvidence } from "./position_evidence.js";
@@ -33,13 +33,18 @@ export function AnalysisEvidence({
   const [ratings, setRatings] = useState("around1500");
   const [retry, setRetry] = useState({});
   const [pauseIssue, setPauseIssue] = useState(null);
+  const engineRequest = JSON.stringify([origin.datasetId, fen, pins]);
+  const currentEngineRequest = useRef(engineRequest);
+  currentEngineRequest.current = engineRequest;
   async function pauseAndRetry() {
     setPauseIssue(null);
     try {
       await commandTacticalAnalysis(origin.datasetId, "pause");
-      setRetry(value => ({ ...value, stockfish: (value.stockfish || 0) + 1 }));
+      if (currentEngineRequest.current === engineRequest) {
+        setRetry(value => ({ ...value, stockfish: (value.stockfish || 0) + 1 }));
+      }
     } catch (error) {
-      setPauseIssue(error.message);
+      setPauseIssue({request: engineRequest, message: error.message});
     }
   }
   const [enabled, setEnabled] = useState({});
@@ -153,7 +158,7 @@ export function AnalysisEvidence({
           </p>
         ) : null,
       )}
-      {pauseIssue && <p role="status">{pauseIssue}</p>}
+      {pauseIssue?.request === engineRequest && <p role="status">{pauseIssue.message}</p>}
       {maia.data?.terminal && <p role="status">Maia · No legal moves in this position.</p>}
       {fish.data?.comparison_complete === false && (
         <p role="status">
