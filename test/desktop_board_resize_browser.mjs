@@ -13,7 +13,7 @@ export async function checkDesktopBoardLayout(page, label) {
   assert(box.y >= 0 && box.y + box.height <= height, `${label} fits vertically`);
 }
 
-export async function checkDesktopBoardResize(page, label) {
+export async function checkDesktopBoardResize(page, label, minimumShrink = 24) {
   const board = page.getByRole("group", { name: label, exact: true });
   const square = board.locator("cg-board");
   const handle = board.locator(".tempo-board-resize-handle");
@@ -37,7 +37,7 @@ export async function checkDesktopBoardResize(page, label) {
   await page.mouse.move(x - 72, y - 36, { steps: 8 });
   await page.mouse.up();
   const after = await square.boundingBox();
-  assert(after.width <= before.width - 24, `${label} should shrink`);
+  assert(after.width <= before.width - minimumShrink, `${label} should shrink`);
   assert.equal(after.width, after.height);
   assert.equal(after.width % 8, 0);
   checkCentered(after);

@@ -298,7 +298,7 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
 
   return (
     <main className={`tempo-core repertoire-page tactic-capture${mode === "build" ? " capture-building" : ""}`}>
-      <PageHeader title="Capture tactics" actions={<div className="actions capture-page-actions">
+      <PageHeader title="Capture tactics" actions={<div className="actions tactic-page-actions">
         <Button disabled={locked} onClick={onStudy}>Study</Button>
         {onTactics && <Button disabled={locked} onClick={onTactics}>Tactics</Button>}
       </div>} />

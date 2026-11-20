@@ -79,7 +79,7 @@ export function TacticBuilder({ locked, canSave, saving, onSave }) {
           <div className="capture-edit-position">
             <Button disabled={locked} onClick={() => setEditing(true)}>Edit board or enter FEN</Button>
           </div>
-          <div className="capture-board-column">
+          <div className="tactic-board-column">
             <div className="desktop-board-frame">
               <MainBoard ref={boardInput} fen={fen} orientation={turnFromFen(root)} turn={turn}
                 check={board.isCheck() ? turn : false} mode="legal" locked={locked || !!promotion}

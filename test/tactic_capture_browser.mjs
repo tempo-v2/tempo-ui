@@ -161,6 +161,9 @@ try {
   await button(detail.label).click();
   await page.getByRole("group", { name: "Tactic position" }).waitFor();
   await checkDesktopBoardResize(page, "Tactic position");
+  await page.setViewportSize({ width: 1000, height: 500 });
+  await checkDesktopBoardLayout(page, "Tactic position");
+  await checkDesktopBoardResize(page, "Tactic position", 8);
   await button("Show solution").click();
   await button("1... O-O").waitFor();
 

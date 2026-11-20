@@ -48,7 +48,7 @@ export function TacticPositionEditor({ fen, hasSolution, locked, onApply, onCanc
   }
 
   return (
-    <div className="repertoire-form tactic-builder-layout tactic-setup-layout">
+    <div className="repertoire-form tactic-builder-layout">
       <div className="capture-setup-form">
         {hasSolution && <p>Applying a different starting position clears the solution.</p>}
         <form className="capture-fen" onSubmit={event => {
@@ -65,7 +65,7 @@ export function TacticPositionEditor({ fen, hasSolution, locked, onApply, onCanc
         </form>
         {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
       </div>
-      <div className="desktop-board-frame">
+      <div className="desktop-board-frame tactic-board-column">
         <MainBoard fen={boardFen} orientation={turn} turn={turn} check={false} mode="select" locked={locked}
           drawingEnabled={false} coordinates="edges" positionIdentity={`${boardFen}:${tool}`}
           positionRevision={0} ariaLabel="Starting position editor" onSelect={selectSquare}
