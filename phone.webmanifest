@@ -1,0 +1,9 @@
+{
+  "name": "Tempo Study",
+  "short_name": "Tempo Study",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "icons": [{ "src": "/assets/phone-icon.png", "sizes": "180x180", "type": "image/png" }]
+}

@@ -21,3 +21,9 @@ Run the repertoire editor browser check from the assembled workspace with
 `node tempo-ui/test/repertoire_editor_browser.mjs`. It uses Chrome and a
 disposable SQLite database through the guarded Make launcher. Make Playwright
 available to Node or set `TEMPO_PLAYWRIGHT` to its installed module path.
+
+The build also emits the standalone phone Study bundle under `dist/phone`.
+The desktop and phone bundles share the Study session and use the same API.
+After building the matching Tempo binary and UI, run
+`node tempo-ui/test/phone_study_browser.mjs` from the assembled workspace
+with Playwright WebKit installed. The test uses a disposable database.

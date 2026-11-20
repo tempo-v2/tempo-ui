@@ -1,24 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createStudyController } from "./study_controller.js";
 import { StudyPage } from "./StudyPage.jsx";
-import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
 import { identity, studyOrientation } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
-import { GamesPage } from "./GamesPage.jsx";
-import { RepertoiresPage } from "./RepertoiresPage.jsx";
-import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
-import { readGapContinuation } from "./gap_save.js";
-import { TacticsCollectionPage } from "./TacticsCollectionPage.jsx";
 import { signalStudyChange } from "./study_presence.js";
-import { TacticSettingsPage } from "./TacticSettingsPage.jsx";
-import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
-import { hasPendingTacticCommand } from "./tactic_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
 import { studyMoveDetails } from "./content_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
+
 import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
 
 const REPLY_DELAY_MS = 200;
@@ -31,27 +23,7 @@ const storage = {
   save: (e) =>
     sessionStorage.setItem("tempo-study-recovery-v4", JSON.stringify(e)),
 };
-const transport = {
-  async send(command) {
-    if (command.command !== "study_status") signalStudyChange();
-    const response = await fetch("/api/study", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...studyMoveDetails },
-      body: JSON.stringify(command),
-    });
-    if (!response.ok) throw new Error(`Server returned ${response.status}`);
-    if (command.command !== "study_status") signalStudyChange();
-    return response.json();
-  },
-};
-function initialPage() {
-  if (readGapContinuation()) return "games";
-  if (hasPendingRepertoireCommand()) return "repertoires";
-  if (hasPendingTacticCommand()) return "capture";
-  return "study";
-}
-
-export function App() {
+export function App({ initialPage = "study", renderSection, renderAnalysis, requestStudy = fetch, boardContinuation }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
@@ -74,7 +46,19 @@ export function App() {
     pausedAdvance = useRef(null);
   if (!controller.current)
     controller.current = createStudyController({
-      transport,
+      transport: {
+        async send(command) {
+          if (command.command !== "study_status") signalStudyChange();
+          const response = await requestStudy("/api/study", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...studyMoveDetails },
+            body: JSON.stringify(command),
+          });
+          if (!response.ok) throw new Error(`Server returned ${response.status}`);
+          if (command.command !== "study_status") signalStudyChange();
+          return response.json();
+        },
+      },
       storage,
       makeSubmissionId: () => crypto.randomUUID(),
       render: (view, state) => {
@@ -180,8 +164,8 @@ export function App() {
     else void controller.current.openAnalysis(address).catch(() => {});
   }
   const actions = {
-    analyze: () => analyze(false),
-    analyzeInLichess: () => analyze(true),
+    analyze: renderAnalysis ? () => analyze(false) : undefined,
+    analyzeInLichess: renderAnalysis ? () => analyze(true) : undefined,
     confirmAnalysis: () => {
       if (dialog?.kind !== "analysis") return;
       setDialog(null);
@@ -360,21 +344,17 @@ export function App() {
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
-  if (page === "study" && state.analysis)
-    return <StudyAnalysisEntry visit={state.analysis} issue={state.issue}
-      launch={lichessLaunch?.visit === state.analysis ? lichessLaunch : null}
-      onClose={() => {
+  if (page !== "study") return renderSection(page, goTo, view?.dataset_id);
+  if (state.analysis && renderAnalysis)
+    return renderAnalysis({
+      visit: state.analysis,
+      issue: state.issue,
+      launch: lichessLaunch?.visit === state.analysis ? lichessLaunch : null,
+      onClose: () => {
         setLichessLaunch(null);
         return controller.current.closeAnalysis().catch(() => {});
-      }} />;
-  if (page === "games") return <GamesPage onStudy={() => goTo("study")}
-    onRepertoires={() => goTo("repertoires")} />;
-  if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;
-  if (page === "tactics") return <TacticsCollectionPage onStudy={() => goTo("study")}
-    onCapture={() => goTo("capture")} onSettings={() => goTo("tactic-settings")} />;
-  if (page === "tactic-settings") return <TacticSettingsPage onStudy={() => goTo("study")} />;
-  if (page === "capture")
-    return <TacticsCapturePage datasetId={view?.dataset_id} onStudy={() => goTo("study")} onTactics={() => goTo("tactics")} />;
+      },
+    });
 
   return (
     <StudyPage
@@ -384,9 +364,8 @@ export function App() {
       actions={actions}
       guided={guided?.view === view ? guided : null}
       stopped={stopped}
-      onRepertoires={() => goTo("repertoires")}
-      onTactics={() => goTo("tactics")}
-      onGames={() => goTo("games")}
+      boardContinuation={boardContinuation}
+      onNavigate={renderSection ? goTo : undefined}
       boardRef={board}
       choice={choice}
       onMove={onMove}
