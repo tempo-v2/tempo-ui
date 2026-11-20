@@ -165,6 +165,7 @@ try {
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   sql = new DatabaseSync(database, { readOnly: true });
+  sql.exec("PRAGMA busy_timeout=2000");
   const rows = table => sql.prepare(`SELECT count(*) AS total FROM ${table}`).get().total;
   const button = name => page.getByRole("button", { name, exact: true });
   const board = page.locator(".study-board cg-board");
