@@ -18,9 +18,7 @@ export function StudyPage({
   actions,
   guided,
   stopped,
-  onRepertoires,
-  onTactics,
-  onGames,
+  onNavigate,
   boardRef,
   choice,
   onMove,
@@ -182,7 +180,7 @@ export function StudyPage({
           {!advancing && historyIndex === null && (
             <StudyActions view={view} state={state} actions={actions} reproduced={!!guided?.uci} stopped={stopped} />
           )}
-          {attempt && historyIndex === null &&
+          {actions.analyze && attempt && historyIndex === null &&
             (view.status !== "abandoned" || (view.activity === "test" && view.assessment === "again")) && (
             <Button size="compact" disabled={replayBlocked || advancing || state.refreshRequired || state.storageUnavailable}
               onClick={actions.analyze}>Analyze</Button>
@@ -192,24 +190,26 @@ export function StudyPage({
               {!inGameReplay &&
                 <Button size="compact" disabled={replayBlocked}
                   onClick={() => onInspect(gameContext.line.moves.length)}>Replay game</Button>}
-              {gameContext.url && <a href={gameContext.url} target="_blank" rel="noopener noreferrer">
+              {onNavigate && gameContext.url && <a href={gameContext.url} target="_blank" rel="noopener noreferrer">
                 Open original game
               </a>}
             </div>
           )}
         </Surface>
         <StudyProgress summary={summary} unavailable={unavailable} />
-        <nav className="study-navigation" aria-label="Tempo sections">
-          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
-            Repertoires
-          </Button>
-          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onTactics}>
-            Tactics
-          </Button>
-          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onGames}>
-            Games
-          </Button>
-        </nav>
+        {onNavigate && (
+          <nav className="study-navigation" aria-label="Tempo sections">
+            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("repertoires")}>
+              Repertoires
+            </Button>
+            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("tactics")}>
+              Tactics
+            </Button>
+            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("games")}>
+              Games
+            </Button>
+          </nav>
+        )}
         <div className="actions study-board-controls" aria-label="Board controls" role="group">
           {attempt && <Button size="compact" disabled={!!choice} onClick={onFlip}>Flip board</Button>}
           <Button size="compact" aria-pressed={soundEnabled} onClick={() => onSoundChange(!soundEnabled)}>
