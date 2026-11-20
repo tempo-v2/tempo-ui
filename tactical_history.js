@@ -177,7 +177,11 @@ export function validateTacticalHistory(value, dataset, before) {
     for (const field of ["source", "game_id", "learner", "analysis_version"]) nonempty(row[field]);
     count(row.ply);
     valid(Object.hasOwn(tacticalOutcomes, row.outcome) && typeof row.fulfilled === "boolean");
-    const setupFields = Object.hasOwn(row.details, "opponent_lead_in") ? ["opponent_lead_in"] : [];
+    const setupFields = ["opponent_lead_in", "skipped_analyses"].filter(field => Object.hasOwn(row.details, field));
+    if (row.details.skipped_analyses !== undefined) {
+      valid(row.outcome === "winning_mate" && Array.isArray(row.details.skipped_analyses));
+      row.details.skipped_analyses.forEach(nonempty);
+    }
     object(row.details, [...setupFields, "schema_version", "fen", "position", "side_to_move", "assessment"], "observation detail");
     valid(row.details.schema_version === 1 && color(row.details.side_to_move)
       && typeof row.details.fen === "string" && row.details.fen.split(/\s+/)[1] === row.details.side_to_move[0]);
