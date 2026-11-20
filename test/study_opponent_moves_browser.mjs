@@ -6,6 +6,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
 
 const { chromium } = await import(process.env.TEMPO_PLAYWRIGHT || "playwright");
 const binary = resolve(process.env.TEMPO_BINARY || "target/release/tempo");
@@ -49,7 +50,7 @@ try {
   assert.equal(view.prompt.expected, undefined);
 
   browser = await chromium.launch({ channel: "chrome", headless: true });
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(6000);
   await page.addInitScript(label => {
     window.boardFrames = [];
@@ -96,6 +97,14 @@ try {
   await arrow("d7d5");
   assert.deepEqual(await page.evaluate(() => window.boardFrames.map(frame => frame.fen)), [view.display_fen]);
   await board.evaluate(element => { window.liveStudyBoard = element; });
+  const resizedWidth = await checkDesktopBoardResize(page, "Study chessboard");
+  assert.deepEqual(commands.map(command => command.command), ["next", "next"]);
+
+  const touch = await browser.newPage({ viewport: { width: 1440, height: 900 }, hasTouch: true, isMobile: true });
+  await touch.goto(origin);
+  await touch.locator(boardLabel).waitFor();
+  assert.equal(await touch.locator(".tempo-board-resize-handle").count(), 0);
+  await touch.close();
 
   const interrupted = await browser.newPage({ reducedMotion: "reduce" });
   await interrupted.addInitScript(() => {
@@ -116,6 +125,7 @@ try {
   await move("c2c4");
   await arrow("e7e6");
   await page.getByText("Move 2 of 3").waitFor();
+  assert.equal((await board.boundingBox()).width, resizedWidth);
   await move("g1f3"); // Legal, but the saved line expects Nc3 here.
   await arrow("b1c3", "blue");
   await arrow("e7e6");

@@ -331,9 +331,9 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
     catch { setIssue("Your browser could not save the review marker."); }
   }
   return <div className="review-grid"><section className="board-column">
-    <div className="review-board">
+    <div className="review-board desktop-board-frame">
       <Board shapes={shapes} theme={prefs.theme} pieceSet={prefs.pieceSet} retainMoveOnLock={!!choice} ref={boardInput} fen={fen} orientation={review.learner_color} turn={board.turn() === "w" ? "white" : "black"}
-        mode="legal" locked={locked || !!choice} destinations={destinations} coordinates="edges"
+        mode="legal" locked={locked || !!choice} destinations={destinations} coordinates="edges" resizeMode="desktop"
         positionIdentity={fen} positionRevision={ply + branch.length} ariaLabel="Game review board"
         lastMove={lastMove ? [lastMove.slice(0,2),lastMove.slice(2,4)] : undefined}
         check={board.isCheck() ? (board.turn() === "w" ? "white" : "black") : false} onMove={e => {

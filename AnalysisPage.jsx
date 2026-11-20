@@ -128,35 +128,38 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
       {header}
       <div className="analysis-layout">
         <section>
-          <Board
-            ref={boardInput}
-            fen={fen}
-            turn={board.turn() === "w" ? "white" : "black"}
-            orientation={color}
-            mode="legal"
-            locked={locked || !!choice}
-            destinations={dests}
-            coordinates="edges"
-            positionIdentity={fen}
-            positionRevision={path.length}
-            shapes={[...arrows.values()]}
-            ariaLabel="Analysis board"
-            onMove={(e) => {
-              if (
-                e.positionIdentity !== fen ||
-                e.positionRevision !== path.length
-              )
-                return;
-              const base = e.from + e.to;
-              if (moves.has(base)) play(base);
-              else {
-                const roles = [...moves.keys()]
-                  .filter((m) => m.startsWith(base))
-                  .map((m) => m[4]);
-                if (roles.length) setChoice({ base, moves: roles });
-              }
-            }}
-          />
+          <div className="analysis-board-frame desktop-board-frame">
+            <Board
+              ref={boardInput}
+              fen={fen}
+              turn={board.turn() === "w" ? "white" : "black"}
+              orientation={color}
+              mode="legal"
+              locked={locked || !!choice}
+              destinations={dests}
+              coordinates="edges"
+              resizeMode="desktop"
+              positionIdentity={fen}
+              positionRevision={path.length}
+              shapes={[...arrows.values()]}
+              ariaLabel="Analysis board"
+              onMove={(e) => {
+                if (
+                  e.positionIdentity !== fen ||
+                  e.positionRevision !== path.length
+                )
+                  return;
+                const base = e.from + e.to;
+                if (moves.has(base)) play(base);
+                else {
+                  const roles = [...moves.keys()]
+                    .filter((m) => m.startsWith(base))
+                    .map((m) => m[4]);
+                  if (roles.length) setChoice({ base, moves: roles });
+                }
+              }}
+            />
+          </div>
           {!path.length && (
             <p>
               {[

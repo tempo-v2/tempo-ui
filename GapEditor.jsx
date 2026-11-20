@@ -218,11 +218,12 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
         ) : (
           <>
             <div className="gap-layout">
-              <div className="gap-board" onPointerDownCapture={() => {
-                if (!locked) recommendationSettled.current = true;
-              }}>
+              <div className="gap-board desktop-board-frame">
                 <Board ref={board} fen={fen} orientation={color} turn={turn} check={check}
                   mode="legal" destinations={moveOptions.destinations}
+                  resizeMode="desktop" onSurfacePointerDown={() => {
+                    if (!locked) recommendationSettled.current = true;
+                  }}
                   positionIdentity={position} positionRevision={revision}
                   locked={locked || !!stagedManually || !!promotion}
                   lastMove={[gap.address.actual_move.slice(0, 2), gap.address.actual_move.slice(2, 4)]}

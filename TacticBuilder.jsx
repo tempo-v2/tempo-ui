@@ -77,12 +77,14 @@ export function TacticBuilder({ locked, canSave, saving, onSave }) {
         <Button disabled={locked} onClick={() => setEditing(true)}>Edit board or enter FEN</Button>
         <div className="tactic-builder-layout repertoire-form">
           <div>
-            <Board ref={boardInput} fen={fen} orientation={turnFromFen(root)} turn={turn}
-              check={board.isCheck() ? turn : false} mode="legal" locked={locked || !!promotion}
-              drawingEnabled={false} coordinates="edges" destinations={destinations}
-              positionIdentity={id} positionRevision={moves.length}
-              lastMove={moves.length ? [moves.at(-1).slice(0, 2), moves.at(-1).slice(2, 4)] : undefined}
-              ariaLabel="Tactic solution board" onMove={moveOnBoard} />
+            <div className="desktop-board-frame">
+              <Board ref={boardInput} fen={fen} orientation={turnFromFen(root)} turn={turn}
+                check={board.isCheck() ? turn : false} mode="legal" locked={locked || !!promotion}
+                drawingEnabled={false} coordinates="edges" destinations={destinations} resizeMode="desktop"
+                positionIdentity={id} positionRevision={moves.length}
+                lastMove={moves.length ? [moves.at(-1).slice(0, 2), moves.at(-1).slice(2, 4)] : undefined}
+                ariaLabel="Tactic solution board" onMove={moveOnBoard} />
+            </div>
             <p>{turn === "white" ? "White" : "Black"} to move</p>
           </div>
           <div>

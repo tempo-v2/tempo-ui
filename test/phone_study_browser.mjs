@@ -195,6 +195,7 @@ try {
     [...document.querySelectorAll(".study-board svg.cg-shapes g[cgHash]")].some(shape =>
       shape.getAttribute("cgHash").includes(`,${uci.slice(0, 2)},${uci.slice(2, 4)},red`)), uci);
   assert.equal(await page.title(), "Tempo Study");
+  assert.equal(await page.locator(".tempo-board-resize-handle").count(), 0);
   assert.equal(await page.getByRole("navigation", { name: "Tempo sections" }).count(), 0);
   assert.equal(await button("Analyze").count(), 0);
   await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);

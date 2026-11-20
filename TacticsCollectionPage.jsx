@@ -105,27 +105,31 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
           <Button onClick={() => changeTarget(null)}>Back to tactics</Button>
           {detail ? <>
             <h2>{detail.label}</h2>
-            <div className="capture-board">
-              <Board fen={fen} orientation={detail.learner_color} turn={turnFromFen(fen)}
-                mode="select" readOnly positionIdentity={`${target}:${index}`}
-                positionRevision={0} ariaLabel="Tactic position" />
+            <div className="tactic-detail-layout">
+              <div className="capture-board desktop-board-frame">
+                <Board fen={fen} orientation={detail.learner_color} turn={turnFromFen(fen)}
+                  mode="select" readOnly positionIdentity={`${target}:${index}`}
+                  positionRevision={0} resizeMode="desktop" ariaLabel="Tactic position" />
+              </div>
+              <div>
+                <h3>Sources</h3>
+                {detail.provenance.length
+                  ? <ul>{detail.provenance.map((text, i) => <li key={i}><Source text={text} /></li>)}</ul>
+                  : <p>No source recorded.</p>}
+                {detail.availability !== "active" && <p>Unavailable in Study.</p>}
+                {detail.solution_blocked ? (
+                  <>
+                    <p>This tactic is open in Study. Return there to continue or use the available move help.</p>
+                    <Button onClick={onStudy}>Return to Study</Button>
+                  </>
+                ) : detail.solution
+                  ? <>
+                    <MoveTrail line={detail.solution} index={index} onInspect={setIndex} />
+                    <LichessControl fen={fen} line={detail.solution} orientation={detail.learner_color} />
+                  </>
+                  : <Button onClick={() => loadDetail(true)}>Show solution</Button>}
+              </div>
             </div>
-            <h3>Sources</h3>
-            {detail.provenance.length
-              ? <ul>{detail.provenance.map((text, i) => <li key={i}><Source text={text} /></li>)}</ul>
-              : <p>No source recorded.</p>}
-            {detail.availability !== "active" && <p>Unavailable in Study.</p>}
-            {detail.solution_blocked ? (
-              <>
-                <p>This tactic is open in Study. Return there to continue or use the available move help.</p>
-                <Button onClick={onStudy}>Return to Study</Button>
-              </>
-            ) : detail.solution
-              ? <>
-                <MoveTrail line={detail.solution} index={index} onInspect={setIndex} />
-                <LichessControl fen={fen} line={detail.solution} orientation={detail.learner_color} />
-              </>
-              : <Button onClick={() => loadDetail(true)}>Show solution</Button>}
           </> : !issue && <p role="status">Loading tactic…</p>}
         </Surface>
       ) : (

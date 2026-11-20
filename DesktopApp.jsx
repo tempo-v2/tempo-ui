@@ -52,6 +52,6 @@ function renderAnalysis(visit, issue, onClose, launch) {
 }
 
 export function DesktopApp() {
-  return <App studyPresenceSurface="desktop" initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
+  return <App studyPresenceSurface="desktop" boardResizeMode="desktop" initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
     navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} />;
 }

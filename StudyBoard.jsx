@@ -9,7 +9,7 @@ export const studyOrientation = (color, flipped) =>
   flipped ? (color === "white" ? "black" : "white") : color;
 
 export const StudyBoard = forwardRef(function StudyBoard(
-  { view, leadIn, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
+  { view, leadIn, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation, resizeMode },
   ref,
 ) {
   const destinations = useMemo(() => {
@@ -71,6 +71,7 @@ export const StudyBoard = forwardRef(function StudyBoard(
       retainMoveOnLock={!historyFen && retainMoveOnLock}
       coordinates="edges"
       maxSize={Number.MAX_SAFE_INTEGER}
+      resizeMode={resizeMode}
       lastMove={!historyFen && !leadIn && lastMove ? [lastMove.slice(0, 2), lastMove.slice(2, 4)] : undefined}
       shapes={arrows}
       onMove={onMove}

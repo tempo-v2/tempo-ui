@@ -62,11 +62,13 @@ export function TacticPositionEditor({ fen, hasSolution, locked, onApply, onCanc
         <Button type="submit" disabled={locked || !fenText.trim()}>Use FEN</Button>
       </form>
       {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
-      <div className="tactic-builder-layout">
-        <Board fen={boardFen} orientation={turn} turn={turn} check={false} mode="select" locked={locked}
-          drawingEnabled={false} coordinates="edges" positionIdentity={`${boardFen}:${tool}`}
-          positionRevision={0} ariaLabel="Starting position editor" onSelect={selectSquare}
-          shapes={from ? [{ orig: from, brush: "green" }] : []} />
+      <div className="tactic-builder-layout tactic-setup-layout">
+        <div className="desktop-board-frame">
+          <Board fen={boardFen} orientation={turn} turn={turn} check={false} mode="select" locked={locked}
+            drawingEnabled={false} coordinates="edges" positionIdentity={`${boardFen}:${tool}`} resizeMode="desktop"
+            positionRevision={0} ariaLabel="Starting position editor" onSelect={selectSquare}
+            shapes={from ? [{ orig: from, brush: "green" }] : []} />
+        </div>
         <div className="capture-setup-controls">
           <label>Side to move
             <select value={setup.turn} disabled={locked} onChange={event =>
