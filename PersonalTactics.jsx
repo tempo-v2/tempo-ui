@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from "react";
+import {Chess} from "chess.js";
 import {Board, Button, StatusNotice, Surface} from "@tempo-v2/core-components";
 import {motifNames, readPersonalPosition, readPersonalTactics, tacticalNotation, tacticalScore} from "./tactical_history.js";
 import {sourceNames} from "./game_commands.js";
@@ -82,10 +83,24 @@ function PlayingLoad({title, pattern}) {
 
 function Finding({row, detail, dataset, onOpen, onSimilar}) {
   const {fen, side_to_move: side, assessment} = detail.details;
+  const [line, setLine] = useState(null);
+  const [ply, setPly] = useState(0);
+  const board = new Chess(fen);
+  for (const {uci} of line?.moves.slice(0, ply) ?? []) {
+    board.move({from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4]});
+  }
+  const turn = board.turn() === "w" ? "white" : "black";
   const scores = new Map((assessment.analysis.evaluation?.roots ?? []).map(root => [root.uci, root.score]));
   return <article className="tactical-observation" aria-label="Selected tactical opportunity">
-    <Board fen={fen} positionIdentity={`${dataset}:${row.id}`} positionRevision={0} check={false}
-      mode="legal" orientation={side} turn={side} readOnly maxSize={340} coordinates="edges" ariaLabel="Tactical opportunity position"/>
+    <div className="tactical-position">
+      <Board fen={board.fen()} positionIdentity={`${dataset}:${row.id}:${line?.id ?? "start"}`} positionRevision={ply} check={board.inCheck()}
+        mode="legal" orientation={side} turn={turn} readOnly maxSize={340} coordinates="edges" ariaLabel="Tactical opportunity position"/>
+      {line && <div className="tactical-pages" aria-label="Tactical line controls">
+        <Button size="compact" variant="quiet" disabled={ply === 0} onClick={() => setPly(ply - 1)}>Previous move</Button>
+        <Button size="compact" variant="quiet" disabled={ply >= line.moves.length} onClick={() => setPly(ply + 1)}>Next move</Button>
+        <Button size="compact" variant="quiet" onClick={() => {setLine(null); setPly(0);}}>Reset board</Button>
+      </div>}
+    </div>
     <div className="tactical-comparison">
       <h3>{labels[row.outcome] ?? row.outcome}</h3>
       <p>{sourceNames[row.game.source] ?? row.game.source} · {row.game.result} · Game {row.game.id}</p>
@@ -97,7 +112,9 @@ function Finding({row, detail, dataset, onOpen, onSimilar}) {
       <table className="tactical-captures"><thead><tr><th>Motif</th><th>Move</th><th>Evaluation</th><th>Pieces involved</th></tr></thead>
         <tbody>{assessment.personal.candidates.map((candidate, index) => <tr key={index}>
           <th scope="row">{motifNames[candidate.motif]}</th>
-          <td>{tacticalNotation(fen, candidate.answer.uci)}{candidate.continuation.length > 0 &&
+          <td><Button size="compact" variant="quiet" onClick={() => {
+            setLine({id:index, moves:[candidate.answer,...candidate.continuation]}); setPly(1);
+          }}>{tacticalNotation(fen, candidate.answer.uci)}</Button>{candidate.continuation.length > 0 &&
               <span className="tactical-target">{candidate.continuation.map(move => move.uci).join(" ")}</span>}</td>
           <td>{tacticalScore(scores.get(candidate.answer.uci) ?? null)}
             {detail.best_moves.some(move => move.uci === candidate.answer.uci) ? <span className="tactical-target">Best</span>
@@ -184,7 +201,7 @@ export function PersonalTactics({dataset, onOpen, revision}) {
       <div className="tactical-history-layout">
         <ol>{view.games.map(row => <li key={row.id}><Button size="compact" variant="quiet" aria-pressed={selected?.id === row.id}
           onClick={() => setDetail(row.id)}>{row.motifs.map(motif => motifNames[motif]).join(" · ")} · {row.game.result}</Button></li>)}</ol>
-        {selected && <Finding row={selected} detail={displayed} dataset={dataset} onOpen={onOpen}
+        {selected && <Finding key={selected.id} row={selected} detail={displayed} dataset={dataset} onOpen={onOpen}
           onSimilar={id => {setAnchor(id); setBefore(undefined); setDetail(undefined);}}/>}
       </div>
       {view.games.length === 0 && <p>No analyzed positions match these filters.</p>}
