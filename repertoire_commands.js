@@ -17,6 +17,10 @@ export async function sendRepertoireCommand(command, signal) {
   if (reply.status === "progress_reset" &&
       (reply.dataset_id !== command.dataset_id || reply.repertoire_id !== command.repertoire_id))
     throw new Error("The reset reply belongs to a different repertoire.");
+  if (reply.status === "activity_set" &&
+      (reply.dataset_id !== command.dataset_id || reply.repertoire_id !== command.repertoire_id ||
+        reply.activity !== command.activity))
+    throw new Error("The activity reply belongs to a different repertoire command.");
   if (command.command === "marked_preview" && reply.status === "preview") {
     const save = reply.save_command;
     if (save.dataset_id !== command.dataset_id || save.repertoire_id !== (command.repertoire_id ?? null) ||
@@ -74,10 +78,24 @@ function count(value, field) {
   return value;
 }
 
+function repertoireActivity(value) {
+  if (!["active", "suspended"].includes(value)) throw new TypeError("Invalid repertoire activity");
+  return value;
+}
+
 export function validateRepertoireReply(reply, command) {
   if (!reply || typeof reply !== "object" || reply.schema_version !== 4)
     throw new TypeError("Expected a repertoire reply with schema_version 4");
   if (reply.status === "error") return validateErrorView(reply);
+  if (command === "set_activity") {
+    if (reply.status !== "activity_set") throw new TypeError("Invalid repertoire activity reply");
+    return freeze({
+      status: "activity_set",
+      dataset_id: string(reply.dataset_id, "dataset_id", true),
+      repertoire_id: string(reply.repertoire_id, "repertoire_id", true),
+      activity: repertoireActivity(reply.activity),
+    });
+  }
   if (command === "reset_progress") {
     if (reply.status !== "progress_reset") throw new TypeError("Invalid repertoire reset reply");
     return freeze({
@@ -126,6 +144,7 @@ export function validateRepertoireReply(reply, command) {
         name: string(item.name, "name", true),
         learner_color: item.learner_color,
         positions: count(item.positions, "positions"),
+        activity: repertoireActivity(item.activity === undefined ? "active" : item.activity),
       };
     }),
   });
