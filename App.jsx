@@ -10,6 +10,7 @@ import { createBoardSounds, learnerCue, opponentCue, replyCue } from "./board_so
 import { studyTransport } from "./study_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
 import { useStudyLeadIn } from "./use_study_lead_in.js";
+import { useStudyPresence } from "./use_study_presence.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
 import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
@@ -28,12 +29,13 @@ export function App(props) {
   return <Notifications><StudyApp {...props} /></Notifications>;
 }
 
-function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
+function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyPresenceSurface, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
     [stopped, setStopped] = useState(false),
     [guided, setGuided] = useState(null);
+  useStudyPresence(page === "study" ? studyPresenceSurface : undefined);
   const [prefs, setPrefs] = useState(loadBoardPreferences);
   const [flipped, setFlipped] = useState(false);
   const [history, setHistory] = useState(null);

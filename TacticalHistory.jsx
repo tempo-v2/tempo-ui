@@ -131,9 +131,15 @@ function HistorySession({ dataset, onOpen }) {
   const current = view?.observations.find(row => row.id === selected) ?? view?.observations[0];
   const interrupted = availability !== null || error;
   const incomplete = stats ? stats.failed_games + stats.timed_out_games + stats.unsupported_games : 0;
+  const waitMessage = {
+    wall_power: "Waiting for wall power",
+    study_in_front: "Waiting for you to leave Study",
+    study_quiet_period: "Waiting for 30 seconds away from Study",
+    foreground_engine: "Waiting for the current Stockfish search",
+  }[view?.wait_reason];
   const progress = interrupted ? "Last available results" : view?.paused ? "Analysis paused"
+    : view?.waiting_for_idle && stats?.pending_games > 0 ? (waitMessage ?? "Waiting to start background analysis")
     : view?.status === "running" ? "Analyzing saved games"
-    : view?.waiting_for_idle && stats?.pending_games > 0 ? "Waiting for the Mac to be idle on wall power"
     : stats?.pending_games > 0 ? "Waiting to analyze saved games" : incomplete > 0 ? "Analysis finished with gaps" : "Analysis up to date";
 
   return <section aria-label="Hanging-piece history" className="tactical-history"><Surface>

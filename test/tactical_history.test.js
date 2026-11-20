@@ -79,3 +79,13 @@ test("the read is addressed and an ignored abort cannot deliver a foreign late r
   await assert.rejects(read, { name: "AbortError" });
   deliver({ ok: true, status: 200, json: async () => tacticalReport() });
 });
+
+test("optional Analysis wait reasons agree with the server's waiting status", () => {
+  const report = tacticalReport();
+  assert.doesNotThrow(() => check(report));
+  for (const wait_reason of ["wall_power", "study_in_front", "study_quiet_period", "foreground_engine", null]) {
+    assert.doesNotThrow(() => check({ ...report, waiting_for_idle: wait_reason !== null, wait_reason }));
+  }
+  assert.throws(() => check({ ...report, waiting_for_idle: false, wait_reason: "study_in_front" }));
+  assert.throws(() => check({ ...report, waiting_for_idle: true, wait_reason: "mouse" }));
+});
