@@ -113,9 +113,15 @@ try {
   assert.equal(choice.results[0].choices[0].candidates.length, 2);
   await page.reload();
   await button("Repertoires").click();
+  await page.getByLabel("Destination").selectOption({ label: "Replace London" });
+  await page.getByLabel("Or paste PGN").fill("1. d4 {London System.} d5 2. Bf4 *");
+  await button("Preview PGN").click();
+  await button("Replace repertoire").waitFor();
   await button("Suspend Companion").click();
   await dialog.getByRole("button", { name: "Suspend repertoire" }).click();
   await button("Resume Companion").waitFor();
+  await button("Replace repertoire").click();
+  await page.getByText("Repertoire saved.", { exact: true }).waitFor();
   await importGame("game-gap", "GapLearner", "1. d4 Nf6 2. Bf4", "02");
   await button("Study").click();
   await button("Games").click();

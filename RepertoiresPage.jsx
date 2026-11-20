@@ -232,7 +232,6 @@ export function RepertoiresPage({ onStudy }) {
         setRefresh(next);
         await refreshCurrent(next);
       } else if (reply.status === "activity_set") {
-        setPreview(null);
         const next = { list: true, activity: reply };
         setRefresh(next);
         await refreshCurrent(next);
