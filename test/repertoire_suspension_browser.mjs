@@ -93,11 +93,13 @@ try {
   assert.equal(await start(new URL(origin).port), origin);
   await page.reload();
   await button("Resume London").waitFor();
+  await page.locator(".ui-toast").getByText("London is suspended.", { exact: true }).waitFor();
   assert.deepEqual(sent, [sent[0], sent[0]]);
   assert.equal((await post("study", { command: "next" })).done, true);
   await page.unroute(endpoint);
   await button("Resume London").click();
   await button("Suspend London").waitFor();
+  await page.locator(".ui-toast").getByText("London is active.", { exact: true }).waitFor();
   const resumed = await post("study", { command: "next" });
   assert.equal(resumed.activity, "teach");
   assert.equal(resumed.target_id, issued.target_id);

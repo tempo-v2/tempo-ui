@@ -790,7 +790,7 @@ body {
 .move-sheet button {text-align:left;background:var(--ui-surface);color:inherit;border-color:transparent;}
 .move-sheet button.has-decision {box-shadow:inset .23rem 0 #a37233;}
 .move-sheet button[aria-current="step"] {background:var(--green-dark);color:white;}
-.transposition,.branch-line,.review-saved,.review-preview,.review-conflict {padding:.7rem .85rem;border-radius:var(--ui-radius-control);background:var(--sage);}
+.transposition,.branch-line,.review-preview,.review-conflict {padding:.7rem .85rem;border-radius:var(--ui-radius-control);background:var(--sage);}
 .review-conflict {background:#f4e5da;}
 .review-preview,.review-conflict,.preview-line {margin-top:.75rem;}
 .preview-line {border-top:1px solid var(--ui-border);padding-top:.4rem;}

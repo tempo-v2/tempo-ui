@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createStudyController } from "./study_controller.js";
+import { Notifications } from "./Notifications.jsx";
 import { StudyPage } from "./StudyPage.jsx";
 import { identity, studyOrientation } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
@@ -23,7 +24,11 @@ const storage = {
   save: (e) =>
     sessionStorage.setItem("tempo-study-recovery-v4", JSON.stringify(e)),
 };
-export function App({ initialPage = "study", renderSection, renderAnalysis, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
+export function App(props) {
+  return <Notifications><StudyApp {...props} /></Notifications>;
+}
+
+function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),

@@ -1,5 +1,6 @@
 import { settleReviewDraftSave } from "./review_draft.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
+import { useNotify } from "./Notifications.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
@@ -62,6 +63,7 @@ export function RepertoiresPage({ onStudy }) {
   const [busy, setBusy] = useState(true);
   const [pending, setPending] = useState(null);
   const [issue, setIssue] = useState(null);
+  const notify = useNotify();
   const [notice, setNotice] = useState(null);
   const [editor, setEditor] = useState(null);
   const [documentBusy, setDocumentBusy] = useState(false);
@@ -157,7 +159,7 @@ export function RepertoiresPage({ onStudy }) {
         if (next.activity) {
           const item = reply.dataset_id === next.activity.dataset_id &&
             reply.repertoires.find(({ id }) => id === next.activity.repertoire_id);
-          if (item) setNotice(item.activity === "suspended" ? `${item.name} is suspended.` : `${item.name} is active.`);
+          if (item) notify(item.activity === "suspended" ? `${item.name} is suspended.` : `${item.name} is active.`);
         }
         next = { ...next, list: false };
         setRefresh(next);
@@ -236,12 +238,11 @@ export function RepertoiresPage({ onStudy }) {
         setRefresh(next);
         await refreshCurrent(next);
       } else if (durable) {
-        let message = command.command === "save" ? "Repertoire saved." : "Repertoire renamed.";
+        notify(command.command === "save" ? "Repertoire saved." : "Repertoire renamed.");
         if (stored && command.command === "save") {
           try {settleReviewDraftSave(command,true);}
-          catch {message += " The browser could not clear the retained game draft.";}
+          catch {setNotice("The browser could not clear the retained game draft.");}
         }
-        setNotice(message);
         setPreview(null);
         setRename(null);
         if (command.command === "save" && !editor) {

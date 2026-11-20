@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@tempo-v2/core-components";
+import { useNotify } from "./Notifications.jsx";
 import {
   deliverDurableRepertoireCommand,
   previewMarkedLines,
@@ -25,6 +26,7 @@ export function useMarkedLines(
   const flight = useRef(false);
   const savedAny = useRef(false);
   const [issue, setIssue] = useState("");
+  const notify = useNotify();
   const [notice, setNotice] = useState("");
   const [doc, setDoc] = useState(null);
   const [destination, setDestination] = useState(repertoireId || null);
@@ -107,7 +109,8 @@ export function useMarkedLines(
         savedAny.current = true;
         setDestination(preview.repertoire_id || destination);
         setMarked([]);
-        setNotice(cleanupNeeded ? "Repertoire saved. " + recoveryCleanupNotice : "Repertoire saved.");
+        notify("Repertoire saved.");
+        setNotice(cleanupNeeded ? recoveryCleanupNotice : "");
         setRefresh((n) => n + 1);
       }
     } catch (e) {
