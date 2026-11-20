@@ -152,6 +152,7 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
   const defaults = {
     "POST /api/repertoires": catalog,
     "GET /api/games": () => response({ results: [], last_successful_refresh_ms: null }),
+    "POST /api/games/library": ({payload}) => response({dataset_id:payload.dataset_id, through:0, next_before:null, entries:[]}),
     "GET /api/games/job": () => response({ status: "idle" }),
     "GET /api/games/backfill": () => response({ status: "idle" }),
     "GET /api/games/model": () => response(model("idle")),
@@ -395,6 +396,7 @@ test("ordinary refresh status read times out and reload recovers without replayi
   const retryPosts = page.calls.slice(retryStart).filter(call => call.endpoint.startsWith("POST"));
   assert.deepEqual(retryPosts.map(call => [call.endpoint, call.payload]), [
     ["POST /api/repertoires", { command: "list" }],
+    ["POST /api/games/library", { dataset_id:"evidence-fixture" }],
   ]);
 });
 

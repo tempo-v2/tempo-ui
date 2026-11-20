@@ -33,7 +33,7 @@ function initialPage() {
   if (readGapContinuation()) return "games";
   if (hasPendingRepertoireCommand()) return "repertoires";
   if (hasPendingTacticCommand()) return "capture";
-  return "study";
+  return /^#games(?:\?|$)/.test(window.location.hash) ? "games" : "study";
 }
 
 export function App() {
@@ -322,9 +322,23 @@ export function App() {
     sounds.cancel();
     setGuided(null);
     setStopped(false);
+    if (nextPage === "games") window.history.pushState(null, "", "#games");
+    else if (location.hash.startsWith("#games")) window.history.pushState(null, "", location.pathname + location.search);
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
+  useEffect(() => {
+    function syncPage() {
+      if (hasPendingRepertoireCommand() || hasPendingTacticCommand()) return;
+      if (/^#games(?:\?|$)/.test(location.hash)) setPage("games");
+      else if (page === "games") {
+        setPage("study");
+        controller.current.start().catch(() => {});
+      }
+    }
+    window.addEventListener("popstate", syncPage);
+    return () => window.removeEventListener("popstate", syncPage);
+  }, [page]);
   if (page === "study" && state.analysis)
     return <StudyAnalysisEntry visit={state.analysis} issue={state.issue}
       onClose={() => controller.current.closeAnalysis().catch(() => {})} />;

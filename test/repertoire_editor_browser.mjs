@@ -118,7 +118,8 @@ try {
   await page.getByRole("heading", { name: "Edit repertoire: Beta" }).waitFor();
 
   const sql = new DatabaseSync(database);
-  sql.prepare("DELETE FROM repertoire_documents WHERE repertoire_id=?").run(beta);
+  // Model-authority migration retains the source association for an unavailable document.
+  sql.prepare("UPDATE game_model_inputs SET state='unavailable', input_key=NULL WHERE repertoire_id=?").run(beta);
   sql.close();
   await button("Edit Beta").click();
   await page.getByText(/There is no verified current PGN for this repertoire/).waitFor();

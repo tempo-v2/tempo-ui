@@ -127,7 +127,10 @@ async function verifyUpgrade(acceptedUsesExternal) {
 
   const button = (page, name) => page.getByRole("button", { name, exact: true });
   async function showGames(page) {
-    await button(page, "Games").click();
+    const entry = button(page, "Games");
+    const title = page.getByRole("heading", { name: "Games", exact: true });
+    await entry.or(title).waitFor();
+    if (await entry.isVisible()) await entry.click();
     await page.getByRole("heading", { name: "Games", exact: true }).waitFor();
   }
 

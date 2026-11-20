@@ -1,3 +1,4 @@
+import { validateGameReview } from "./validate_game_review.js";
 import { SHORT_ACK_TIMEOUT_MS, SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { requestJson } from "./content_transport.js";
 import { string } from "./wire_values.js";
@@ -65,6 +66,10 @@ function gameResults(results) {
         ? null : string(result.comparison_id, "comparison_id", true),
       source: string(result.source, "source", true),
       game_id: string(result.game_id, "game_id", true),
+      ...(result.players && {
+        players: { white: string(result.players.white, "White"), black: string(result.players.black, "Black"),
+          played_date_ms: result.players.played_date_ms == null ? null : count(result.players.played_date_ms, "game date") },
+      }),
       url: safeGameLink(result.url),
       repertoire_id: string(result.repertoire_id, "repertoire_id"),
       learner: string(result.learner, "learner", true),
@@ -135,6 +140,25 @@ function jobAddress(reply) {
     commandId: string(reply.command_id, "refresh command", true),
     datasetId: string(reply.dataset_id, "refresh dataset", true),
   };
+}
+
+export async function readGameLibraryPage(dataset, through, before, signal) {
+  const page = await read("/library", signal, {dataset_id:dataset, through, before});
+  if (page.dataset_id !== dataset || !Array.isArray(page.entries) || !Number.isSafeInteger(page.through) ||
+      (through !== undefined && page.through !== through) || (page.next_before !== null &&
+       (!Number.isSafeInteger(page.next_before) || page.next_before <= 0 ||
+        page.next_before > page.through || before !== undefined && page.next_before >= before)))
+    throw new TypeError("Invalid game library page");
+  const entries = page.entries.map(game => {
+    if (![null,"white","black"].includes(game.color) || !Array.isArray(game.moves) ||
+        !game.moves.every(move => typeof move === "string") || !Array.isArray(game.repertoires))
+      throw new TypeError("Invalid game opening");
+    for (const field of ["white","black","source","game_id","learner"]) string(game[field],field,true);
+    for (const field of ["opening","eco"]) if (game[field] !== null) string(game[field],field);
+    if (game.played_ms !== null) count(game.played_ms,"played date");
+    return {...game, repertoires:repertoireComparisons(game)};
+  });
+  return {...page, entries};
 }
 
 export async function readGameHistory(signal) {
@@ -255,4 +279,10 @@ export function utcDateRange(first, last, limit = 31) {
   if (!(from_ms >= 0 && to_ms > from_ms)) throw new Error("Enter a valid date range.");
   if (to_ms - from_ms > limit * utcDayMs) throw new Error(`Choose a range of up to ${limit} UTC days.`);
   return { from_ms, to_ms };
+}
+
+export async function readGameReview(address, signal) {
+  const reply = await read("/review", signal, address);
+  if (reply.status === "error") throw new Error(reply.message);
+  return validateGameReview(reply, address);
 }

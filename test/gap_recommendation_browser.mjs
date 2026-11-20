@@ -175,6 +175,8 @@ try {
   await button("Games").click();
   const before = durable();
   async function open() {
+    const gaps = page.locator("details.advanced-games");
+    if (!await gaps.evaluate(el => el.open)) await gaps.locator(":scope > summary").click();
     await button("Fix response").first().click();
     await heading("Respond to 1…d5").waitFor();
   }

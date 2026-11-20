@@ -90,8 +90,10 @@ function panel(page) {
 }
 
 async function select(page, learner) {
-  await page.locator(".game-results > li").filter({ hasText: learner.toLowerCase() })
-    .getByRole("button", { name: "Analyze this game", exact: true }).click();
+  const row = page.locator(".game-results > li").filter({ hasText: learner.toLowerCase() });
+  const details = row.locator(".record-details");
+  if (!await details.evaluate(el => el.open)) await details.locator(":scope > summary").click();
+  await row.getByRole("button", { name: "Open tactics detector", exact: true }).click();
 }
 
 function terminal(page, timeout = 4000) {
@@ -272,7 +274,7 @@ try {
   await startedAgain;
   const studyContinues = page.waitForResponse(async response =>
     response.url().endsWith("/api/study") && (await response.json()).attempt_id === study.attempt_id);
-  await page.getByRole("button", { name: "Study", exact: true }).click();
+  await page.getByRole("button", { name: "← Study", exact: true }).click();
   await studyContinues;
   const clientPolls = commands.filter(request => request.path === "/api/games/detection-result").length;
   await pause(1400);
