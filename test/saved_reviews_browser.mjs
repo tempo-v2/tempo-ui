@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 
 const { chromium } = await import(process.env.TEMPO_PLAYWRIGHT || "playwright");
 const directory = await mkdtemp(join(tmpdir(), "tempo-saved-reviews-"));
-const database = join(directory, "study.sqlite");
+let database = join(directory, "study.sqlite");
 const binary = resolve(process.env.TEMPO_BINARY || "target/release/tempo");
 const ui = resolve("tempo-ui/dist");
 const solver_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -191,6 +191,39 @@ try {
   await stop();
   url = await start();
   assert.equal((await reviews({ command: "open", id: list.rows[0].id })).origin.prescribedUci, "g1f3");
+  for (const leave of ["skip", "concede"]) {
+    await stop();
+    database = join(directory, leave + ".sqlite");
+    execFileSync(binary, ["init", database]);
+    execFileSync(binary, ["configure", database, "0", "1"]);
+    execFileSync(binary, ["import-tactics", database, transfer]);
+    url = await start();
+    const study = input => post("/api/study", input);
+    const startView = await study({ command: "next" });
+    const commandFor = (view, command, submission_id) => ({
+      command, submission_id, dataset_id: view.dataset_id,
+      attempt_id: view.attempt_id, expected_revision: view.revision,
+    });
+    const miss = await study({ ...commandFor(startView, "answer", "miss"), answer: { uci: "d2d4" } });
+    assert.equal(miss.assessment, "again");
+    const corrected = await study({ ...commandFor(miss, "answer", "correct"), answer: { uci: "e2e4" } });
+    assert.equal(corrected.prompt.decision_index, 1);
+    const targetAddress = { dataset_id: corrected.dataset_id, attempt_id: corrected.attempt_id,
+      content_version: corrected.content_version };
+    const marked = await save({ ...targetAddress, position: { kind: "decision", index: 1 }, submission_id: "mark-later" });
+    const closed = await study(commandFor(corrected, leave, "end-attempt"));
+    assert.equal(closed.status, "abandoned");
+    const saved = await post("/api/study/saved-reviews", {
+      command: "open", dataset_id: corrected.dataset_id, id: marked.id,
+    });
+    if (leave === "skip") {
+      assert.deepEqual(saved, { status: "study_required", id: marked.id });
+    } else {
+      const immediate = await post("/api/study/analysis-context", { ...targetAddress, revision: closed.revision });
+      assert.equal(saved.origin.prescribedUci, "g1f3");
+      assert.deepEqual(saved.origin, immediate);
+    }
+  }
   console.log("Desktop Chrome verified exact multi-move marks, skipped/active blind protection, automatic advance, removal, and restart.");
 } finally {
   sql?.close();
