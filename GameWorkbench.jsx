@@ -1,3 +1,4 @@
+import { useNotify } from "./Notifications.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Board, Button, PageHeader, SectionHeader, Surface } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
@@ -66,7 +67,8 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
   const stale = scope === staleScope;
   const markStale = React.useCallback(() => setStaleScope(scope), [scope]);
   const [load, setLoad] = useState({});
-  const [notice, setNotice] = useState("");
+  const notify = useNotify();
+  const [recoveryWarning, setRecoveryWarning] = useState("");
   const [savedSelection,setSavedSelection] = useState(null);
   const [locked, setLocked] = useState(false);
   const selectedBook = books.find(item => item.id === address.repertoire_id);
@@ -108,7 +110,7 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
   const current = load.key === key ? load : {};
   const opening = {ply:null, start:null, branch:[]};
   function switchBook(id) {
-    setNotice(""); setSavedSelection(null);
+    setRecoveryWarning(""); setSavedSelection(null);
     const cursor = reviewAddress();
     if (cursor?.ply != null) {
       changeBook(id, {ply:cursor.ply, start:cursor.start, branch:cursor.branch});
@@ -130,14 +132,16 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
       </select>
     </label>}/></div>
     {suspended && <p role="status">{selectedBook.name} is suspended. Resume it in Repertoires to compare this game.</p>}
-    {notice && <p role="status" className="review-saved">{notice}</p>}
+    {recoveryWarning && <p role="status">{recoveryWarning}</p>}
     {stale && <div className="review-card" role="alert">The repertoire changed. Prepared moves and arrows shown here belong to the earlier comparison.{" "}
       <Button disabled={locked} onClick={()=>setAttempt(n=>n+1)}>Reload comparison</Button></div>}
     {current.error ? <section className="review-card" role="alert"><p>{current.error}</p><Button onClick={() => setAttempt(n => n + 1)}>Retry review</Button> <Button onClick={() => changeBook(book?.id || null, opening)}>Open opening decision</Button></section>
       : current.review ? <ReviewBoard stale={stale} markStale={markStale} key={key} address={address} review={current.review} sheet={current.sheet}
-        recorded={recordedComparisons?.find(r=>r.repertoire_id===book?.id)} book={book} locked={locked} setLocked={setLocked} savedSelection={savedSelection} onSaved={(label,selection) => {
+        recorded={recordedComparisons?.find(r=>r.repertoire_id===book?.id)} book={book} locked={locked} setLocked={setLocked} savedSelection={savedSelection} onSaved={({ label, selection, warning }) => {
           setSavedSelection(selection);
-          setNotice(label); onSaved(); setAttempt(n => n + 1);
+          setRecoveryWarning(warning);
+          notify(label);
+          onSaved(); setAttempt(n => n + 1);
         }} onReload={() => setAttempt(n => n + 1)} />
       : <p role="status">Opening game…</p>}
   </main>;
@@ -310,9 +314,13 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
         const savedEndpoint = binding?.endpoint ?? draftEndpoint;
         let draftNotice = "";
         try {settleReviewDraftSave(cmd,true); refreshDraft();}
-        catch {draftNotice = " The save succeeded, but the browser could not clear the retained draft.";}
+        catch {draftNotice = "The browser could not clear the retained draft.";}
         window.history.replaceState(window.history.state, "", reviewUrl({ ...address, ply, branch, start }));
-        onSaved("Saved through " + savedEndpoint + " to " + cmd.name + "." + draftNotice + (cleanupNeeded ? " " + recoveryCleanupNotice : ""),binding?.selection ?? selection);
+        onSaved({
+          label: "Saved through " + savedEndpoint + " to " + cmd.name + ".",
+          selection: binding?.selection ?? selection,
+          warning: [draftNotice, cleanupNeeded && recoveryCleanupNotice].filter(Boolean).join(" "),
+        });
       }
     } catch (e) { setIssue(e.message); }
     finally { flight.current = false; setLocked(recover); }

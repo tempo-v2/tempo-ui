@@ -133,7 +133,7 @@ export function SavedReviewsPage({ datasetId, onStudy }) {
   return (
     <main className="tempo-core repertoire-page">
       <PageHeader title="Saved for review" actions={<Button onClick={onStudy}>Back to Study</Button>} />
-      {remove.message && <StatusNotice kind={remove.message.error ? "error" : undefined}>{remove.message.text}</StatusNotice>}
+      {remove.message && <StatusNotice kind="error">{remove.message}</StatusNotice>}
       {remove.pending && <Button disabled={remove.busy} onClick={remove.retry}>Retry removal</Button>}
       <Surface>
         {selection ? (
