@@ -2,7 +2,6 @@ import { Chess } from "chess.js";
 import { playBoardMove } from "./board_move.js";
 
 const clips = ["move-self", "move-opponent", "capture", "check", "castle", "promote", "illegal"];
-const preferenceKey = "tempo-v2-board-sounds";
 const playbackDeadlineMs = 250;
 const preloadDeadlineMs = 500;
 
@@ -38,12 +37,9 @@ export function replyCue(fen, uci, autoplay) {
   }
 }
 
-export function createBoardSounds(initialVolume = 0.72) {
-  let enabled = true;
+export function createBoardSounds(initialVolume, initialEnabled) {
+  let enabled = initialEnabled;
   let volume = initialVolume;
-  try {
-    enabled = window.localStorage.getItem(preferenceKey) !== "false";
-  } catch { /* Use the in-memory preference if storage is unavailable. */ }
   const players = new Map();
   let preparing = false;
 
@@ -115,8 +111,8 @@ export function createBoardSounds(initialVolume = 0.72) {
     },
     get enabled() { return enabled; },
     setEnabled(value) {
+      if (enabled === value) return;
       enabled = value;
-      try { window.localStorage.setItem(preferenceKey, String(value)); } catch { /* This tab still honors the choice. */ }
       if (enabled) void prepare();
       else cancel();
     },

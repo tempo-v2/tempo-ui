@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from "react";
-import { Board, Button, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
 import { lineFromBoard } from "./board_move.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { turnFromFen } from "./StudyBoard.jsx";

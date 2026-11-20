@@ -39,7 +39,7 @@ test("blocked or late playback stays optional and muting cancels pending audio",
       return Promise.reject(new Error("browser blocked playback"));
     }
   };
-  const sounds = createBoardSounds();
+  const sounds = createBoardSounds(0.5, true);
   t.after(() => {
     sounds.cancel();
     if (previousAudio === undefined) delete globalThis.Audio;

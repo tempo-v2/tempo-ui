@@ -1,7 +1,7 @@
 import React, { forwardRef, useMemo } from "react";
 import { Chess } from "chess.js";
 import { playBoardMove } from "./board_move.js";
-import { Board } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
 export const identity = (v) =>
   `${v.dataset_id}:${v.attempt_id}:${v.content_version}`;
 export const turnFromFen = (fen) => fen.split(/\s+/)[1] === "b" ? "black" : "white";
@@ -9,7 +9,7 @@ export const studyOrientation = (color, flipped) =>
   flipped ? (color === "white" ? "black" : "white") : color;
 
 export const StudyBoard = forwardRef(function StudyBoard(
-  { view, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
+  { view, locked, retainMoveOnLock, onMove, onRejectedMove, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
   ref,
 ) {
   const destinations = useMemo(() => {
@@ -53,8 +53,6 @@ export const StudyBoard = forwardRef(function StudyBoard(
       fen={fen}
       readOnly={!!historyFen}
       orientation={studyOrientation(view.learner_color, flipped)}
-      theme={prefs?.theme}
-      pieceSet={prefs?.pieceSet}
       turn={turn}
       check={!historyFen && !previewFen && view.in_check ? turn : false}
       mode="legal"

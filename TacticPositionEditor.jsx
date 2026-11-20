@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Board, Button, StatusNotice } from "@tempo-v2/core-components";
+import { Button, StatusNotice } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
 import { canSetCastling, editSetupPieces, emptyFen, normalizeCaptureFen, readSetup, startingFen, writeSetup } from "./tactic_builder.js";
 
 const roles = ["king", "queen", "rook", "bishop", "knight", "pawn"];

@@ -1,4 +1,5 @@
-import { Board, Button } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
+import { Button } from "@tempo-v2/core-components";
 import { LichessControl } from "./LichessControl.jsx";
 import React, { useEffect, useState } from "react";
 import { comparisonCandidates, leadingMeasuredMoves, measurementText, engineCells, explorerCells, probabilityCells } from "./move_evidence.js";

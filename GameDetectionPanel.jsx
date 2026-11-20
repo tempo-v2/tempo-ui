@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Board, Button, StatusNotice } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
+import { Button, StatusNotice } from "@tempo-v2/core-components";
 import { readDetectors, scanGame } from "./game_detection.js";
 
 const statusCopy = {

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Board, Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
+import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";

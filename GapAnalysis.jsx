@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Board, Button } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
+import { Button } from "@tempo-v2/core-components";
 import { LichessControl } from "./LichessControl.jsx";
 import { readGapAnalysis, readGapExplorer, startGapAnalysis, startGapExplorer } from "./game_commands.js";
 
