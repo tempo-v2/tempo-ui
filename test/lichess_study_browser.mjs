@@ -322,11 +322,21 @@ try {
     await page.getByRole("group", { name: "Analysis board" }).waitFor();
     assert.equal(exports, 0);
     async function expectReadFailure(code) {
-      const response = page.waitForResponse(reply => reply.url().endsWith("/api/study/analysis-line"));
+      const received = Promise.withResolvers();
+      await page.route("**/api/study/analysis-line", async route => {
+        try {
+          const reply = await route.fetch();
+          received.resolve({ status: reply.status(), body: await reply.json() });
+          await route.fulfill({ response: reply });
+        } catch (error) {
+          received.reject(error);
+          await route.abort();
+        }
+      }, { times: 1 });
       await button("Analyze in Lichess").click();
-      const reply = await response;
-      assert.equal(reply.status(), 400);
-      assert.equal((await reply.json()).code, code);
+      const { status, body } = await received.promise;
+      assert.equal(status, 400);
+      assert.equal(body.code, code);
       await page.getByText("Could not load the analysis line.", { exact: false }).waitFor();
       assert.equal(await page.getByRole("group", { name: "Analysis board" }).isVisible(), true);
       assert.equal(await page.getByText("Issued move only").count(), 0);
