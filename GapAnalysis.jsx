@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Board, Button } from "@tempo-v2/core-components";
+import { LichessControl } from "./LichessControl.jsx";
 import { readGapAnalysis, readGapExplorer, startGapAnalysis, startGapExplorer } from "./game_commands.js";
 
 import { checkedGapAnalysis, checkedGapExplorer } from "./source_evidence.js";
@@ -91,6 +92,7 @@ function NearbyExample({ position, names, color }) {
       {open && <div className="gap-neighbor-board">
         <Board fen={position.fen} orientation={color} turn={color}
           readOnly coordinates="edges" positionIdentity={position.fen} positionRevision={0} />
+        <LichessControl fen={position.fen} orientation={color} />
       </div>}
     </details>
   );

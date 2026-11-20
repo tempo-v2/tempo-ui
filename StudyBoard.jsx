@@ -5,6 +5,8 @@ import { Board } from "@tempo-v2/core-components";
 export const identity = (v) =>
   `${v.dataset_id}:${v.attempt_id}:${v.content_version}`;
 export const turnFromFen = (fen) => fen.split(/\s+/)[1] === "b" ? "black" : "white";
+export const studyOrientation = (color, flipped) =>
+  flipped ? (color === "white" ? "black" : "white") : color;
 
 export const StudyBoard = forwardRef(function StudyBoard(
   { view, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
@@ -50,7 +52,7 @@ export const StudyBoard = forwardRef(function StudyBoard(
       ref={ref}
       fen={fen}
       readOnly={!!historyFen}
-      orientation={flipped ? (view.learner_color === "white" ? "black" : "white") : view.learner_color}
+      orientation={studyOrientation(view.learner_color, flipped)}
       theme={prefs?.theme}
       pieceSet={prefs?.pieceSet}
       turn={turn}
