@@ -4,6 +4,7 @@ import { MoveTrail } from "./MoveTrail.jsx";
 import { turnFromFen } from "./StudyBoard.jsx";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
 import { sendTacticCommand, tacticRecovery } from "./tactic_commands.js";
+import { LichessControl } from "./LichessControl.jsx";
 
 function PreviewBoard({ fen, orientation, record }) {
   const side = turnFromFen(fen);
@@ -38,6 +39,8 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
     (start === "" && end === "" || segmentValid);
   const fen = row.status === "valid" && row.solver_fen && !dirty
     ? row.replay?.moves[cursor - 1]?.fen ?? row.replay?.start_fen ?? row.solver_fen : shown;
+  const replay = row.status === "valid" && !dirty ? row.replay : null;
+  const orientation = fen && turnFromFen(replay?.start_fen ?? fen);
   function selectRoute(event) {
     setRoute(event.target.value === "" ? "" : Number(event.target.value));
     setStart("");
@@ -62,10 +65,9 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
           Select tactic {row.record + 1} for capture
         </label>
       )}
-      {fen && <PreviewBoard fen={fen} orientation={turnFromFen(!dirty && row.replay ? row.replay.start_fen : fen)} record={row.record} />}
-      {row.status === "valid" && !dirty && row.replay && (
-        <MoveTrail line={row.replay} index={cursor} onInspect={setCursor} />
-      )}
+      {fen && <PreviewBoard fen={fen} orientation={orientation} record={row.record} />}
+      {replay && <MoveTrail line={replay} index={cursor} onInspect={setCursor} />}
+      {fen && <LichessControl fen={fen} line={replay} orientation={orientation} />}
       {row.routes.length > 0 && (
         <details open={row.status === "selection_required" || undefined}>
           <summary>Choose variation, move range, or setup</summary>

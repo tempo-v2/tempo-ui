@@ -6,6 +6,8 @@ import { PromotionChooser } from "./PromotionChooser.jsx";
 import { moveArrow as shape } from "./move_evidence.js";
 import { playBoardMove } from "./board_move.js";
 import { MarkedLinesForm, MarkedLinesSaveButton, useMarkedLines } from "./MarkedLinesForm.jsx";
+import { LichessControl } from "./LichessControl.jsx";
+import { boardWithLeadIn, lineFromBoard } from "./lichess_analysis.js";
 
 const start = new Chess().fen();
 const colors = {
@@ -15,7 +17,7 @@ const colors = {
   masters: "red",
   maia: "maia",
 };
-export function AnalysisPage({ origin, onClose, interruption }) {
+export function AnalysisPage({ origin, onClose, interruption, renderRootLineAction }) {
   const root = origin.fen || start;
   const [path, setPath] = useState([]);
   const [paths, setPaths] = useState([[]]);
@@ -41,6 +43,14 @@ export function AnalysisPage({ origin, onClose, interruption }) {
     return b;
   }, [root, path]);
   const fen = board.fen();
+  const exportLine = useMemo(() => {
+    if (origin.anchorRoute?.length) {
+      const anchored = boardWithLeadIn(root, origin.anchorRoute);
+      for (const uci of path) playBoardMove(anchored, uci);
+      return lineFromBoard(anchored);
+    }
+    return lineFromBoard(board);
+  }, [board, path, root, origin.anchorRoute]);
   const moves = useMemo(
     () => new Map(board.moves({ verbose: true }).map((m) => [m.lan, m])),
     [board],
@@ -162,6 +172,9 @@ export function AnalysisPage({ origin, onClose, interruption }) {
             </p>
           )}
           <div className="actions">
+            {!path.length && renderRootLineAction
+              ? renderRootLineAction(fen, color)
+              : <LichessControl fen={fen} line={exportLine} orientation={color} />}
             <Button
               disabled={locked || !path.length}
               onClick={() => navigate(path.slice(0, -1))}

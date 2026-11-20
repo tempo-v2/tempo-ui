@@ -1,4 +1,5 @@
 import { Board, Button } from "@tempo-v2/core-components";
+import { LichessControl } from "./LichessControl.jsx";
 import React, { useEffect, useState } from "react";
 import { comparisonCandidates, leadingMeasuredMoves, measurementText, engineCells, explorerCells, probabilityCells } from "./move_evidence.js";
 import { usePositionEvidence } from "./position_evidence.js";
@@ -250,6 +251,7 @@ function Nearby({ position, orientation }) {
             positionIdentity={position.fen}
             positionRevision={0}
           />
+          <LichessControl fen={position.fen} orientation={orientation} />
         </div>
       )}
     </details>
