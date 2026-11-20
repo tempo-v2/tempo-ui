@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
+import { useNotify } from "./Notifications.jsx";
 import { postCommand } from "./content_transport.js";
 
 export function TacticSettingsPage({ onStudy }) {
@@ -8,7 +9,7 @@ export function TacticSettingsPage({ onStudy }) {
   const [limit, setLimit] = useState("");
   const [selection, setSelection] = useState({ mode: "any" });
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState(null);
+  const notify = useNotify();
   const [error, setError] = useState(null);
   const requestInFlight = useRef(false);
 
@@ -17,7 +18,6 @@ export function TacticSettingsPage({ onStudy }) {
     requestInFlight.current = true;
     setBusy(true);
     setError(null);
-    setNotice(null);
     try {
       const timeoutMs = command.command === "get" ? SMALL_READ_TIMEOUT_MS : undefined;
       const reply = await postCommand("/api/tactic-settings", command, undefined, undefined, { timeoutMs });
@@ -29,7 +29,7 @@ export function TacticSettingsPage({ onStudy }) {
       setLoaded(reply);
       setLimit(String(reply.new_tactics_per_day));
       setSelection(reply.selection);
-      if (command.command === "save") setNotice("Tactics settings saved.");
+      if (command.command === "save") notify("Tactics settings saved.");
     } catch (failure) {
       setError({ message: failure.message, code: failure.code });
     } finally {
@@ -66,7 +66,6 @@ export function TacticSettingsPage({ onStudy }) {
     <main className="tempo-core repertoire-page">
       <PageHeader title="Tactics settings" actions={<Button disabled={busy} onClick={onStudy}>Study</Button>} />
       {error && <StatusNotice kind="error">{error.message}</StatusNotice>}
-      {notice && <StatusNotice>{notice}</StatusNotice>}
       {error && (!loaded || ["settings_conflict", "stale_dataset"].includes(error.code)) &&
         <Button disabled={busy} onClick={load}>Reload settings</Button>}
       {!loaded && busy && <p role="status">Loading settings…</p>}
@@ -74,24 +73,21 @@ export function TacticSettingsPage({ onStudy }) {
         <form className="repertoire-form" onSubmit={save}>
           <label>New tactics per day
             <input type="number" min="0" step="1" required value={limit} disabled={busy}
-              onChange={(event) => { setNotice(null); setLimit(event.target.value); }} />
+              onChange={event => setLimit(event.target.value)} />
           </label>
           <fieldset disabled={busy} className="tactic-theme-picker">
             <legend>New tactic types</legend>
             <label><input type="radio" name="tactic-filter" checked={selection.mode === "any"}
-              onChange={() => { setNotice(null); setSelection({ mode: "any" }); }} />
+              onChange={() => setSelection({ mode: "any" })} />
               Any tactic, including personal captures</label>
             <label><input type="radio" name="tactic-filter" checked={selection.mode === "selected"}
-              onChange={() => { setNotice(null); setSelection(loaded.starter); }} />
+              onChange={() => setSelection(loaded.starter)} />
               Selected themes</label>
             {selection.mode === "selected" && <>
               <p>Tempo rotates through your themes and starts with easy packs.</p>
               <div className="study-navigation">
-                <Button type="button" onClick={() => { setNotice(null); setSelection(loaded.starter); }}>Use starter themes</Button>
-                <Button type="button" onClick={() => {
-                  setNotice(null);
-                  setSelection({ mode: "selected", theme_ids: [] });
-                }}>Clear selection</Button>
+                <Button type="button" onClick={() => setSelection(loaded.starter)}>Use starter themes</Button>
+                <Button type="button" onClick={() => setSelection({ mode: "selected", theme_ids: [] })}>Clear selection</Button>
               </div>
               {[...groups].map(([group, themes]) => (
                 <fieldset key={group} className="tactic-theme-group">
@@ -99,7 +95,6 @@ export function TacticSettingsPage({ onStudy }) {
                   {themes.map(({ id, name }) => (
                     <label key={id}><input type="checkbox" checked={selected.includes(id)}
                       onChange={(event) => {
-                        setNotice(null);
                         setSelection({ mode: "selected", theme_ids: event.target.checked
                           ? [...selected, id] : selected.filter((theme) => theme !== id) });
                       }} />

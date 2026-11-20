@@ -169,8 +169,11 @@ try {
   };
   await page.route(endpoint, breakRead);
   await button("Save repertoire").click();
-  await page.getByText("Repertoire saved.", { exact: true }).waitFor();
+  const saveToast = page.locator(".ui-toast").getByText("Repertoire saved.", { exact: true });
+  await saveToast.waitFor();
   await button("Retry reload").waitFor();
+  await saveToast.waitFor({ state: "detached" });
+  assert(await button("Retry reload").isVisible());
   assert.equal(await text.inputValue(), annotated);
   assert.equal(await page.evaluate((key) => sessionStorage.getItem(key), recoveryKey), null);
   assert.equal(await button("Retry save").count(), 0);
@@ -246,6 +249,11 @@ try {
   await page.evaluate(() => window.restoreRecoveryRead());
   await button("Retry reading recovery").click();
   await button("Edit Alpha renamed").waitFor();
+  await button("Rename Alpha renamed").click();
+  await page.getByLabel("New name").fill("Final Alpha");
+  await button("Save name").click();
+  await page.locator(".ui-toast").getByText("Repertoire renamed.", { exact: true }).waitFor();
+  await button("Edit Final Alpha").waitFor();
   console.log("Browser editor, download, freshness, exact Save recovery and restart passed");
 } finally {
   await browser?.close();

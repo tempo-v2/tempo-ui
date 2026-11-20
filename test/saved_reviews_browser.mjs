@@ -121,8 +121,22 @@ try {
   await oldTab.getByText("The Study dataset changed.", { exact: true }).waitFor();
   await oldTab.getByRole("button", { name: "Review later", exact: true }).waitFor();
   await oldTab.close();
+  const toast = page.locator(".ui-toast").getByText("Saved for review.", { exact: true });
+  const layout = () => page.locator("main").evaluate(main => ({
+    height: main.scrollHeight,
+    navigation: main.querySelector("nav").getBoundingClientRect().top + window.scrollY,
+  }));
+  const beforeMark = await layout();
   await markButton.click();
-  await page.getByText("Saved for review.", { exact: true }).waitFor();
+  await toast.waitFor();
+  assert.deepEqual(await layout(), beforeMark);
+  const bounds = await toast.boundingBox();
+  const viewport = page.viewportSize();
+  assert.ok(bounds && viewport);
+  assert.equal(viewport.width - bounds.x - bounds.width, 16);
+  assert.equal(viewport.height - bounds.y - bounds.height, 16);
+  await toast.waitFor({ state: "detached" });
+  assert.deepEqual(await layout(), beforeMark);
   assert.deepEqual(studyData(), before);
   assert.equal((await save({
     ...firstMark, submission_id: "unreached", position: { kind: "decision", index: 1 },
@@ -352,6 +366,16 @@ try {
   await button("Return").click();
   await page.getByRole("heading", { name: "Saved for review", exact: true }).waitFor();
   await openingTab.close();
+  await button("Back to Study").click();
+  await button("Tactics").click();
+  await button("Tactics settings").click();
+  await page.getByLabel("New tactics per day").fill("3");
+  await button("Save settings").click();
+  const settingsToast = page.locator(".ui-toast").getByText("Tactics settings saved.", { exact: true });
+  await settingsToast.waitFor();
+  await button("Study").click();
+  await page.getByRole("navigation", { name: "Tempo sections" }).waitFor();
+  assert(await settingsToast.isVisible());
   console.log("Desktop Chrome verified exact multi-move marks, skipped/active blind protection, automatic advance, removal, and restart.");
 } finally {
   sql?.close();

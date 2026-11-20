@@ -209,8 +209,8 @@ export function StudyPage({
                   </>
                 )}
               </div>
-              {reviewMark.message && <StatusNotice kind={reviewMark.message.error ? "error" : undefined}>
-                {reviewMark.message.text}
+              {reviewMark.message && <StatusNotice kind="error">
+                {reviewMark.message}
               </StatusNotice>}
             </>
           )}

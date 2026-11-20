@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useNotify } from "./Notifications.jsx";
 import { SHORT_ACK_TIMEOUT_MS, SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { commandRecovery, postCommand } from "./content_transport.js";
 import { validateStudyView } from "./validate_study_view.js";
@@ -26,6 +27,7 @@ export function readReviewCommand(path, command, owner) {
 }
 
 export function useReviewWrite(path, recovery, expectedStatus, onAccepted) {
+  const notify = useNotify();
   const [pending, setPending] = useState(() => recovery.hasPending());
   const [message, setMessage] = useState(null);
   const flight = useRef(false);
@@ -55,18 +57,18 @@ export function useReviewWrite(path, recovery, expectedStatus, onAccepted) {
       await recovery.save(null);
       setPending(false);
       onAccepted?.(reply);
-      setMessage({ text: expectedStatus === "saved" ? "Saved for review." : "Removed from saved reviews." });
+      notify(expectedStatus === "saved" ? "Saved for review." : "Removed from saved reviews.");
     } catch (error) {
       if (error instanceof ReviewRejection) {
         try {
           await recovery.save(null);
         } catch {
-          setMessage({ text: "The review command was rejected. Its saved retry could not be cleared.", error: true });
+          setMessage("The review command was rejected. Its saved retry could not be cleared.");
           return;
         }
       }
       setPending(recovery.hasPending());
-      setMessage({ text: error.message || "Could not update saved reviews.", error: true });
+      setMessage(error.message || "Could not update saved reviews.");
     } finally {
       setBusy(false);
       flight.current = false;
