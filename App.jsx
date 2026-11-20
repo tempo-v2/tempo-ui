@@ -65,17 +65,6 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transp
     replyTimer = useRef(null),
     advanced = useRef(null),
     pausedAdvance = useRef(null);
-  function showStudyView(view, state, keepMove) {
-    setModel(previous => {
-      const samePosition = !!view?.attempt_id && !!previous.view?.attempt_id &&
-        identity(view) === identity(previous.view) &&
-        view.display_fen === previous.view.display_fen &&
-        view.prompt?.decision_index === previous.view.prompt?.decision_index;
-      const opponentMove = view?.feedback?.autoplay.at(-1)?.uci ??
-        (samePosition ? previous.opponentMove : null) ?? view?.opponent_lead_in?.uci;
-      return { view, state, keepMove, opponentMove };
-    });
-  }
   if (!controller.current)
     controller.current = createStudyController({
       transport,
@@ -85,7 +74,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transp
         if (view?.status === "complete") lastCompleted.current = completedReviewAddress(view);
         const move = preview.current;
         if (state.busy || !move) {
-          showStudyView(view, state, state.busy && !!move);
+          setModel({ view, state, keepMove: state.busy && !!move });
           return;
         }
         preview.current = null;
@@ -93,7 +82,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transp
         const replies = view !== move.view && view?.feedback?.correct ? view.feedback.autoplay : [];
         const showResult = () => {
           replyTimer.current = null;
-          showStudyView(view, state, false);
+          setModel({ view, state, keepMove: false });
           if (sounds.enabled && replies.length && studyVisit.current === move.studyVisit) {
             sounds.play(replyCue(move.view.display_fen, move.uci, replies));
           }
@@ -143,7 +132,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transp
     if (sounds.enabled) sounds.play(opponentCue(fen, uci));
   }, [sounds]);
   const showingCard = studying && !stopped && !inspecting && view?.status === "ready";
-  const leadIn = useStudyLeadIn(showingCard ? identity(view) : null, view?.opponent_lead_in, onLeadInPlayed);
+  const leadIn = useStudyLeadIn(showingCard ? identity(view) : null, view?.opponent_move, onLeadInPlayed);
   useEffect(() => { setHistory(null); }, [view]);
   const autoAdvance = studying && !stopped && !dialog && !inspecting && canAutoAdvance(view?.status, view?.activity, view?.assessment) &&
     !state.busy && !state.canRetry && !state.refreshRequired && !state.storageUnavailable && advanced.current !== view && pausedAdvance.current !== view;

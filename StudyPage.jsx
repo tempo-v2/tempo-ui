@@ -16,7 +16,6 @@ export function StudyPage({
   view,
   state,
   leadIn,
-  opponentMove,
   keepMove,
   showSuccess,
   advancing,
@@ -88,7 +87,6 @@ export function StudyPage({
             ref={boardRef}
             view={view}
             leadIn={leadIn}
-            opponentMove={opponentMove}
             prefs={prefs}
             flipped={flipped}
             historyFen={historyIndex === null ? undefined : historyIndex === 0

@@ -41,9 +41,11 @@ try {
   assert.equal(saved.status, "tactics_saved");
   const oldView = await post("study", { command: "next" }, { "X-Tempo-Move-Details": "1" });
   assert.equal(oldView.status, "ready");
-  assert.equal(oldView.opponent_lead_in, undefined);
-  const view = await post("study", { command: "next" }, { "X-Tempo-Study-Lead-In": "1" });
-  assert.deepEqual(view, { ...oldView, opponent_lead_in: { before_fen: beforeFen, uci: "d7d5" } });
+  assert.equal(oldView.opponent_move, undefined);
+  const view = await post("study", { command: "next" }, { "X-Tempo-Study-Opponent-Moves": "1" });
+  assert.deepEqual(view, {
+    ...oldView, opponent_move: { before_fen: beforeFen, uci: "d7d5" },
+  });
   assert.equal(view.prompt.expected, undefined);
 
   browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -117,6 +119,12 @@ try {
   await move("g1f3"); // Legal, but the saved line expects Nc3 here.
   await arrow("b1c3", "blue");
   await arrow("e7e6");
+  assert.ok(await board.evaluate(element => element === window.liveStudyBoard));
+
+  await page.reload();
+  await arrow("e7e6");
+  await page.getByText("Move 2 of 3").waitFor();
+  await board.evaluate(element => { window.liveStudyBoard = element; });
   await move("b1c3");
   await arrow("g8f6");
   await page.getByText("Move 3 of 3").waitFor();
@@ -133,7 +141,7 @@ try {
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.waitForFunction(label => document.querySelector(label)?.dataset.fen.startsWith("7k/8/5KQ1/"), boardLabel);
   assert.equal(await root.locator("svg.cg-shapes g[cgHash]").count(), 0);
-  assert.deepEqual(commands.map(command => command.command), ["next", "next", "answer", "answer", "answer", "answer", "next"]);
+  assert.deepEqual(commands.map(command => command.command), ["next", "next", "answer", "answer", "next", "answer", "answer", "next"]);
   console.log("Desktop Study shows the exact opening move once and keeps the board in place through two replies and a correction.");
 } finally {
   await browser?.close();

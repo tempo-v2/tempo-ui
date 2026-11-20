@@ -9,7 +9,7 @@ export const studyOrientation = (color, flipped) =>
   flipped ? (color === "white" ? "black" : "white") : color;
 
 export const StudyBoard = forwardRef(function StudyBoard(
-  { view, leadIn, opponentMove, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
+  { view, leadIn, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
   ref,
 ) {
   const destinations = useMemo(() => {
@@ -31,7 +31,8 @@ export const StudyBoard = forwardRef(function StudyBoard(
   const fen = historyFen ?? leadIn?.before_fen ?? previewFen ?? view.display_fen;
   const turn = turnFromFen(fen);
   const demonstration = view.lesson?.move_uci ?? view.feedback?.correction_uci;
-  const lastMove = guidedMove || opponentMove || view.lesson?.previous_move;
+  const opponentMove = view.opponent_move?.uci;
+  const lastMove = guidedMove || opponentMove;
   const arrows = [];
   if (!historyFen && !previewFen && !leadIn) {
     if (opponentMove) {

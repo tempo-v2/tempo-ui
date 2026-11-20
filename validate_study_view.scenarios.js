@@ -109,11 +109,13 @@ test("a correction belongs only to a legal wrong-answer reply", () => {
 });
 
 test("an optional opponent lead-in belongs only to an unplayed first decision", () => {
-  const opponent_lead_in = { before_fen: "8/8/8/8/8/8/8/8 b - - 0 1", uci: "e7e5" };
-  assert.deepEqual(validateStudyView(ready({ opponent_lead_in })).opponent_lead_in, opponent_lead_in);
-  assert.throws(() => validateStudyView(ready({ revision: 1, opponent_lead_in })), /opponent/);
-  assert.throws(() => validateStudyView(ready({ learner_color: "black", opponent_lead_in })), /opponent/);
+  const opponent_move = { before_fen: "8/8/8/8/8/8/8/8 b - - 0 1", uci: "e7e5" };
+  assert.deepEqual(validateStudyView(ready({ opponent_move })).opponent_move, opponent_move);
+  assert.throws(() => validateStudyView(ready({ revision: 1, opponent_move })), /opponent/);
+  const earlierMove = { uci: opponent_move.uci };
+  assert.deepEqual(validateStudyView(ready({ revision: 1, opponent_move: earlierMove })).opponent_move, earlierMove);
+  assert.throws(() => validateStudyView(ready({ learner_color: "black", opponent_move })), /opponent/);
   assert.throws(() => validateStudyView(ready({
-    opponent_lead_in: { ...opponent_lead_in, answer: "e2e4" },
+    opponent_move: { ...opponent_move, answer: "e2e4" },
   })), /opponent/);
 });

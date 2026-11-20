@@ -9,7 +9,7 @@ export const studyTransport = {
     if (!statusRead) signalStudyChange();
     try {
       return await postCommand("/api/study", command, undefined, {
-        ...studyMoveDetails, "X-Tempo-Study-Lead-In": "1",
+        ...studyMoveDetails, "X-Tempo-Study-Opponent-Moves": "1",
       }, {
         timeoutMs: statusRead ? SMALL_READ_TIMEOUT_MS : SHORT_ACK_TIMEOUT_MS,
       });

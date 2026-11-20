@@ -45,13 +45,13 @@ export interface AttemptViewBase {
   /** Optional public display text for any kind of exercise. */
   readonly exercise_name?: string;
   readonly history?: RevealedLine;
+  readonly opponent_move?: { readonly uci: string; readonly before_fen?: string };
 }
 /** Use the prompt to render the current decision and accept a user move. */
 export interface ReadyView extends AttemptViewBase {
   readonly status: "ready";
   readonly prompt: Prompt;
   readonly lesson?: Lesson;
-  readonly opponent_lead_in?: { readonly before_fen: string; readonly uci: string };
 }
 /** No further answer is accepted through this displayed attempt. */
 export interface FinishedView extends AttemptViewBase {
