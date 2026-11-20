@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
+import { Chess } from "chess.js";
 
 const { chromium } = await import(process.env.TEMPO_PLAYWRIGHT || "playwright");
 const root = await mkdtemp(join(tmpdir(), "tempo-gap-recommendation-"));
@@ -55,6 +56,32 @@ try {
   sql = new DatabaseSync(database, { readOnly: true });
   const durable = () => ["learning", "assessments", "attempts", "receipts", "content_receipts", "repertoire_documents"]
     .map(table => sql.prepare(`SELECT * FROM ${table} ORDER BY 1`).all());
+  // The real gap draft must stay usable when a decodable retained map
+  // overstates its probabilities. The read must have no durable effects.
+  const { gaps: storedGaps } = await (await fetch(origin + "/api/games/gaps")).json();
+  const { repertoire_id, position, actual_move, document_revision } = storedGaps[0];
+  const distribution = Object.fromEntries(new Chess(`${position} 0 1`).moves({ verbose: true })
+    .map((move, index) => [move.from + move.to + (move.promotion ?? ""), index < 2 ? 1 : 0]));
+  const connection = new DatabaseSync(database);
+  try {
+    connection.prepare("INSERT INTO game_move_models VALUES (?, ?, ?)").run(
+      "maia2-0.11.0:65aae8465eed5e65df66a24ea7370715579f9e5435098d06fe18bdb1e267e997:rapid:1500:1500:cpu",
+      position, JSON.stringify(distribution),
+    );
+  } finally {
+    connection.close();
+  }
+  const beforeDraft = durable();
+  const invalidCache = await post("games/gap-draft", {
+    dataset_id, repertoire_id, position, actual_move, document_revision,
+  });
+  assert.equal(invalidCache.local_model_error, "invalid_maia_reply");
+  assert.equal(invalidCache.local_coverage, null);
+  assert.equal(invalidCache.actual_probability, null);
+  assert.equal(invalidCache.top_replies, null);
+  assert(invalidCache.draft.legal_moves.length > 0);
+  assert.deepEqual(durable(), beforeDraft);
+
   if (process.env.TEMPO_MAIA) {
     const old = durable();
     const { gaps } = await (await fetch(origin + "/api/games/gaps")).json();
@@ -90,6 +117,7 @@ try {
   let lookup;
   let ready = false;
   let staleNext = false;
+  let engineFailure = false;
   let loseSave = false;
   const saves = [];
   const neighbor = {
@@ -116,7 +144,9 @@ try {
       similar_responses: { current: [{ uci: "e4d5", position_count: 2 }], other: [] },
       repertoire_names: { example: "Italian" },
     };
-    if (ready) {
+    if (ready && engineFailure) {
+      json.stockfish_error = "Fixture Stockfish unavailable.";
+    } else if (ready) {
       json.stockfish = { engine: "Stockfish fixture", candidates: [{ uci: "d2d4", san: "d4", centipawns: 38 }] };
       json.recommendation = { uci: "e4d5", basis: "similar", scope: "current", position_count: 2, loss_centipawns: 50 };
     }
@@ -145,6 +175,8 @@ try {
   await button("Games").click();
   const before = durable();
   async function open() {
+    const gaps = page.locator("details.advanced-games");
+    if (!await gaps.evaluate(el => el.open)) await gaps.locator(":scope > summary").click();
     await button("Fix response").first().click();
     await heading("Respond to 1…d5").waitFor();
   }
@@ -164,6 +196,18 @@ try {
   }
   const green = () => page.locator(".gap-board svg line[stroke='#4f8a59']");
   const blue = () => page.locator(".gap-board svg line[stroke='#4e7ca8']");
+
+  engineFailure = true;
+  await open();
+  await similar.getByText("2 positions", { exact: true }).waitFor();
+  ready = true;
+  await engine.getByText("Fixture Stockfish unavailable.").waitFor();
+  await similar.getByText("2 positions", { exact: true }).waitFor();
+  assert.equal(await button("Save response").isEnabled(), false);
+  assert.deepEqual(durable(), before);
+  await button("Close").click();
+  engineFailure = false;
+  ready = false;
 
   await open();
   const startingFen = await board().getAttribute("data-fen");

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
 
 export function useStudyProgress(view, stopped) {
@@ -20,8 +21,9 @@ export function useStudyProgress(view, stopped) {
       if (inFlight) return;
       inFlight = true;
       try {
-        const previous = known.current?.stamp.dataset_id === scope.dataset ? known.current : null;
-        const next = await postCommand("/api/study-progress", previous?.stamp ?? null, request.signal);
+        const previous = known.current?.stamp?.dataset_id === scope.dataset ? known.current : null;
+        const next = await postCommand("/api/study-progress", previous?.stamp ?? null, request.signal,
+          undefined, { timeoutMs: SMALL_READ_TIMEOUT_MS });
         if (request.signal.aborted) return;
         if (next?.status === "error" || (next && next.stamp?.dataset_id !== scope.dataset))
           throw new Error("Progress unavailable");

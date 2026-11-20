@@ -1,6 +1,8 @@
-import { boundedRead } from "./bounded_read.js";
+import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
 import { freeze, string, validateErrorView } from "./wire_values.js";
+
+import { hasPendingRepertoireCommand, savePendingRepertoireCommand } from "./repertoire_recovery.js";
 
 export {
   hasPendingRepertoireCommand,
@@ -9,7 +11,9 @@ export {
 } from "./repertoire_recovery.js";
 
 export async function sendRepertoireCommand(command, signal) {
-  const reply = validateRepertoireReply(await postCommand("/api/repertoires", command, signal), command.command);
+  const timeoutMs = command.command === "list" ? SMALL_READ_TIMEOUT_MS : undefined;
+  const result = await postCommand("/api/repertoires", command, signal, undefined, { timeoutMs });
+  const reply = validateRepertoireReply(result, command.command);
   if (reply.status === "progress_reset" &&
       (reply.dataset_id !== command.dataset_id || reply.repertoire_id !== command.repertoire_id))
     throw new Error("The reset reply belongs to a different repertoire.");
@@ -23,8 +27,41 @@ export async function sendRepertoireCommand(command, signal) {
   return reply;
 }
 
+// A marked-line preview signs the exact paths. The caller decides whether its
+// visible change summary is acceptable for that editing operation.
+export async function previewMarkedLines(input, signal = AbortSignal.timeout(20_000)) {
+  const reply = await sendRepertoireCommand({ ...input, command: "marked_preview" }, signal);
+  if (reply.status !== "preview") throw new Error(reply.message || "Preview unavailable.");
+  return reply;
+}
+
+// Called after explicit confirmation, or with the immutable command restored
+// from this tab. A missing response leaves that command available for replay.
+export async function deliverDurableRepertoireCommand(command, { stored, onPending, signal }) {
+  if (!stored) {
+    if (hasPendingRepertoireCommand()) throw new Error("Reload to recover the pending repertoire command.");
+    try {
+      await savePendingRepertoireCommand(command);
+    } catch {
+      throw new Error("Tempo could not store this command for recovery. It was not sent.");
+    }
+    onPending(command);
+  }
+  const reply = await sendRepertoireCommand(command, signal);
+  if (reply.status === "error" && reply.retryable) return { reply, cleanupNeeded: false };
+  onPending(null);
+  try {
+    await savePendingRepertoireCommand(null);
+    return { reply, cleanupNeeded: false };
+  } catch {
+    return { reply, cleanupNeeded: true };
+  }
+}
+
+export const recoveryCleanupNotice = "Reload to finish clearing the saved recovery record.";
+
 export async function readRepertoireCatalog(signal) {
-  const reply = await boundedRead(signal, readSignal => sendRepertoireCommand({ command: "list" }, readSignal));
+  const reply = await sendRepertoireCommand({ command: "list" }, signal);
   if (reply.status === "error") throw new Error(reply.message);
   return reply;
 }

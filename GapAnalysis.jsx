@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import { Board, Button } from "@tempo-v2/core-components";
 import { readGapAnalysis, readGapExplorer, startGapAnalysis, startGapExplorer } from "./game_commands.js";
 
-const localAnalysis = { start: startGapAnalysis, read: readGapAnalysis, busy: "analysis_busy" };
-const explorer = { start: startGapExplorer, read: readGapExplorer, busy: "explorer_busy" };
+import { checkedGapAnalysis, checkedGapExplorer } from "./source_evidence.js";
+
+const localAnalysis = { start: startGapAnalysis, read: readGapAnalysis, busy: "analysis_busy", check: checkedGapAnalysis };
+const explorer = { start: startGapExplorer, read: readGapExplorer, busy: "explorer_busy", check: checkedGapExplorer };
 
 function useGapRead(gap, service, ratings) {
   const [attempt, setAttempt] = useState(0);
@@ -12,20 +14,34 @@ function useGapRead(gap, service, ratings) {
     const owner = new AbortController();
     const signal = AbortSignal.any([owner.signal, AbortSignal.timeout(22_000)]);
     const requestId = crypto.randomUUID();
+    const legal = new Set(gap.details.draft.legal_moves);
     const input = { request_id: requestId, gap: gap.address, ...(ratings && { ratings }) };
     let timer;
     const publish = value => {
-      if (!owner.signal.aborted) setState({ value, ratings, attempt });
+      if (!owner.signal.aborted) setState({ value, gap, ratings, attempt });
     };
-    const fail = error => publish({ status: "error", message: error.message, code: error.code });
+    const fail = error => {
+      if (owner.signal.aborted) return;
+      setState(current => {
+        const previous = current?.gap === gap && current.ratings === ratings &&
+          current.attempt === attempt ? current.value : {};
+        return { gap, ratings, attempt, value: {
+          ...previous, status: "error", message: error.message, code: error.code,
+        } };
+      });
+    };
+
+    function checkAddress(result) {
+      if (result?.request_id !== requestId || result.content_revision !== gap.details.content_revision)
+        throw new Error("The result belongs to a different position. Try again.");
+    }
 
     async function poll() {
       try {
         const result = await service.read(signal);
         if (owner.signal.aborted) return;
-        if (result.request_id !== requestId || result.content_revision !== gap.details.content_revision)
-          throw new Error("The result belongs to a different position. Try again.");
-        publish(result);
+        checkAddress(result);
+        publish(service.check(result, legal));
         if (result.status === "running") timer = setTimeout(poll, 300);
       } catch (error) { fail(error); }
     }
@@ -34,9 +50,9 @@ function useGapRead(gap, service, ratings) {
       try {
         const result = await service.start(input, signal);
         if (owner.signal.aborted) return;
-        if (result.content_revision !== gap.details.content_revision)
-          throw new Error("The repertoire changed. Reopen this gap for current analysis.");
-        await poll();
+        checkAddress(result);
+        publish(service.check(result, legal));
+        if (result.status === "running") await poll();
       } catch (error) {
         if (owner.signal.aborted) return;
         if (error.code === service.busy && !signal.aborted) timer = setTimeout(start, 450);
@@ -51,7 +67,7 @@ function useGapRead(gap, service, ratings) {
   }, [gap, service, ratings, attempt]);
 
   return [
-    state?.ratings === ratings && state?.attempt === attempt ? state.value : { status: "running" },
+    state?.gap === gap && state.ratings === ratings && state?.attempt === attempt ? state.value : { status: "running" },
     () => setAttempt(value => value + 1),
   ];
 }
