@@ -4,17 +4,7 @@ import { playBoardMove } from "./board_move.js";
 const analysis = "https://lichess.org/analysis";
 const maxPgnPathLength = 5000;
 
-export function lineFromBoard(board) {
-  const moves = board.history({ verbose: true });
-  if (!moves.length) return null;
-  return {
-    start_fen: moves[0].before,
-    moves: moves.map(({ before, san, after }) => {
-      const [, turn, , , , number] = before.split(" ");
-      return { notation: number + (turn === "b" ? "... " : ". ") + san, fen: after };
-    }),
-  };
-}
+export { lineFromBoard } from "./board_move.js";
 
 // A Fix Response lead-in ends at the draft, before any staged response.
 export function boardWithLeadIn(fen, route) {
