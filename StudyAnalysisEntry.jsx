@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Button, StatusNotice } from "@tempo-v2/core-components";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import { postCommand } from "./content_transport.js";
-import { UCI } from "./validate_study_view.js";
+import { validateAnalysisOrigin } from "./analysis_origin.js";
 
 // Mount the analysis board only after the server discloses the addressed decision.
 // Retries here are reads, including after a recovered review concession.
@@ -17,13 +17,7 @@ export function StudyAnalysisEntry({ visit, issue, onClose }) {
       try {
         const origin = await postCommand("/api/study/analysis-context", address,
           AbortSignal.any([owner.signal, AbortSignal.timeout(10000)]));
-        if (origin.attemptId !== attempt_id || origin.datasetId !== dataset_id ||
-            origin.contentVersion !== content_version || origin.revision !== revision ||
-            typeof origin.fen !== "string" || !["white", "black"].includes(origin.color) ||
-            (origin.repertoireId !== null && typeof origin.repertoireId !== "string") ||
-            (origin.name !== null && typeof origin.name !== "string") ||
-            (origin.playedUci !== null && !UCI.test(origin.playedUci)) || !UCI.test(origin.prescribedUci))
-          throw new Error("Tempo could not verify this Study position.");
+        validateAnalysisOrigin(origin, address);
         if (!owner.signal.aborted) setResult({ visit, retry, origin });
       } catch (error) {
         if (!owner.signal.aborted) setResult({ visit, retry, error: error.message });

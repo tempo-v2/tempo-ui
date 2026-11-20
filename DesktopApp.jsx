@@ -2,6 +2,7 @@ import React from "react";
 import { App } from "./App.jsx";
 import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
 import { GamesPage } from "./GamesPage.jsx";
+import { SavedReviewsPage } from "./SavedReviewsPage.jsx";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
 import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
 import { readGapContinuation } from "./gap_save.js";
@@ -19,6 +20,7 @@ function initialPage() {
 
 function renderSection(page, goTo, datasetId) {
   const onStudy = () => goTo("study");
+  if (page === "saved-reviews") return <SavedReviewsPage datasetId={datasetId} onStudy={onStudy} />;
   if (page === "games") return <GamesPage onStudy={onStudy}
     onRepertoires={() => goTo("repertoires")} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={onStudy} />;
