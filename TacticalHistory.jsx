@@ -131,8 +131,8 @@ function HistorySession({ dataset, onOpen }) {
   const current = view?.observations.find(row => row.id === selected) ?? view?.observations[0];
   const interrupted = availability !== null || error;
   const incomplete = stats ? stats.failed_games + stats.timed_out_games + stats.unsupported_games : 0;
-  const progress = interrupted ? "Last available results" : view?.status === "running" ? "Analyzing saved games"
-    : view?.paused ? "Analysis paused"
+  const progress = interrupted ? "Last available results" : view?.paused ? "Analysis paused"
+    : view?.status === "running" ? "Analyzing saved games"
     : view?.waiting_for_idle && stats?.pending_games > 0 ? "Waiting for the Mac to be idle on wall power"
     : stats?.pending_games > 0 ? "Waiting to analyze saved games" : incomplete > 0 ? "Analysis finished with gaps" : "Analysis up to date";
 

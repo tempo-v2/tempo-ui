@@ -42,7 +42,7 @@ async function mounted(t, handler) {
   window.fetch = async (url, options) => {
     const call = { url, payload: JSON.parse(options.body), signal: options.signal };
     calls.push(call);
-    assert.equal(url, "/api/games/tactics");
+    assert.ok(["/api/games/tactics", "/api/games/tactics/command"].includes(url));
     assert.equal(options.method, "POST");
     return handler(call, calls.length);
   };
@@ -197,4 +197,33 @@ test("unmount and dataset replacement abort polling and fence an ignored late re
   await page.advance(6000);
   assert.equal(page.calls.length, count);
   assert.equal(page.timers.size, 0);
+});
+
+test("analysis controls pause, resume and retry through addressed commands", async t => {
+  const report = tacticalReport();
+  report.paused = false;
+  report.waiting_for_idle = false;
+  report.games = [
+    {source: "pgn", game_id: "g1", white: "Learner", black: "Opponent",
+      checked: 2, pending: 3, inconclusive: 1, preparing: false},
+  ];
+  report.statistics.pending_positions = 3;
+  report.statistics.inconclusive_positions = 1;
+  const page = await mounted(t, ({url, payload}) => {
+    if (url === "/api/games/tactics") return response(structuredClone(report));
+    assert.equal(payload.dataset_id, "tactics-fixture");
+    if (payload.action === "pause") report.paused = true;
+    else if (payload.action === "resume") report.paused = false;
+    else if (payload.action === "retry") report.statistics.inconclusive_positions = 0;
+    else assert.fail(payload.action);
+    return response({accepted: true});
+  });
+  assert.match(page.text(), /Learner vs Opponent · 2 checked · 3 pending · 1 inconclusive/);
+  await page.click("Pause analysis");
+  assert.match(page.text(), /Analysis paused/);
+  await page.click("Resume analysis");
+  await page.click("Retry inconclusive positions");
+  assert.ok(page.button("Retry inconclusive positions").disabled);
+  assert.deepEqual(page.calls.filter(call => call.url.endsWith("/command")).map(call => call.payload.action),
+    ["pause", "resume", "retry"]);
 });
