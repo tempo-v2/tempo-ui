@@ -176,7 +176,8 @@ function HistorySession({ dataset, onOpen }) {
       {stats.pending_requests > 0 && <p className="tactical-queue"><strong>{stats.pending_requests.toLocaleString()} {stats.pending_requests === 1 ? "review" : "reviews"} waiting in Study.</strong> Game puzzles alternate with due reviews after your current card.</p>}
       {incomplete > 0 && <p>{incomplete.toLocaleString()} {incomplete === 1 ? "game could" : "games could"} not be fully analyzed. Unfinished analysis is not counted as a missed capture.</p>}
       {view.last_error && <StatusNotice kind="error">{view.last_error}</StatusNotice>}
-      {personal ? <PersonalTactics dataset={dataset} onOpen={onOpen} revision={revision}/> : current ? <>
+      {personal ? <PersonalTactics dataset={dataset} onOpen={onOpen}
+        analysisProgress={`${stats.completed_games}:${stats.decisions_scanned}`}/> : current ? <>
         <div className="tactical-history-layout">
           <div className="tactical-list"><h3>{before === undefined ? "Recent opportunities" : "Earlier opportunities"}</h3>
             <ol>{view.observations.map(row => <li key={row.id}>
