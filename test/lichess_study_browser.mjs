@@ -362,7 +362,7 @@ try {
     if (departure === "history") {
       await button("Games").click();
       await page.waitForURL("**/#games");
-      await button("Study").click();
+      await button("← Study").click();
       await page.waitForURL(url + "/");
     }
     await button("Analyze in Lichess").waitFor();
@@ -399,7 +399,7 @@ try {
     } finally {
       held.resolve();
     }
-    if (departure === "history") await button("Study").click();
+    if (departure === "history") await button("← Study").click();
     await page.getByRole("group", { name: "Analysis board" }).waitFor();
     assert.equal(context.pages().length, 1);
     assert.equal(lineReads, 0);
