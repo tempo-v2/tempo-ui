@@ -13,6 +13,42 @@ The matched Tempo server accepts v4 JSON commands at `/api/study` and `/api/repe
 
 Run `npm test` for the wire and controller scenarios.
 
+## Delivery diagnostics
+
+Every JSON request from the desktop and phone has a new `X-Tempo-Request-Id`.
+It identifies that delivery attempt; retrying a saved command keeps its original
+body and durable command ID. Diagnostics observe delivery and never establish
+whether a command was accepted or change which command is retried. Existing
+five-second reads, ten-second Study acknowledgements, and caller-owned waits
+are unchanged.
+
+The browser keeps its latest 500 diagnostic events in memory. Each request
+records its known route, method, time to response headers, body-reading time,
+HTTP status, and final delivery outcome. A timeout records whether it happened
+before headers or during the body, its request ID, and how late the local
+deadline callback ran. A delayed callback can reflect a busy browser, tab
+suspension, or machine contention; it is evidence rather than proof of a cause.
+Late responses and bodies cannot replace the recorded timeout. An HTTP 200
+reply containing an application error remains distinguishable from successful
+delivery of an ordinary reply.
+
+Choose **Download diagnostics** beside a Study error or in the Games header.
+From any page, `window.tempoDiagnostics.download()` does the same, and
+`window.tempoDiagnostics.snapshot()` returns the bounded snapshot. Export works
+without contacting Tempo, including while its server is unresponsive. The
+download contains no PGN, FEN, answers, commands, command IDs, account names,
+query parameters, raw server messages, or credentials. Unknown routes become
+`other`; diagnostic header values are restricted to the generated ID formats.
+The export includes discarded-event counts. It resets when the page reloads.
+
+Matching servers echo the delivery ID, their run ID, and an optional
+`Server-Timing: tempo;dur=<milliseconds>` header. Older servers remain compatible
+and simply omit those observations. No new response-body field or persisted
+recovery envelope is required. Logging and download failures do not alter
+transport outcomes. `test/diagnostics.test.js` exercises real transport stalls,
+late replies, cancellation, bounded redacted exports, and failed recording;
+the existing content/phone transport tests cover exact-command retry behavior.
+
 `TacticsCapturePage.jsx` previews every pasted or uploaded PGN record and saves only selected valid rows. For a complete game, choose the variation and first and last solution moves. The server shows the normalized solver position and solution before capture. The same recovery convention keeps an unresolved capture separate from any editable PGN.
 
 After required Study is complete, the UI offers practice from introduced tactics and an explicit increase to today's tactics allowance when those actions are available.

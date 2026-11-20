@@ -11,6 +11,7 @@ import { studyActionButtons } from "./StudyActions.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
+import { DiagnosticsButton } from "./DiagnosticsButton.jsx";
 
 export function StudyPage({
   view,
@@ -190,6 +191,7 @@ export function StudyPage({
           {state.issue && (
             <StatusNotice kind="error">{state.issue}</StatusNotice>
           )}
+          {(state.issue || view?.status === "error") && <div className="actions"><DiagnosticsButton /></div>}
           {reviewMark && (
             <>
               <div className="actions">
