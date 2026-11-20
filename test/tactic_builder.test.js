@@ -7,8 +7,10 @@ import { appendCaptureSan, captureBoard, capturePgn, editSetupPieces, normalizeC
 test("a FEN retains all six fields, including an en passant target and move counters", () => {
   const fen = "r3k2r/8/8/3pP3/8/8/8/R3K2R w KQkq d6 0 23";
   assert.equal(normalizeCaptureFen(`  ${fen.replaceAll(" ", "   ")}\n`), fen);
+  assert.equal(normalizeCaptureFen(fen.replace("KQkq", "qkQK")), fen);
   assert.equal(writeSetup(readSetup(fen)), fen);
   assert.throws(() => normalizeCaptureFen(fen.replace("0 23", "0x 23")), /six-field FEN/);
+  assert.throws(() => normalizeCaptureFen(fen.replace("KQkq", "KK")), /Invalid FEN castling rights/);
   assert.throws(() => normalizeCaptureFen(fen.replace("R3K2R", "R3K3")), /castling rights/);
   const edited = editSetupPieces(readSetup(fen), { h1: "." });
   assert.equal(writeSetup(edited), "r3k2r/8/8/3pP3/8/8/8/R3K3 w Qkq - 0 23");

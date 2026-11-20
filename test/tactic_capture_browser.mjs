@@ -99,7 +99,7 @@ try {
   assert.deepEqual(requests.map(({ input }) => input.command), ["preview", "preview"]);
   assert.deepEqual(await moves(), ["70000... O-O"]);
 
-  await useFen(fen);
+  await useFen(fen.replace("KQkq", "qkQK"));
   await clickMove("e8", "g8", "black");
   await page.getByText("23... O-O", { exact: true }).waitFor();
   await addSan("24.Ra2 Ba9");

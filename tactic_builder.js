@@ -10,6 +10,7 @@ const castlingPieces = {
   k: { e8: "k", h8: "r" },
   q: { e8: "k", a8: "r" },
 };
+const castlingOrder = "KQkq";
 
 export function readSetup(fen) {
   const [placement, turn, rights, enPassant, halfmove, fullmove] = fen.split(" ");
@@ -31,7 +32,7 @@ export function canSetCastling(pieces, right) {
 export function editSetupPieces(setup, changes) {
   if (Object.entries(changes).every(([square, piece]) => setup.pieces[square] === piece)) return setup;
   const pieces = { ...setup.pieces, ...changes };
-  const rights = [..."KQkq"].filter(right => setup.rights.includes(right) && canSetCastling(pieces, right)).join("");
+  const rights = [...castlingOrder].filter(right => setup.rights.includes(right) && canSetCastling(pieces, right)).join("");
   return { ...setup, pieces, rights, enPassant: "-" };
 }
 
@@ -44,11 +45,14 @@ export function normalizeCaptureFen(text) {
     /^\d+$/.test(counter) && Number.isSafeInteger(Number(counter)))) {
     throw new Error("Enter a valid six-field FEN.");
   }
-  if (setup.rights !== "-" && (!/^K?Q?k?q?$/.test(setup.rights) ||
-      [...setup.rights].some(right => !canSetCastling(setup.pieces, right)))) {
+  const rights = [...castlingOrder].filter(right => setup.rights.includes(right)).join("");
+  if (setup.rights !== "-" && rights.length !== setup.rights.length) {
+    throw new Error("Invalid FEN castling rights.");
+  }
+  if ([...rights].some(right => !canSetCastling(setup.pieces, right))) {
     throw new Error("FEN castling rights must match the kings and rooks on their starting squares.");
   }
-  return writeSetup({ ...setup, halfmove: String(Number(setup.halfmove)), fullmove: String(Number(setup.fullmove)) });
+  return writeSetup({ ...setup, rights, halfmove: String(Number(setup.halfmove)), fullmove: String(Number(setup.fullmove)) });
 }
 
 export function captureBoard(fen, moves) {
