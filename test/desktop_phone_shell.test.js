@@ -75,6 +75,33 @@ async function shell(t, phone, { hash = "#games", responses: overrides = {} } = 
   return { window, calls };
 }
 
+for (const phone of [false, true]) {
+  test(`${phone ? "phone" : "desktop"} Study error exports local diagnostics without another request`, async t => {
+    const { window, calls } = await shell(t, phone, { hash: "", responses: {
+      "/api/study": { schema_version: 5, status: "error", code: "store_unavailable",
+        message: "private-server-message", retryable: true },
+    } });
+    const button = [...window.document.querySelectorAll("button")]
+      .find(button => button.textContent === "Download diagnostics");
+    assert.ok(button);
+    assert.equal(typeof window.tempoDiagnostics.snapshot, "function");
+    let content;
+    let filename;
+    window.Blob = class { constructor(parts) { content = parts.join(""); } };
+    window.URL.createObjectURL = () => "blob:diagnostics-fixture";
+    window.URL.revokeObjectURL = () => {};
+    window.HTMLAnchorElement.prototype.click = function () { filename = this.download; };
+    const count = calls.length;
+    await window.runShell(() => button.click());
+    assert.equal(filename, "tempo-browser-diagnostics.json");
+    assert.equal(calls.length, count);
+    const exported = JSON.parse(content);
+    assert.equal(exported.source, "tempo-ui");
+    assert.ok(exported.events.some(event => event.route === "/api/study" && event.application_error));
+    assert.doesNotMatch(content, /private-server-message/);
+  });
+}
+
 test("desktop opens a game link and browser Back returns to Study through the shared controller", async t => {
   const { window, calls } = await shell(t, false);
   assert.equal(window.document.querySelector("h1").textContent, "Games");

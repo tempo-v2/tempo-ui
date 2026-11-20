@@ -17,6 +17,7 @@ import { commandTacticalAnalysis } from "./tactical_history.js";
 import { TacticalHistory } from "./TacticalHistory.jsx";
 import { readGapContinuation } from "./gap_save.js";
 import { commandRecovery } from "./content_transport.js";
+import { DiagnosticsButton } from "./DiagnosticsButton.jsx";
 
 // History is newest-comparison first. Group only the history window; a command report
 // keeps its original per-result rows and command outcomes.
@@ -856,7 +857,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     <main className="tempo-core repertoire-page games-page">
       <Button size="compact" variant="quiet" onClick={onStudy}>← Study</Button>
       <PageHeader title="Games" subtitle="Review your openings and tactical opportunities."
-        actions={<Button onClick={() => { setSource("pgn"); setImportOpen(true); }}>Import PGN</Button>} />
+        actions={<><DiagnosticsButton /><Button onClick={() => { setSource("pgn"); setImportOpen(true); }}>Import PGN</Button></>} />
       <details className="game-import" open={importOpen || !!pending || !!issue || !!jobError || !!catalogError || recoveryStatus === "blocked"}
         onToggle={e => setImportOpen(e.currentTarget.open)}><summary>Import or refresh games</summary><Surface>
         <h2>{importing ? "Import a PGN" : "Compare completed games"}</h2>
