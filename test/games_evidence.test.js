@@ -76,8 +76,8 @@ function clockFor(window, simulateRecovery = false) {
   };
 }
 
-const model = status => ({
-  status, profile: "Maia Rapid 1500", completed: status === "running" ? 1 : 2, total: 2,
+const model = (status, dataset = "evidence-fixture") => ({
+  status, ...(status === "idle" ? {} : { dataset_id: dataset }), profile: "Maia Rapid 1500", completed: status === "running" ? 1 : 2, total: 2,
 });
 
 const backfill = (status, jobId = "history-fixture", datasetId = "evidence-fixture") => ({
@@ -114,7 +114,7 @@ const backfillLabel = "Start historical backfill";
 const gapLabel = "Fix response";
 const emptyGaps = "No confirmed opponent gaps";
 const response = (body, status = 200) => ({ status, ok: status < 400, json: async () => body });
-const failure = message => response({ message }, 503);
+const failure = message => response({ status: "error", code: "fixture_unavailable", retryable: true, message }, 503);
 const catalog = () => response({
   schema_version: 4, status: "repertoires", dataset_id: "evidence-fixture",
   repertoires: [{ id: "book", name: "Book", learner_color: "white", positions: 2 }],
@@ -124,7 +124,7 @@ const hang = signal => new Promise((_, reject) => {
   signal.addEventListener("abort", () => reject(signal.reason), { once: true });
 });
 
-async function openGames(t, handlers, { pending, gapContinuation } = {}) {
+async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) {
   const { window } = new JSDOM('<!DOCTYPE html><div id="root"></div>', {
     url: "http://tempo.test/", runScripts: "outside-only", pretendToBeVisual: true,
   });
@@ -174,6 +174,7 @@ async function openGames(t, handlers, { pending, gapContinuation } = {}) {
     window.HTMLDialogElement.prototype.close = function () { this.open = false; };
     window.sessionStorage.setItem("tempo-gap-save-continuation-v1", JSON.stringify(gapContinuation));
   }
+  setup?.(window);
   window.eval(script);
   await window.mountGames();
   const button = label => [...window.document.querySelectorAll("button")].find(item => item.textContent === label);
@@ -186,6 +187,10 @@ async function openGames(t, handlers, { pending, gapContinuation } = {}) {
     click: label => window.runBrowser(() => button(label).click()),
     flush: window.runBrowser,
     stored: () => window.sessionStorage.getItem(pendingKey),
+    submitRefresh: () => window.runBrowser(() => {
+      window.document.querySelector('input[name="learner"]').value = "learner";
+      button("Refresh games").click();
+    }),
     unmount,
   };
 }
@@ -337,7 +342,7 @@ test("catalog timeout leaves history available and reload enables dataset-depend
   await page.advance(4999);
   assert.equal(page.button("Reload Games"), undefined);
   await page.advance(1);
-  assert.match(page.text(), /The evidence read timed out/);
+  assert.match(page.text(), /Tempo did not respond before the wait ended/);
   assert.equal(page.calls[0].signal.reason.name, "TimeoutError");
   stalled = false;
   await page.click("Reload Games");
@@ -364,7 +369,7 @@ test("history deadline includes response body consumption and recovery publishes
   assert.match(page.text(), /Loading game evidence/);
   assert.equal(page.button(analyzeLabel).disabled, false);
   await page.advance(5000);
-  assert.match(page.text(), /The evidence read timed out/);
+  assert.match(page.text(), /Tempo did not respond before the wait ended/);
   assert.doesNotMatch(page.text(), /Loading game evidence|Unexpected Games response/);
   stalled = false;
   await page.click("Reload game evidence");
@@ -381,7 +386,7 @@ test("ordinary refresh status read times out and reload recovers without replayi
     "GET /api/games/job": ({ signal }) => stalled ? hang(signal) : response({ status: "idle" }),
   }, { pending });
   await page.advance(5000);
-  assert.match(page.text(), /The evidence read timed out/);
+  assert.match(page.text(), /Tempo did not respond before the wait ended/);
   const retryStart = page.calls.length;
   stalled = false;
   await page.click("Reload Games");
@@ -401,7 +406,7 @@ test("historical status deadline leaves the other evidence available and recover
   });
   assert.match(page.text(), /a6 · 1 game/);
   await page.advance(5000);
-  assert.match(page.text(), /Historical backfill status · The evidence read timed out/);
+  assert.match(page.text(), /Historical backfill status · Tempo did not respond before the wait ended/);
   stalled = false;
   await page.click(retryLabel);
   assert.match(page.text(), /Processing Lichess · history-fixture/);
@@ -430,7 +435,7 @@ test("a hung Maia read leaves other resources live and times out at five seconds
   assert.equal(page.button(retryLabel), undefined);
   await page.advance(1);
   assert.equal(hungSignal.aborted, true);
-  assert.match(page.text(), /Maia run status · The evidence read timed out/);
+  assert.match(page.text(), /Maia run status · Tempo did not respond before the wait ended/);
   assert.ok(page.button(retryLabel));
   await page.advance(1999);
   assert.equal(page.count("GET /api/games/model"), 1);
@@ -486,11 +491,11 @@ test("paginated gaps timeout ignores a noncooperative result and retries the sam
   });
   await page.click("Next gaps");
   await page.advance(5000);
-  assert.match(page.text(), /Opponent gaps · The evidence read timed out/);
+  assert.match(page.text(), /Opponent gaps · Tempo did not respond before the wait ended/);
   assert.equal(paginatedSignal.reason.name, "TimeoutError");
   await page.flush(() => finishLate(response(gapPage("c7c6"))));
   assert.doesNotMatch(page.text(), /c6 · 1 game/);
-  assert.match(page.text(), /Opponent gaps · The evidence read timed out/);
+  assert.match(page.text(), /Opponent gaps · Tempo did not respond before the wait ended/);
   await page.click(retryLabel);
   assert.match(page.text(), /b6 · 1 game/);
   assert.equal(page.button(retryLabel), undefined);
@@ -559,7 +564,7 @@ test("successful background reads retain gap action errors and show optional pro
   const page = await openGames(t, {
     "GET /api/games/model": () => response(modelReply),
     "GET /api/games/gaps": () => response(gapPage("e7e6")),
-    "POST /api/games/gap-draft": () => response({ message: "The repertoire document changed." }, 409),
+    "POST /api/games/gap-draft": () => response({ status: "error", code: "stale_document", message: "The repertoire document changed." }, 409),
   });
   assert.match(page.text(), /Maia Rapid 1500 · running/);
   assert.doesNotMatch(page.text(), /Modeled reach/);
@@ -750,11 +755,11 @@ test("settled history supersedes a late response and a timed-out replacement rem
   await page.flush(() => old.resolve(gameHistory("obsolete-game")));
   assert.doesNotMatch(page.text(), /obsolete-game/);
   await page.advance(5000);
-  assert.match(page.text(), /The evidence read timed out/);
+  assert.match(page.text(), /Tempo did not respond before the wait ended/);
   phase = "recovered";
   await page.click("Reload game evidence");
   assert.match(page.text(), /current-game · Book/);
-  assert.doesNotMatch(page.text(), /obsolete-game|The evidence read timed out/);
+  assert.doesNotMatch(page.text(), /obsolete-game|Tempo did not respond before the wait ended/);
   assert.equal(page.count("POST /api/games/backfill/retry"), 0);
 });
 
@@ -869,7 +874,7 @@ test("changing dataset while Games reads are pending clears old rows and ignores
       ? response({ schema_version: 4, status: "repertoires", dataset_id: "next-dataset", repertoires: [] })
       : catalog(),
     "GET /api/games/job": () => changed ? response({ status: "idle" }) : failure("Fixture refresh unavailable"),
-    "GET /api/games/model": () => response(model(modelState)),
+    "GET /api/games/model": () => response(model(modelState, changed ? "next-dataset" : "evidence-fixture")),
     "GET /api/games/backfill": ({ signal }) => {
       if (changed) return response(backfill("complete", "next-job", "next-dataset"));
       oldStatusSignal = signal;
@@ -942,16 +947,345 @@ for (const stall of ["fetch", "body"]) {
     await page.advance(4999);
     assert.equal(successorSignal.aborted, false);
     await page.advance(1);
-    assert.match(page.text(), /The evidence read timed out/);
+    assert.match(page.text(), /Tempo did not respond before the wait ended/);
     assert.match(page.text(), /Saved e4/);
     succeed = true;
     const retryStart = page.calls.length;
     await page.click("Retry loading next gap");
     assert.equal(page.button("Retry loading next gap"), undefined);
-    assert.doesNotMatch(page.text(), /The evidence read timed out/);
+    assert.doesNotMatch(page.text(), /Tempo did not respond before the wait ended/);
     assert.match(page.text(), /Saved e4/);
     assert.ok(page.calls.slice(retryStart).some(call => call.endpoint === "POST /api/games/gaps"));
     assert.equal(page.calls.filter(call => call.endpoint === "POST /api/repertoires" &&
       call.payload.command === "save").length, 0);
   });
 }
+
+const refreshDataset = "evidence-fixture";
+const refreshPayload = {
+  command_id: "refresh-a",
+  dataset_id: refreshDataset,
+  source: "lichess",
+  account: "learner",
+  from_ms: Date.UTC(2026, 10, 9),
+  to_ms: Date.UTC(2026, 10, 10),
+};
+const savedRefresh = { kind: "refresh", payload: refreshPayload };
+const savedRefreshBytes = JSON.stringify(savedRefresh);
+const externalKey = `${pendingKey}-external`;
+const refreshEndpoint = "POST /api/games/refresh";
+
+function refreshReport(note) {
+  return {
+    fetched: 0, new_games: 0, duplicates: 0, matches: 0, deviations: 0,
+    errors: note ? [note] : [], results: [],
+  };
+}
+
+function refreshJob(status, commandId = refreshPayload.command_id, datasetId = refreshDataset) {
+  return {
+    status, dataset_id: datasetId, command_id: commandId,
+    ...(status === "complete" ? { report: refreshReport(`Report for ${commandId}`) } : {}),
+  };
+}
+
+test("Games persists a new Refresh before delivery even when the first storage write fails", async t => {
+  let failSave = true;
+  let savedAtDelivery;
+  let storage;
+  const page = await openGames(t, {
+    [refreshEndpoint]: ({ payload }) => {
+      savedAtDelivery = storage.getItem(pendingKey);
+      return response(refreshJob("running", payload.command_id), 202);
+    },
+  }, {
+    setup(window) {
+      storage = window.sessionStorage;
+      const proto = window.Storage.prototype;
+      const setItem = proto.setItem;
+      proto.setItem = function (key, value) {
+        if (key === pendingKey && failSave) throw new Error("Storage denied");
+        setItem.call(this, key, value);
+      };
+    },
+  });
+  await page.submitRefresh();
+  assert.equal(page.count(refreshEndpoint), 0);
+  assert.equal(page.stored(), null);
+  assert.match(page.text(), /could not save this Games request for recovery\. Nothing was sent/);
+  assert.ok(page.button("Retry same request"));
+
+  failSave = false;
+  await page.click("Retry same request");
+  assert.equal(page.count(refreshEndpoint), 1);
+  const sent = page.calls.find(call => call.endpoint === refreshEndpoint);
+  assert.deepEqual(JSON.parse(savedAtDelivery), { kind: "refresh", payload: sent.payload });
+  assert.equal(page.stored(), savedAtDelivery);
+});
+
+test("Games rereads recovery storage after a corrupt envelope and blocks mutations until it succeeds", async t => {
+  let storage;
+  const page = await openGames(t, {
+    [refreshEndpoint]: ({ body }) => {
+      assert.equal(body, JSON.stringify(refreshPayload));
+      return response(refreshJob("complete"), 202);
+    },
+  }, {
+    pending: "{unreadable",
+    setup(window) { storage = window.sessionStorage; },
+  });
+  assert.match(page.text(), /could not read the pending Games request/);
+  await page.submitRefresh();
+  assert.equal(page.count(refreshEndpoint), 0);
+  await page.click("Retry recovery");
+  assert.match(page.text(), /could not read the pending Games request/);
+  assert.equal(page.stored(), "{unreadable");
+
+  storage.setItem(pendingKey, savedRefreshBytes);
+  await page.click("Retry recovery");
+  assert.doesNotMatch(page.text(), /could not read the pending Games request/);
+  assert.equal(page.count(refreshEndpoint), 0);
+  await page.click("Retry same request");
+  assert.equal(page.count(refreshEndpoint), 1);
+  assert.equal(page.stored(), null);
+});
+
+test("explicit dismissal keeps an unreadable pending envelope visible until detachment succeeds", async t => {
+  let disallow = true;
+  const page = await openGames(t, {}, {
+    pending: "false",
+    setup(window) {
+      const proto = window.Storage.prototype;
+      const removeItem = proto.removeItem;
+      proto.removeItem = function (key) {
+        if (key === pendingKey && disallow) throw new Error("Removal denied");
+        removeItem.call(this, key);
+      };
+    },
+  });
+  assert.match(page.text(), /could not read the pending Games request/);
+  await page.click("Dismiss pending request");
+  assert.match(page.text(), /could not dismiss the saved Games request/);
+  assert.equal(page.stored(), "false");
+  disallow = false;
+  await page.click("Dismiss pending request");
+  assert.equal(page.stored(), null);
+  assert.doesNotMatch(page.text(), /could not read|could not dismiss/);
+  assert.equal(page.count(refreshEndpoint), 0);
+});
+
+function externalRecovery(window, { blob = savedRefresh, state }) {
+  window.sessionStorage.setItem(externalKey, JSON.stringify({ id: "old-blob", identity: null }));
+  // The previous release's per-tab pointer resolves asynchronously against
+  // the IndexedDB command store. Use its existing schema in the mounted harness.
+  window.indexedDB = {
+    open(name, version) {
+      assert.equal(name, "tempo-content-recovery");
+      assert.equal(version, 1);
+      const open = {};
+      queueMicrotask(() => {
+        if (state.failOpen) {
+          open.error = new Error("Recovery database denied");
+          open.onerror();
+          return;
+        }
+        open.result = {
+          close() {},
+          transaction(name, mode) {
+            assert.equal(name, "commands");
+            const transaction = {
+              objectStore() {
+                function finish(id, result) {
+                  assert.equal(id, "old-blob");
+                  queueMicrotask(() => {
+                    if (mode === "readwrite" && state.failDelete) {
+                      transaction.error = new Error("Recovery blob deletion denied");
+                      transaction.onabort();
+                    } else transaction.oncomplete();
+                  });
+                  return { result };
+                }
+                return {
+                  get(id) { return finish(id, blob); },
+                  delete(id) { return finish(id); },
+                };
+              },
+            };
+            return transaction;
+          },
+        };
+        open.onsuccess();
+      });
+      return open;
+    },
+  };
+}
+
+test("Games reloads a previous IndexedDB envelope after an unavailable recovery read", async t => {
+  const state = { failOpen: true };
+  let storage;
+  const page = await openGames(t, {
+    [refreshEndpoint]: ({ body }) => {
+      assert.equal(body, JSON.stringify(refreshPayload));
+      return response(refreshJob("complete"), 202);
+    },
+  }, {
+    setup(window) {
+      storage = window.sessionStorage;
+      externalRecovery(window, { state });
+    },
+  });
+  assert.match(page.text(), /could not read the pending Games request/);
+  await page.submitRefresh();
+  assert.equal(page.count(refreshEndpoint), 0);
+  state.failOpen = false;
+  await page.click("Retry recovery");
+  await page.click("Retry same request");
+  assert.equal(page.count(refreshEndpoint), 1);
+  assert.equal(storage.getItem(externalKey), null);
+});
+
+test("Games retries accepted cleanup without resending, then detaches a blob even if deletion fails", async t => {
+  const state = { failDelete: true };
+  let failDetach = true;
+  let storage;
+  const page = await openGames(t, {
+    [refreshEndpoint]: () => response(refreshJob("complete"), 202),
+  }, {
+    setup(window) {
+      storage = window.sessionStorage;
+      externalRecovery(window, { state });
+      const proto = window.Storage.prototype;
+      const removeItem = proto.removeItem;
+      proto.removeItem = function (key) {
+        if (key === externalKey && failDetach) throw new Error("Pointer deletion denied");
+        removeItem.call(this, key);
+      };
+    },
+  });
+  await page.click("Retry same request");
+  assert.match(page.text(), /Report for refresh-a/);
+  assert.match(page.text(), /confirmed this Games request, but could not clear/);
+  assert.ok(storage.getItem(externalKey));
+  assert.equal(page.button("Retry same request"), undefined);
+
+  failDetach = false;
+  await page.click("Retry cleanup");
+  assert.equal(storage.getItem(externalKey), null);
+  assert.match(page.text(), /Report for refresh-a/);
+  assert.match(page.text(), /unused storage could not be removed/);
+  assert.equal(page.button("Retry cleanup"), undefined);
+  assert.equal(page.button("Refresh games").closest("fieldset").disabled, false);
+  assert.equal(page.count(refreshEndpoint), 1);
+});
+
+test("addressed Refresh replay resolves A while the running B slot keeps polling", async t => {
+  let current = "running";
+  const page = await openGames(t, {
+    "GET /api/games/job": () => response(refreshJob(current, "refresh-b")),
+    [refreshEndpoint]: ({ body }) => {
+      assert.equal(body, JSON.stringify(refreshPayload));
+      return response(refreshJob("complete"), 202);
+    },
+  }, { pending: savedRefreshBytes });
+  assert.match(page.text(), /Refreshing games/);
+  assert.equal(page.button("Refresh games").closest("fieldset").disabled, true);
+  await page.click("Retry same request");
+  assert.equal(page.stored(), null);
+  assert.match(page.text(), /Recovered refresh results.*Report for refresh-a/);
+  assert.doesNotMatch(page.text(), /Import results|Report for refresh-b/);
+  assert.match(page.text(), /Refreshing games/);
+
+  current = "complete";
+  await page.advance(1000);
+  assert.match(page.text(), /Report for refresh-a/);
+  assert.match(page.text(), /Latest refresh.*Report for refresh-b/);
+  assert.doesNotMatch(page.text(), /Refreshing games/);
+  assert.equal(page.count(refreshEndpoint), 1);
+});
+
+for (const [fixture, acknowledgement, current] of [
+  ["foreign dataset", refreshJob("complete", "refresh-a", "other"), refreshJob("complete", "refresh-a", "other")],
+  ["unrelated command", refreshJob("complete", "refresh-b"), refreshJob("complete", "refresh-b")],
+  ["missing report", { ...refreshJob("complete"), report: undefined }, { status: "idle" }],
+  ["unaddressed", undefined, { status: "idle" }],
+]) {
+  test(`invalid Refresh acknowledgement (${fixture}) cannot clear the pending request`, async t => {
+    const page = await openGames(t, {
+      "GET /api/games/job": () => response(current),
+      [refreshEndpoint]: () => response(acknowledgement, 202),
+    }, { pending: savedRefreshBytes });
+    assert.equal(page.stored(), savedRefreshBytes);
+    await page.click("Retry same request");
+    assert.equal(page.count(refreshEndpoint), 1);
+    assert.equal(page.stored(), savedRefreshBytes);
+    assert.doesNotMatch(page.text(), /Recovered refresh results|Report for refresh-a/);
+  });
+}
+
+test("the normal addressed running Refresh keeps its envelope until the matching terminal poll", async t => {
+  let current = { status: "idle" };
+  const page = await openGames(t, {
+    "GET /api/games/job": () => response(current),
+    [refreshEndpoint]: () => {
+      current = refreshJob("running");
+      return response(current, 202);
+    },
+  }, { pending: savedRefreshBytes });
+  await page.click("Retry same request");
+  assert.equal(page.stored(), savedRefreshBytes);
+  assert.equal(page.button("Retry same request"), undefined);
+  assert.match(page.text(), /Refreshing games/);
+
+  current = refreshJob("complete");
+  await page.advance(1000);
+  assert.equal(page.stored(), null);
+  assert.match(page.text(), /Latest refresh.*Report for refresh-a/);
+  assert.equal(page.count(refreshEndpoint), 1);
+});
+
+test("a lost Maia start acknowledgement waits for current model status before another start", async t => {
+  const acknowledgement = deferred();
+  const reconciliation = deferred();
+  let state = "idle";
+  const page = await openGames(t, {
+    "GET /api/games/model": () => state === "unreadable" ? reconciliation.promise : response(model(state)),
+    "POST /api/games/model": () => acknowledgement.promise,
+  });
+  await page.click(analyzeLabel);
+  assert.equal(page.button(analyzeLabel).disabled, true);
+  state = "unreadable";
+  await page.advance(10000);
+  assert.match(page.text(), /could not confirm the Maia start/);
+  assert.equal(page.button(analyzeLabel).disabled, true);
+  await page.click(analyzeLabel);
+  assert.equal(page.count("POST /api/games/model"), 1);
+
+  state = "running";
+  await page.flush(() => reconciliation.resolve(response(model(state))));
+  assert.match(page.text(), /Maia Rapid 1500 · running/);
+  assert.equal(page.button(analyzeLabel).disabled, true);
+  await page.flush(() => acknowledgement.resolve(response(model("complete"))));
+  assert.match(page.text(), /Maia Rapid 1500 · running/);
+  state = "complete";
+  await page.advance(2000);
+  assert.match(page.text(), /Maia Rapid 1500 · complete/);
+  assert.equal(page.button(analyzeLabel).disabled, false);
+  assert.equal(page.count("POST /api/games/model"), 1);
+});
+
+
+test("a foreign Maia run never takes ownership of current Games evidence", async t => {
+  const page = await openGames(t, {
+    "GET /api/games/model": () => response({
+      ...model("running", "old-dataset"),
+      projection: {
+        dataset_id: "evidence-fixture", complete_current: 1,
+        partial_current: 0, unavailable: 0, pending: 0,
+      },
+    }),
+  });
+  assert.match(page.text(), /Maia run status belongs to a different dataset/);
+  assert.doesNotMatch(page.text(), /running · 1 of 2 positions/);
+  assert.equal(page.button(analyzeLabel).disabled, false);
+});

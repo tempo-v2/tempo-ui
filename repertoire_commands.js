@@ -1,4 +1,4 @@
-import { boundedRead } from "./bounded_read.js";
+import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
 import { freeze, string, validateErrorView } from "./wire_values.js";
 
@@ -9,7 +9,9 @@ export {
 } from "./repertoire_recovery.js";
 
 export async function sendRepertoireCommand(command, signal) {
-  const reply = validateRepertoireReply(await postCommand("/api/repertoires", command, signal), command.command);
+  const timeoutMs = command.command === "list" ? SMALL_READ_TIMEOUT_MS : undefined;
+  const result = await postCommand("/api/repertoires", command, signal, undefined, { timeoutMs });
+  const reply = validateRepertoireReply(result, command.command);
   if (reply.status === "progress_reset" &&
       (reply.dataset_id !== command.dataset_id || reply.repertoire_id !== command.repertoire_id))
     throw new Error("The reset reply belongs to a different repertoire.");
@@ -24,7 +26,7 @@ export async function sendRepertoireCommand(command, signal) {
 }
 
 export async function readRepertoireCatalog(signal) {
-  const reply = await boundedRead(signal, readSignal => sendRepertoireCommand({ command: "list" }, readSignal));
+  const reply = await sendRepertoireCommand({ command: "list" }, signal);
   if (reply.status === "error") throw new Error(reply.message);
   return reply;
 }

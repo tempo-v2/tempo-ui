@@ -1,4 +1,5 @@
-import { boundedRead } from "./bounded_read.js";
+import { SHORT_ACK_TIMEOUT_MS, SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
+import { requestJson } from "./content_transport.js";
 import { string } from "./wire_values.js";
 
 const endpoint = "/api/games";
@@ -27,6 +28,30 @@ function count(value, field) {
     throw new TypeError(`Invalid game count for ${field}`);
   }
   return value;
+}
+
+const departureKinds = new Set(["learner_move", "opponent_gap", "authored_endpoint", "outside_context"]);
+
+function comparisonPly(value) {
+  if (!Number.isSafeInteger(value) || value < 1) throw new TypeError("Invalid repertoire comparison ply");
+  return value;
+}
+
+function repertoireComparisons(result) {
+  if (!Object.hasOwn(result, "repertoires")) return null;
+  if (!Array.isArray(result.repertoires)) throw new TypeError("Invalid repertoire comparisons");
+  return result.repertoires.map(book => {
+    if (typeof book?.source_available !== "boolean") throw new TypeError("Invalid repertoire comparison availability");
+    const departure = book.first_departure;
+    if (departure !== null && !departureKinds.has(departure?.kind))
+      throw new TypeError("Invalid repertoire departure");
+    return {
+      repertoire_id: string(book.repertoire_id, "comparison repertoire", true),
+      source_available: book.source_available,
+      first_departure: departure === null ? null : { kind: departure.kind, ply: comparisonPly(departure.ply) },
+      reentry_ply: book.reentry_ply === null ? null : comparisonPly(book.reentry_ply),
+    };
+  });
 }
 
 function gameResults(results) {
@@ -61,12 +86,7 @@ function gameResults(results) {
         repertoire_id: string(item.repertoire_id, "disagreement repertoire", true),
         plies: item.plies.map(ply => count(ply, "disagreement ply")),
       })),
-      repertoires: (result.repertoires ?? []).map(book => ({
-        repertoire_id: string(book.repertoire_id, "comparison repertoire", true),
-        source_available: book.source_available === true,
-        first_departure: book.first_departure ?? null,
-        reentry_ply: book.reentry_ply ?? null,
-      })),
+      repertoires: repertoireComparisons(result),
       effect,
     };
   });
@@ -95,33 +115,26 @@ function gameReport(reply) {
   };
 }
 
-async function request(path, payload, signal) {
-  const json = payload === undefined ? undefined : JSON.stringify(payload);
-  const init = json === undefined
-    ? { cache: "no-store", signal }
-    : {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: json,
-        signal,
-      };
-  const response = await fetch(endpoint + path, init);
-  if (response.status === 202 && path === "/refresh") return;
-  let body;
-  try { body = await response.json(); } catch {
-    throw new Error(`Unexpected Games response (HTTP ${response.status}).`);
-  }
-  if (!response.ok || body?.status === "error") {
-    const error = new Error(body?.message || body?.error || `Games request failed (HTTP ${response.status}).`);
-    error.code = body?.code;
-    throw error;
-  }
-  if (path === "/refresh") throw new Error("Tempo did not confirm that the refresh started.");
-  return body;
+function request(path, payload, signal, { timeoutMs, expectedStatus } = {}) {
+  return requestJson(endpoint + path, {
+    method: payload === undefined ? "GET" : "POST",
+    cache: payload === undefined ? "no-store" : undefined,
+    payload,
+    signal,
+    timeoutMs,
+    expectedStatus,
+  });
 }
 
 function read(path, signal, payload) {
-  return boundedRead(signal, readSignal => request(path, payload, readSignal));
+  return request(path, payload, signal, { timeoutMs: SMALL_READ_TIMEOUT_MS });
+}
+
+function jobAddress(reply) {
+  return {
+    commandId: string(reply.command_id, "refresh command", true),
+    datasetId: string(reply.dataset_id, "refresh dataset", true),
+  };
 }
 
 export async function readGameHistory(signal) {
@@ -137,14 +150,15 @@ export async function readGameJob(signal) {
   const reply = await read("/job", signal);
   switch (reply.status) {
     case "idle":
+      return { status: "idle" };
     case "running":
-      return { status: reply.status, commandId: reply.command_id ?? null };
+      return { status: "running", ...jobAddress(reply) };
     case "complete":
-      return { status: "complete", commandId: reply.command_id ?? null, report: gameReport(reply.report) };
+      return { status: "complete", ...jobAddress(reply), report: gameReport(reply.report) };
     case "failed":
       return {
         status: "failed",
-        commandId: reply.command_id ?? null,
+        ...jobAddress(reply),
         error: string(reply.error, "refresh error", true),
         report: reply.report ? gameReport(reply.report) : null,
       };
@@ -154,7 +168,15 @@ export async function readGameJob(signal) {
 }
 
 export async function refreshGames(payload, signal) {
-  await request("/refresh", payload, signal);
+  const reply = await request("/refresh", payload, signal, {
+    expectedStatus: 202, timeoutMs: SHORT_ACK_TIMEOUT_MS,
+  });
+  const address = jobAddress(reply);
+  if (address.commandId !== payload.command_id || address.datasetId !== payload.dataset_id)
+    throw new Error("The Refresh reply belongs to a different request or dataset.");
+  if (reply.status === "running") return { status: "running", ...address };
+  if (reply.status === "complete") return { status: "complete", ...address, report: gameReport(reply.report) };
+  throw new TypeError("Invalid Refresh acknowledgement.");
 }
 
 export async function importGamePgn(payload, signal) {
@@ -172,7 +194,7 @@ export async function reprocessGames(payload, signal) {
 export const historicalStatus = signal => read("/backfill", signal);
 
 async function acknowledgeHistorical(path, payload, jobId, signal) {
-  const reply = await request(path, payload, signal);
+  const reply = await request(path, payload, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS });
   if (!jobId || !payload.dataset_id || reply?.job_id !== jobId || reply?.request?.dataset_id !== payload.dataset_id)
     throw new Error("The historical reply belongs to a different job or dataset.");
   if (!["running", "incomplete", "complete"].includes(reply.status))
@@ -185,8 +207,10 @@ export const startHistorical = (payload, signal) =>
 export const retryHistorical = (payload, signal) =>
   acknowledgeHistorical("/backfill/retry", payload, payload.job_id, signal);
 
-export async function modelStatus(signal) {
-  const reply = await read("/model", signal);
+function modelReply(reply) {
+  if (!["idle", "running", "complete", "incomplete"].includes(reply?.status))
+    throw new TypeError("Invalid Maia status.");
+  if (reply.status !== "idle") string(reply.dataset_id, "model dataset", true);
   if (reply.projection == null) return reply;
   const projection = reply.projection;
   return {
@@ -201,7 +225,16 @@ export async function modelStatus(signal) {
   };
 }
 
-export const startModel = (payload, signal) => request("/model", payload, signal);
+export async function modelStatus(signal) {
+  return modelReply(await read("/model", signal));
+}
+
+export async function startModel(payload, signal) {
+  const reply = modelReply(await request("/model", payload, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS }));
+  if (reply.dataset_id !== payload.dataset_id)
+    throw new Error("The Maia acknowledgement belongs to a different dataset.");
+  return reply;
+}
 export const readGaps = (signal, offset = 0) => read("/gaps", signal, offset ? { offset } : undefined);
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
 export const startGapAnalysis = (payload, signal) => request("/gap-analysis", payload, signal);

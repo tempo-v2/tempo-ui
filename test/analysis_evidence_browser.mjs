@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { Chess } from "chess.js";
 
 const { chromium } = await import(process.env.TEMPO_PLAYWRIGHT || "playwright");
 const directory = await mkdtemp(join(tmpdir(), "tempo-evidence-browser-"));
@@ -27,6 +28,7 @@ try {
   const polling = new Promise(resolve => { pollStarted = resolve; });
   const deliveredLate = new Promise(resolve => { delivered = resolve; });
   const pins = [];
+  let maiaMode = "offline";
   function stats(total, count) {
     return { white: total, draws: 0, black: 0, moves: [{ uci: "d7d5", white: count, draws: 0, black: 0 }] };
   }
@@ -44,17 +46,25 @@ try {
     }
     let data;
     if (source === "rated" && request.ratings === "above1500") {
-      return route.fulfill({ json: reply(request, stats(10, 20)) });
+      const aggregate = stats(10, 10);
+      aggregate.moves.push({ uci: "g8f6", white: 10, draws: 0, black: 0 });
+      return route.fulfill({ json: reply(request, aggregate) });
     }
     if (source === "stockfish") {
       const top = white ? ["e2e4", "d2d4", "g1f3"] : ["d7d5", "g8f6", "e7e6"];
       pins.push(request.pins);
       const candidates = [...new Set([...top, ...request.pins])].map((uci, index) => ({
-        uci, centipawns: [62, 47, 31, 17][index], mate: null,
+        uci, centipawns: !white && uci === "g8f6" ? null : [62, 47, 31, 17][index],
+        mate: !white && uci === "g8f6" ? 3 : null,
       }));
       data = { engine: "Test engine", comparison_complete: true, candidates };
     } else if (source === "maia") {
-      return route.fulfill({ json: { ...reply(request, null), status: "error", message: "Fixture model offline" } });
+      if (maiaMode === "offline")
+        return route.fulfill({ json: { ...reply(request, null), status: "error", message: "Fixture model offline" } });
+      const probabilities = Object.fromEntries(new Chess(fen).moves({ verbose: true })
+        .map(move => [move.from + move.to + (move.promotion ?? ""),
+          Number(move.from + move.to === "e2e4" || maiaMode === "invalid" && move.from + move.to === "d2d4")]));
+      data = { profile: "Fixture Maia", terminal: false, probabilities };
     } else if (source === "repertoire") {
       const example = {
         fen: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
@@ -82,6 +92,15 @@ try {
   await page.getByText(/Fixture model offline/).waitFor();
   await button("Pin a3").click();
   const row = move => page.locator("tr").filter({ has: button(move) });
+  const maiaStatus = page.getByRole("status").filter({ hasText: "Maia Rapid 1500" });
+  maiaMode = "invalid";
+  await maiaStatus.getByRole("button", { name: "Retry" }).click();
+  await maiaStatus.getByText(/could not read this source/).waitFor();
+  assert.equal(await row("e4").getByText("100.0%", { exact: true }).count(), 0);
+  maiaMode = "valid";
+  await maiaStatus.getByRole("button", { name: "Retry" }).click();
+  await row("e4").getByText("100.0%", { exact: true }).waitFor();
+  maiaMode = "offline";
   await row("a3").getByText(/0\.17/).waitFor();
   assert.ok(pins.some(request => request.includes("a2a3")));
   await button("e4").click();
@@ -94,6 +113,7 @@ try {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await page.getByText(/99\.0%/).count(), 0);
   assert.match(await row("d5").innerText(), /-0\.62/);
+  assert.match(await row("Nf6").innerText(), /Mate -3/);
   await page.getByRole("columnheader", { name: /Lichess Rapid.*100 games/ }).waitFor();
   await row("d5").getByText("1 nearby (other)").click();
   await row("d5").locator("details details summary").click();

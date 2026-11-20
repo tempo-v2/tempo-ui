@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand, studyMoveDetails } from "./content_transport.js";
 import { safeGameLink } from "./game_commands.js";
 import { UCI, validateRevealedLine } from "./validate_study_view.js";
@@ -11,7 +12,8 @@ export function useStudyGameContext(datasetId, attemptId) {
     const request = new AbortController();
     async function read() {
       const reply = await postCommand("/api/study/game-context",
-        { dataset_id: datasetId, attempt_id: attemptId }, request.signal, studyMoveDetails);
+        { dataset_id: datasetId, attempt_id: attemptId }, request.signal, studyMoveDetails,
+        { timeoutMs: SMALL_READ_TIMEOUT_MS });
       object(reply, ["context"], "game context reply");
       if (reply.context === null) return;
       const context = reply.context;
