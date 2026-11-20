@@ -5,6 +5,8 @@ import { useStudyLineExport } from "./StudyLineExport.jsx";
 import { postCommand } from "./content_transport.js";
 import { UCI } from "./validate_study_view.js";
 
+const ANALYSIS_CONTEXT_TIMEOUT_MS = 10_000;
+
 // Mount the analysis board only after the server discloses the addressed decision.
 // Retries here are reads, including after a recovered review concession.
 export function StudyAnalysisEntry({ visit, issue, launch, onClose }) {
@@ -17,7 +19,7 @@ export function StudyAnalysisEntry({ visit, issue, launch, onClose }) {
     async function read() {
       try {
         const origin = await postCommand("/api/study/analysis-context", address,
-          AbortSignal.any([owner.signal, AbortSignal.timeout(10000)]));
+          owner.signal, undefined, { timeoutMs: ANALYSIS_CONTEXT_TIMEOUT_MS });
         if (origin.attemptId !== attempt_id || origin.datasetId !== dataset_id ||
             origin.contentVersion !== content_version || origin.revision !== revision ||
             typeof origin.fen !== "string" || !["white", "black"].includes(origin.color) ||

@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Board, Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { MoveTrail } from "./MoveTrail.jsx";
+import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
 import { studyChangeKey, studyChangeStamp } from "./study_presence.js";
 import { turnFromFen } from "./StudyBoard.jsx";
 import { LichessControl } from "./LichessControl.jsx";
 
 const endpoint = "/api/tactics-collection";
+const readOptions = { timeoutMs: SMALL_READ_TIMEOUT_MS };
 
 function Source({ text }) {
   try {
@@ -29,17 +31,17 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
   const detailRequest = useRef(0);
 
   useEffect(() => {
-    let current = true;
+    const owner = new AbortController();
     setPage(null);
     setIssue("");
     postCommand(endpoint, {
       command: "list", search: query.search, filter: query.filter, after: query.cursors.at(-1),
-    }).then(reply => {
-      if (!current) return;
+    }, owner.signal, undefined, readOptions).then(reply => {
+      if (owner.signal.aborted) return;
       if (reply.status !== "tactics_page") setIssue(reply.message ?? "Could not load tactics.");
       else setPage(reply);
-    }).catch(() => { if (current) setIssue("Could not load tactics."); });
-    return () => { current = false; };
+    }).catch(() => { if (!owner.signal.aborted) setIssue("Could not load tactics."); });
+    return () => owner.abort();
   }, [query]);
 
   useEffect(() => {
@@ -71,7 +73,7 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
     try {
       const reply = await postCommand(endpoint, {
         command: "detail", dataset_id: page.dataset_id, target, show_solution: showSolution,
-      });
+      }, undefined, undefined, readOptions);
       if (request !== detailRequest.current || (showSolution && studyChangeStamp() !== before)) return;
       if (reply.status !== "tactic_detail") setIssue(reply.message ?? "Could not load this tactic.");
       else {

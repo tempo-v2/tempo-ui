@@ -6,6 +6,8 @@ import {
 } from "./lichess_analysis.js";
 import { validateRevealedLine } from "./validate_study_view.js";
 
+const ANALYSIS_LINE_TIMEOUT_MS = 10_000;
+
 // The authorized position opens first. Only an explicit Lichess action reads the
 // line. Its delivery and retry belong to this visit, independent of Study recovery.
 export function useStudyLineExport(visit, origin, launch, positionFailed) {
@@ -28,7 +30,7 @@ export function useStudyLineExport(visit, origin, launch, positionFailed) {
       try {
         const reply = await postCommand("/api/study/analysis-line",
           { dataset_id, attempt_id, revision, content_version },
-          AbortSignal.any([owner.signal, AbortSignal.timeout(10000)]));
+          owner.signal, undefined, { timeoutMs: ANALYSIS_LINE_TIMEOUT_MS });
         if (owner.signal.aborted) return;
         if (!["full_line", "issued_move"].includes(reply.scope))
           throw new Error("Tempo could not verify the analysis line.");

@@ -1,7 +1,9 @@
+import { settleReviewDraftSave } from "./review_draft.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import React, { useEffect, useRef, useState } from "react";
 import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
+  deliverDurableRepertoireCommand,
   readPendingRepertoireCommand,
   savePendingRepertoireCommand,
   sendRepertoireCommand,
@@ -184,19 +186,13 @@ export function RepertoiresPage({ onStudy }) {
     setIssue(null);
     setNotice(null);
     try {
-      if (durable && !stored) {
-        try {
-          await savePendingRepertoireCommand(command);
-        } catch {
-          setIssue("Tempo could not store this command for recovery. It was not sent.");
-          return;
-        }
-        setPending(command);
-      }
-      const reply = await sendRepertoireCommand(command);
-      if (durable && (reply.status !== "error" || !reply.retryable)) {
-        setPending(null);
-        await clearRecovery();
+      let reply;
+      if (durable) {
+        const delivery = await deliverDurableRepertoireCommand(command, { stored, onPending: setPending });
+        reply = delivery.reply;
+        setCleanupNeeded(delivery.cleanupNeeded);
+      } else {
+        reply = await sendRepertoireCommand(command);
       }
       if (reply.status === "error") {
         if (command.command === "save" && !reply.retryable) setPreview(null);
@@ -220,7 +216,12 @@ export function RepertoiresPage({ onStudy }) {
         setRefresh(next);
         await refreshCurrent(next);
       } else if (durable) {
-        setNotice(command.command === "save" ? "Repertoire saved." : "Repertoire renamed.");
+        let message = command.command === "save" ? "Repertoire saved." : "Repertoire renamed.";
+        if (stored && command.command === "save") {
+          try {settleReviewDraftSave(command,true);}
+          catch {message += " The browser could not clear the retained game draft.";}
+        }
+        setNotice(message);
         setPreview(null);
         setRename(null);
         if (command.command === "save" && !editor) {

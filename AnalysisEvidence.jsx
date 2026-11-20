@@ -1,6 +1,7 @@
-import { Board } from "@tempo-v2/core-components";
+import { Board, Button } from "@tempo-v2/core-components";
 import { LichessControl } from "./LichessControl.jsx";
 import React, { useEffect, useState } from "react";
+import { comparisonCandidates, leadingMeasuredMoves, measurementText, engineCells, explorerCells, probabilityCells } from "./move_evidence.js";
 import { usePositionEvidence } from "./position_evidence.js";
 
 export const sources = {
@@ -11,25 +12,9 @@ export const sources = {
   maia: "Maia Rapid 1500",
 };
 
-const pct = (n) => (100 * n).toFixed(1) + "%";
-function stats(data) {
-  if (!data) return {};
-  const total = data.white + data.draws + data.black;
-  return Object.fromEntries(
-    data.moves.map((row) => {
-      const n = row.white + row.draws + row.black;
-      return [
-        row.uci,
-        total
-          ? pct(n / total) +
-            " · " +
-            n.toLocaleString() +
-            " games · " +
-            [row.white, row.draws, row.black].join("/")
-          : "0 games",
-      ];
-    }),
-  );
+function labels(cells, withResults = false) {
+  return Object.fromEntries(Object.entries(cells).map(([move, cell]) =>
+    [move, cell.text + (withResults ? cell.detail : "")]));
 }
 
 export function AnalysisEvidence({
@@ -43,6 +28,7 @@ export function AnalysisEvidence({
   hover,
   onOverlay,
 }) {
+  const [allLegal,setAllLegal] = useState(false);
   const [ratings, setRatings] = useState("around1500");
   const [retry, setRetry] = useState({});
   const [enabled, setEnabled] = useState({});
@@ -54,11 +40,11 @@ export function AnalysisEvidence({
   const book = usePositionEvidence(fen, "repertoire", context, [
     retry.repertoire,
     bookRevision,
-  ]);
-  const fish = usePositionEvidence(fen, "stockfish", { pins }, retry.stockfish);
-  const rapid = usePositionEvidence(fen, "rated", { ratings }, retry.rated);
-  const masters = usePositionEvidence(fen, "masters", {}, retry.masters);
-  const maia = usePositionEvidence(fen, "maia", {}, retry.maia);
+  ], moves);
+  const fish = usePositionEvidence(fen, "stockfish", { pins }, retry.stockfish, moves);
+  const rapid = usePositionEvidence(fen, "rated", { ratings }, retry.rated, moves);
+  const masters = usePositionEvidence(fen, "masters", {}, retry.masters, moves);
+  const maia = usePositionEvidence(fen, "maia", {}, retry.maia, moves);
   const replies = {
     repertoire: book,
     stockfish: fish,
@@ -84,43 +70,29 @@ export function AnalysisEvidence({
       similar.set(row.uci, support);
     }
   }
-  const sign = fen.split(" ")[1] === "w" ? 1 : -1;
-  const stockfish = Object.fromEntries(
-    (fish.data?.candidates || []).map((row) => [
-      row.uci,
-      row.mate != null
-        ? "Mate " + row.mate * sign
-        : ((row.centipawns * sign) / 100).toFixed(2),
-    ]),
-  );
-  const probabilities = Object.entries(maia.data?.probabilities || {}).sort(
-    (a, b) => b[1] - a[1],
-  );
+  const ratedCells = explorerCells(rapid.data);
+  const masterCells = explorerCells(masters.data);
+  const maiaCells = probabilityCells(maia.data);
+  const nearbyCells = Object.fromEntries([...similar].map(([move,entries]) =>
+    [move, {score:entries.reduce((sum,group) => sum + group.count,0)}]));
   const columns = {
     repertoire: Object.fromEntries([...Object.keys(repertoire), ...similar.keys()].map((m) => [m, repertoire[m]])),
-    stockfish,
-    rated: stats(rapid.data),
-    masters: stats(masters.data),
-    maia: Object.fromEntries(probabilities.map(([m, p]) => [m, pct(p)])),
+    stockfish: labels(engineCells(fen, fish.data)),
+    rated: labels(ratedCells, true),
+    masters: labels(masterCells, true),
+    maia: labels(maiaCells),
   };
-  const overlay = Object.keys(sources).flatMap((source) =>
-    enabled[source]
-      ? Object.keys(columns[source])
-          .slice(0, 3)
-          .map((move) => ({ move, source }))
-      : [],
-  );
+  const sourceMoves = {repertoire:[...new Set([...Object.keys(repertoire),...leadingMeasuredMoves(nearbyCells)])],
+    stockfish:Object.keys(columns.stockfish), rated:leadingMeasuredMoves(ratedCells),
+    masters:leadingMeasuredMoves(masterCells), maia:leadingMeasuredMoves(maiaCells)};
+  const overlay = Object.keys(sources).flatMap(source => enabled[source]
+    ? sourceMoves[source].slice(0,3).map(move => ({move,source})) : []);
   const overlayKey = JSON.stringify(overlay);
   useEffect(() => {
     onOverlay(overlay);
   }, [fen, overlayKey]);
-  const rows = [
-    ...new Set([
-      ...pins,
-      ...Object.values(columns).flatMap((column) => Object.keys(column)),
-      ...moves.keys(),
-    ]),
-  ].filter((m) => moves.has(m));
+  const rows = comparisonCandidates(moves,{required:pins,exact:Object.keys(repertoire),engine:sourceMoves.stockfish,
+    ranked:[nearbyCells,ratedCells,masterCells,maiaCells],allLegal});
   return (
     <section aria-label="Move comparison">
       <div className="actions">
@@ -140,6 +112,7 @@ export function AnalysisEvidence({
           </select>
         </label>
       </div>
+      <label><input type="checkbox" checked={allLegal} onChange={e => setAllLegal(e.target.checked)}/> All legal moves</label>
       <fieldset>
         <legend>Source arrows</legend>
         {Object.entries(sources).map(([k, v]) => (
@@ -159,14 +132,15 @@ export function AnalysisEvidence({
         r.error ? (
           <p key={k} role="status">
             {sources[k]} · {r.error}{" "}
-            <button
+            <Button size="compact" variant="quiet"
               onClick={() => setRetry({ ...retry, [k]: (retry[k] || 0) + 1 })}
             >
               Retry
-            </button>
+            </Button>
           </p>
         ) : null,
       )}
+      {maia.data?.terminal && <p role="status">Maia · No legal moves in this position.</p>}
       {fish.data?.comparison_complete === false && (
         <p role="status">
           Stockfish could not finish a same-depth comparison of the pinned
@@ -202,27 +176,27 @@ export function AnalysisEvidence({
                 onMouseLeave={() => hover("")}
               >
                 <th>
-                  <button
+                  <Button size="compact" variant="quiet"
                     onFocus={() => hover(move)}
                     onBlur={() => hover("")}
                     onClick={() => play(move)}
                   >
                     {moves.get(move).san}
-                  </button>
+                  </Button>
                 </th>
                 <td>
-                  <button
+                  <Button size="compact" variant="quiet"
                     aria-label={"Pin " + moves.get(move).san}
                     disabled={!pins.includes(move) && pins.length >= 16}
                     aria-pressed={pins.includes(move)}
                     onClick={() => togglePin(move)}
                   >
                     {pins.includes(move) ? "Pinned" : "Pin"}
-                  </button>
+                  </Button>
                 </td>
                 {Object.keys(sources).map((k) => (
                   <td key={k}>
-                    {columns[k][move] || (k === "repertoire" && similar.has(move) ? "" : "—")}
+                    {columns[k][move] || (k === "repertoire" && similar.has(move) ? "" : measurementText(null,replies[k]))}
                     {k === "repertoire" && similar.get(move)?.map(({ group, count, positions }) => (
                       <details key={group}>
                         <summary>{count} nearby ({group})</summary>
