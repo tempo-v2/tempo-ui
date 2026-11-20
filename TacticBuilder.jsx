@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from "react";
-import { Board, Button, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { MainBoard } from "./MainBoard.jsx";
+import { Button, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { lineFromBoard } from "./board_move.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { turnFromFen } from "./StudyBoard.jsx";
@@ -74,20 +75,22 @@ export function TacticBuilder({ locked, canSave, saving, onSave }) {
     <Surface>
       {editing ? <TacticPositionEditor fen={root} hasSolution={moves.length > 0 || !!san.trim()}
         locked={locked} onApply={applyPosition} onCancel={() => setEditing(false)} /> : <>
-        <Button disabled={locked} onClick={() => setEditing(true)}>Edit board or enter FEN</Button>
         <div className="tactic-builder-layout repertoire-form">
-          <div>
+          <div className="capture-edit-position">
+            <Button disabled={locked} onClick={() => setEditing(true)}>Edit board or enter FEN</Button>
+          </div>
+          <div className="capture-board-column">
             <div className="desktop-board-frame">
-              <Board ref={boardInput} fen={fen} orientation={turnFromFen(root)} turn={turn}
+              <MainBoard ref={boardInput} fen={fen} orientation={turnFromFen(root)} turn={turn}
                 check={board.isCheck() ? turn : false} mode="legal" locked={locked || !!promotion}
-                drawingEnabled={false} coordinates="edges" destinations={destinations} resizeMode="desktop"
+                drawingEnabled={false} coordinates="edges" destinations={destinations}
                 positionIdentity={id} positionRevision={moves.length}
                 lastMove={moves.length ? [moves.at(-1).slice(0, 2), moves.at(-1).slice(2, 4)] : undefined}
                 ariaLabel="Tactic solution board" onMove={moveOnBoard} />
             </div>
             <p>{turn === "white" ? "White" : "Black"} to move</p>
           </div>
-          <div>
+          <div className="capture-builder-controls">
             <form className="capture-san" onSubmit={addSan}>
               <label>Paste SAN moves
                 <textarea rows={3} value={san} spellCheck="false" disabled={locked || !!promotion}

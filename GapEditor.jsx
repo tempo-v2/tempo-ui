@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MainBoard } from "./MainBoard.jsx";
 import { Chess } from "chess.js";
-import { Board, Button, Dialog, StatusNotice } from "@tempo-v2/core-components";
+import { Button, Dialog, StatusNotice } from "@tempo-v2/core-components";
 import { playBoardMove } from "./board_move.js";
 import { GapAnalysis, GapExplorer } from "./GapAnalysis.jsx";
 import { previewGapResponse, repertoireError, staleGapCodes, writeGapContinuation } from "./gap_save.js";
@@ -219,9 +220,9 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
           <>
             <div className="gap-layout">
               <div className="gap-board desktop-board-frame">
-                <Board ref={board} fen={fen} orientation={color} turn={turn} check={check}
+                <MainBoard ref={board} fen={fen} orientation={color} turn={turn} check={check}
                   mode="legal" destinations={moveOptions.destinations}
-                  resizeMode="desktop" onSurfacePointerDown={() => {
+                  onSurfacePointerDown={() => {
                     if (!locked) recommendationSettled.current = true;
                   }}
                   positionIdentity={position} positionRevision={revision}

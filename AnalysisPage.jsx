@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Board, Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
+import { MainBoard } from "./MainBoard.jsx";
+import { Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
 import { AnalysisEvidence } from "./AnalysisEvidence.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
@@ -129,7 +130,7 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
       <div className="analysis-layout">
         <section>
           <div className="analysis-board-frame desktop-board-frame">
-            <Board
+            <MainBoard
               ref={boardInput}
               fen={fen}
               turn={board.turn() === "w" ? "white" : "black"}
@@ -138,7 +139,6 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
               locked={locked || !!choice}
               destinations={dests}
               coordinates="edges"
-              resizeMode="desktop"
               positionIdentity={fen}
               positionRevision={path.length}
               shapes={[...arrows.values()]}

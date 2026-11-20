@@ -29,7 +29,7 @@ export function App(props) {
   return <Notifications><StudyApp {...props} /></Notifications>;
 }
 
-function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyPresenceSurface, transport = studyTransport, boardContinuation, boardResizeMode, navigateSection, subscribeNavigation }) {
+function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyPresenceSurface, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
@@ -397,7 +397,6 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
       guided={guided?.view === view ? guided : null}
       stopped={stopped}
       boardContinuation={boardContinuation}
-      boardResizeMode={boardResizeMode}
       reviewMark={reviewMark}
       reviewAddresses={reviewAddresses}
       onNavigate={renderSection ? goTo : undefined}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
+import { checkDesktopBoardLayout, checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -99,6 +99,12 @@ try {
   await button("Edit board or enter FEN").click();
   await checkDesktopBoardResize(page, "Starting position editor");
   await button("Cancel position edit").click();
+  await page.setViewportSize({ width: 1000, height: 500 });
+  await checkDesktopBoardLayout(page, "Tactic solution board");
+  await button("Edit board or enter FEN").click();
+  await checkDesktopBoardLayout(page, "Starting position editor");
+  await button("Cancel position edit").click();
+  await page.setViewportSize({ width: 1120, height: 900 });
   const fen = "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 23";
   await useFen(fen.replace("0 23", "0 70000"));
   await addSan("O-O");

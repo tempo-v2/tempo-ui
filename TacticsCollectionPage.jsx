@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Board, Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { MainBoard } from "./MainBoard.jsx";
+import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
@@ -107,9 +108,9 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
             <h2>{detail.label}</h2>
             <div className="tactic-detail-layout">
               <div className="capture-board desktop-board-frame">
-                <Board fen={fen} orientation={detail.learner_color} turn={turnFromFen(fen)}
+                <MainBoard fen={fen} orientation={detail.learner_color} turn={turnFromFen(fen)}
                   mode="select" readOnly positionIdentity={`${target}:${index}`}
-                  positionRevision={0} resizeMode="desktop" ariaLabel="Tactic position" />
+                  positionRevision={0} ariaLabel="Tactic position" />
               </div>
               <div>
                 <h3>Sources</h3>

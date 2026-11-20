@@ -1,5 +1,6 @@
 import React from "react";
 import { App } from "./App.jsx";
+import { DesktopBoardLayout } from "./MainBoard.jsx";
 import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
 import { GamesPage } from "./GamesPage.jsx";
 import { SavedReviewsPage } from "./SavedReviewsPage.jsx";
@@ -52,6 +53,8 @@ function renderAnalysis(visit, issue, onClose, launch) {
 }
 
 export function DesktopApp() {
-  return <App studyPresenceSurface="desktop" boardResizeMode="desktop" initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
-    navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} />;
+  return <DesktopBoardLayout>
+    <App studyPresenceSurface="desktop" initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
+      navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} />
+  </DesktopBoardLayout>;
 }

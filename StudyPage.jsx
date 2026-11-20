@@ -23,7 +23,6 @@ export function StudyPage({
   guided,
   stopped,
   boardContinuation,
-  boardResizeMode,
   reviewMark,
   reviewAddresses,
   onNavigate,
@@ -86,7 +85,6 @@ export function StudyPage({
         <div className={`study-board${continuationBelowBoard ? " with-continuation" : ""}`}>
           <StudyBoard
             ref={boardRef}
-            resizeMode={boardResizeMode}
             view={view}
             leadIn={leadIn}
             prefs={prefs}

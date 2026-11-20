@@ -1,5 +1,18 @@
 import assert from "node:assert/strict";
 
+export async function checkDesktopBoardLayout(page, label) {
+  const board = page.getByRole("group", { name: label, exact: true });
+  const square = board.locator("cg-board");
+  const handle = board.locator(".tempo-board-resize-handle");
+  await handle.waitFor();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const box = await square.boundingBox();
+  const { height } = page.viewportSize();
+  const midpoint = box.y + box.height / 2;
+  assert(Math.abs(midpoint - height / 2) <= height * 0.12, `${label} midpoint ${midpoint} in ${height}px viewport`);
+  assert(box.y >= 0 && box.y + box.height <= height, `${label} fits vertically`);
+}
+
 export async function checkDesktopBoardResize(page, label) {
   const board = page.getByRole("group", { name: label, exact: true });
   const square = board.locator("cg-board");

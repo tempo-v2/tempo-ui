@@ -748,49 +748,72 @@ body {
 .analysis-table caption {text-align:left;font-size:.9rem;margin:.5rem 0;}
 @media(max-width:800px){.analysis-layout{grid-template-columns:minmax(0,1fr);}.analysis-layout>section:first-child{max-width:34rem;width:100%;}}
 
-@media (min-width: 52rem) and (pointer: fine) and (hover: hover) {
-  .desktop-board-frame {
-    /* Allow room for the surrounding page controls on a short desktop. */
-    --board-frame-height: max(12rem, calc(100dvh - var(--board-frame-overhead, 12rem)));
-    display: grid;
-    align-items: center;
-    min-block-size: var(--board-frame-height);
-    min-inline-size: 0;
-  }
+.desktop-board-resize .desktop-board-frame {
+  /* Allow room for the surrounding page controls on a short desktop. */
+  --board-frame-height: max(12rem, calc(100dvh - var(--board-frame-overhead, 12rem)));
+  display: grid;
+  grid-template-columns: minmax(0, min(100%, var(--board-frame-height)));
+  align-items: center;
+  min-block-size: var(--board-frame-height);
+  min-inline-size: 0;
+}
 
-  .desktop-board-frame > .tempo-board {
-    width: min(100%, var(--board-frame-height));
-  }
+.desktop-board-resize .analysis-board-frame {
+  padding-inline-start: 1.25rem;
+  padding-block-end: 1.25rem;
+}
 
-  .analysis-board-frame {
-    padding-inline-start: 1.25rem;
-    padding-block-end: 1.25rem;
-  }
+.capture-edit-position,
+.capture-setup-form {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
 
-  .tactic-builder-layout .desktop-board-frame {
-    --board-frame-overhead: min(20rem, 42dvh);
-  }
+.desktop-board-resize .capture-building {
+  margin-block-start: 0.75rem;
+  row-gap: 0.5rem;
+}
 
-  .tactic-setup-layout .desktop-board-frame {
-    --board-frame-overhead: min(25rem, 45dvh);
-  }
+.desktop-board-resize .capture-building :is(.capture-page-actions, .tactic-builder-layout) {
+  margin-top: 0;
+}
 
-  .gap-board.desktop-board-frame {
-    --board-frame-overhead: 14rem;
-  }
+.desktop-board-resize .tactic-builder-layout {
+  grid-template-rows: auto 1fr;
+}
 
-  .tactic-detail-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
-    align-items: start;
-    gap: 1rem;
-  }
+.desktop-board-resize .tactic-builder-layout .desktop-board-frame {
+  --board-frame-overhead: min(16rem, 43dvh);
+}
 
-  .tactic-detail-layout .desktop-board-frame {
-    --board-frame-overhead: 16rem;
-    width: 100%;
-    margin: 0;
-  }
+.desktop-board-resize :is(.capture-edit-position, .capture-setup-form) {
+  grid-area: 1 / 2;
+}
+
+.desktop-board-resize :is(.capture-board-column, .tactic-setup-layout > .desktop-board-frame) {
+  grid-area: 1 / 1 / span 2;
+}
+
+.desktop-board-resize :is(.capture-builder-controls, .capture-setup-controls) {
+  grid-area: 2 / 2;
+  min-width: 0;
+}
+
+.desktop-board-resize .gap-board {
+  --board-frame-overhead: 14rem;
+}
+
+.desktop-board-resize .tactic-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.desktop-board-resize .tactic-detail-layout .desktop-board-frame {
+  --board-frame-overhead: 16rem;
+  width: 100%;
+  margin: 0;
 }
 
 .games-page {max-width:60rem;width:min(calc(100% - 2.5rem),60rem);margin:2.2rem auto;}
