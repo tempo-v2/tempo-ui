@@ -150,6 +150,12 @@ export function useMarkedLines(
   };
 }
 
+export function MarkedLinesSaveButton({ draft }) {
+  return <Button disabled={draft.busy} onClick={draft.save}>
+    {draft.pending ? "Retry save" : "Save repertoire"}
+  </Button>;
+}
+
 export function MarkedLinesForm({ draft, path, lineLabel }) {
   const {
     destination,
@@ -157,8 +163,6 @@ export function MarkedLinesForm({ draft, path, lineLabel }) {
     color,
     marked,
     locked,
-    busy,
-    pending,
     preview,
     issue,
     notice,
@@ -245,9 +249,7 @@ export function MarkedLinesForm({ draft, path, lineLabel }) {
             {(preview.retired_routes || []).map((r, i) => (
               <p key={i}>Retire {r}</p>
             ))}
-            <Button disabled={busy} onClick={draft.save}>
-              {pending ? "Retry save" : "Save repertoire"}
-            </Button>
+            <MarkedLinesSaveButton draft={draft} />
           </section>
         )}
       </section>

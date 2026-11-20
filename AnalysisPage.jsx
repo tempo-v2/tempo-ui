@@ -1,11 +1,11 @@
-import React, { useMemo, useRef, useState } from "react";
-import { Board, Button, PageHeader } from "@tempo-v2/core-components";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Board, Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
 import { AnalysisEvidence } from "./AnalysisEvidence.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { moveArrow as shape } from "./move_evidence.js";
 import { playBoardMove } from "./board_move.js";
-import { MarkedLinesForm, useMarkedLines } from "./MarkedLinesForm.jsx";
+import { MarkedLinesForm, MarkedLinesSaveButton, useMarkedLines } from "./MarkedLinesForm.jsx";
 import { LichessControl } from "./LichessControl.jsx";
 import { boardWithLeadIn, lineFromBoard } from "./lichess_analysis.js";
 
@@ -17,7 +17,7 @@ const colors = {
   masters: "red",
   maia: "maia",
 };
-export function AnalysisPage({ origin, onClose, renderRootLineAction }) {
+export function AnalysisPage({ origin, onClose, interruption, renderRootLineAction }) {
   const root = origin.fen || start;
   const [path, setPath] = useState([]);
   const [paths, setPaths] = useState([[]]);
@@ -27,6 +27,14 @@ export function AnalysisPage({ origin, onClose, renderRootLineAction }) {
   const [choice, setChoice] = useState(null);
   const boardInput = useRef(null);
   const draft = useMarkedLines(origin, root);
+  const interrupted = !!interruption;
+  useEffect(() => {
+    if (interrupted) {
+      setChoice(null);
+      setHover("");
+      setOverlay([]);
+    }
+  }, [interrupted]);
   const { color, locked, destination } = draft;
   const authoring = !!destination || !!origin.newBook;
   const board = useMemo(() => {
@@ -101,16 +109,23 @@ export function AnalysisPage({ origin, onClose, renderRootLineAction }) {
       .map((_, i) => tree.get(p.slice(0, i + 1).join(" ")).label)
       .join(" ");
   }
+  const header = (
+    <PageHeader title="Analysis board" actions={
+      <Button disabled={locked} onClick={close}>Return</Button>
+    } />
+  );
+  if (interrupted) return (
+    <main className="tempo-core analysis-page">
+      {header}
+      {interruption}
+      {draft.issue && <StatusNotice kind="error">{draft.issue}</StatusNotice>}
+      {draft.pending && <MarkedLinesSaveButton draft={draft} />}
+      {draft.notice && <StatusNotice>{draft.notice}</StatusNotice>}
+    </main>
+  );
   return (
     <main className="tempo-core analysis-page">
-      <PageHeader
-        title="Analysis board"
-        actions={
-          <Button disabled={locked} onClick={close}>
-            Return
-          </Button>
-        }
-      />
+      {header}
       <div className="analysis-layout">
         <section>
           <Board

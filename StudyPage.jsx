@@ -22,6 +22,8 @@ export function StudyPage({
   guided,
   stopped,
   boardContinuation,
+  reviewMark,
+  reviewAddresses,
   onNavigate,
   boardRef,
   choice,
@@ -188,6 +190,30 @@ export function StudyPage({
           {state.issue && (
             <StatusNotice kind="error">{state.issue}</StatusNotice>
           )}
+          {reviewMark && (
+            <>
+              <div className="actions">
+                {reviewMark.pending ? (
+                  <Button size="compact" disabled={reviewMark.busy} onClick={reviewMark.retry}>Retry saving for review</Button>
+                ) : (
+                  <>
+                    {attempt && reviewAddresses.current && (
+                      <Button key={JSON.stringify(reviewAddresses.current)} size="compact"
+                        disabled={reviewMark.busy || !!choice || !!dialog || historyIndex !== null}
+                        onClick={() => void reviewMark.send(reviewAddresses.current)}>Review later</Button>
+                    )}
+                    {!stopped && reviewAddresses.previous && (
+                      <Button key={JSON.stringify(reviewAddresses.previous)} size="compact" disabled={reviewMark.busy || !!choice || !!dialog}
+                        onClick={() => void reviewMark.send(reviewAddresses.previous)}>Save previous response</Button>
+                    )}
+                  </>
+                )}
+              </div>
+              {reviewMark.message && <StatusNotice kind={reviewMark.message.error ? "error" : undefined}>
+                {reviewMark.message.text}
+              </StatusNotice>}
+            </>
+          )}
           {(panelContinuation || others) && (
             <div className="actions">{panelContinuation}{others}</div>
           )}
@@ -215,6 +241,8 @@ export function StudyPage({
         <StudyProgress summary={summary} unavailable={unavailable} />
         {onNavigate && (
           <nav className="study-navigation" aria-label="Tempo sections">
+            <Button size="compact" disabled={!view?.dataset_id || state.busy || state.canRetry || reviewMark?.busy || !!choice || !!dialog}
+              onClick={() => onNavigate("saved-reviews")}>Saved for review</Button>
             <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("repertoires")}>
               Repertoires
             </Button>

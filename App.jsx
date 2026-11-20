@@ -3,6 +3,7 @@ import { createStudyController } from "./study_controller.js";
 import { StudyPage } from "./StudyPage.jsx";
 import { identity, studyOrientation } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
+import { completedReviewAddress, studyReviewAddresses, useReviewMark } from "./saved_review_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
 import { studyTransport } from "./study_transport.js";
@@ -49,6 +50,8 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
   const [sounds] = useState(() => createBoardSounds(prefs.volume));
   const [soundEnabled, setSoundEnabled] = useState(sounds.enabled);
   const studyVisit = useRef(0);
+  const reviewMark = useReviewMark();
+  const lastCompleted = useRef(null);
   const board = useRef(null),
     controller = useRef(null),
     choiceRef = useRef(null),
@@ -62,6 +65,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
       storage,
       makeSubmissionId: () => crypto.randomUUID(),
       render: (view, state) => {
+        if (view?.status === "complete") lastCompleted.current = completedReviewAddress(view);
         const move = preview.current;
         if (state.busy || !move) {
           setModel({ view, state, keepMove: state.busy && !!move });
@@ -112,6 +116,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
   }, [model.view, model.state.canRetry, model.state.busy]);
 
   const { view, state } = model;
+  const reviewAddresses = studyReviewAddresses(view, lastCompleted.current);
   const studying = page === "study" && !state.analysis;
   const readyRepair = studying && !stopped && view?.status === "ready" && view.corrective_repair;
   const gameContext = useStudyGameContext(view?.dataset_id, readyRepair ? view.attempt_id : null);
@@ -338,6 +343,12 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
   }
   function goTo(nextPage) {
     cancelLichessLaunch();
+    if (nextPage === "saved-reviews" || (page === "saved-reviews" && nextPage === "study")) {
+      // The list is a read. Preserve the Study visit and any reproduced lesson.
+      pausedAdvance.current = view;
+      setPage(nextPage);
+      return;
+    }
     pausedAdvance.current = view;
     studyVisit.current += 1;
     setDialog(null);
@@ -372,6 +383,8 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
       guided={guided?.view === view ? guided : null}
       stopped={stopped}
       boardContinuation={boardContinuation}
+      reviewMark={reviewMark}
+      reviewAddresses={reviewAddresses}
       onNavigate={renderSection ? goTo : undefined}
       boardRef={board}
       choice={choice}

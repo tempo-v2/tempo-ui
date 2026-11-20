@@ -7,10 +7,12 @@ export const studyTransport = {
     // All other Study commands can change the active attempt or durable state.
     const statusRead = command.command === "study_status";
     if (!statusRead) signalStudyChange();
-    const reply = await postCommand("/api/study", command, undefined, studyMoveDetails, {
-      timeoutMs: statusRead ? SMALL_READ_TIMEOUT_MS : SHORT_ACK_TIMEOUT_MS,
-    });
-    if (!statusRead) signalStudyChange();
-    return reply;
+    try {
+      return await postCommand("/api/study", command, undefined, studyMoveDetails, {
+        timeoutMs: statusRead ? SMALL_READ_TIMEOUT_MS : SHORT_ACK_TIMEOUT_MS,
+      });
+    } finally {
+      if (!statusRead) signalStudyChange();
+    }
   },
 };

@@ -97,7 +97,7 @@ try {
   const phonePost = (path, command) => phoneFetch(path, {
     method: "POST", headers: { ...jsonHeaders, Origin: phoneOrigin }, body: JSON.stringify(command),
   });
-  for (const path of ["/api/games/import", "/api/repertoires", "/api/tactics", "/api/study/analysis-context"]) {
+  for (const path of ["/api/games/import", "/api/repertoires", "/api/tactics", "/api/study/analysis-context", "/api/study/saved-reviews"]) {
     assert.equal((await phonePost(path, {})).status, 404, path);
   }
   assert.equal((await phoneFetch("/api/games")).status, 404);
@@ -105,6 +105,8 @@ try {
 
   const commands = [];
   const issued = [];
+  const markCommands = [];
+  let loseMark = false;
   let loseAnswer = false;
   let failNext = false;
   // Model Serve's loopback proxy for the browser, which cannot set Host.
@@ -114,6 +116,8 @@ try {
       for await (const chunk of incoming) chunks.push(chunk);
       const body = Buffer.concat(chunks);
       const command = incoming.url === "/api/study" && JSON.parse(body);
+      const marking = incoming.url === "/api/study/review-mark";
+      if (marking) markCommands.push(body.toString());
       if (command) commands.push({ ...command, bytes: body.toString() });
       if (failNext && command?.command === "next") {
         failNext = false;
@@ -128,7 +132,11 @@ try {
           for await (const chunk of response) chunks.push(chunk);
           const reply = Buffer.concat(chunks);
           if (command?.command === "next" && response.statusCode === 200) issued.push(JSON.parse(reply));
-          if (loseAnswer && command?.command === "answer") {
+          if (marking && loseMark) {
+            assert.equal(JSON.parse(reply).status, "saved");
+            loseMark = false;
+            outgoing.writeHead(503).end();
+          } else if (loseAnswer && command?.command === "answer") {
             assert.equal(JSON.parse(reply).assessment, "good");
             loseAnswer = false;
             outgoing.writeHead(503).end();
@@ -180,6 +188,21 @@ try {
   const baseline = rows("assessments");
   const receipts = rows("receipts");
 
+  loseMark = true;
+  await button("Review later").tap();
+  await button("Retry saving for review").waitFor();
+  assert.equal(rows("saved_reviews"), 1);
+  assert.equal(rows("receipts"), receipts);
+  await page.reload();
+  await button("Retry saving for review").tap();
+  await page.getByText("Saved for review.", { exact: true }).waitFor();
+  assert.equal(markCommands[0], markCommands[1]);
+  assert.equal(rows("saved_review_receipts"), 1);
+  await button("Show move").waitFor();
+  commands.splice(1);
+  issued.splice(1);
+  await page.evaluate(() => window.scrollTo(0, 0));
+
   loseAnswer = true;
   const initialLayout = await layout();
   await tapMove(page, solution(issued[0]));
@@ -209,6 +232,17 @@ try {
   });
   assert.equal(desktopAttempt.attempt_id, issued[1].attempt_id);
   assert.equal(desktopAttempt.dataset_id, issued[0].dataset_id);
+  await button("Save previous response").tap();
+  await page.getByText("Saved for review.", { exact: true }).waitFor();
+  const bookmarkDataset = { dataset_id: desktopAttempt.dataset_id };
+  const firstList = await desktopPost("/api/study/saved-reviews", { command: "list", ...bookmarkDataset });
+  assert.equal(firstList.rows.length, 1);
+  const savedPhonePosition = await desktopPost("/api/study/saved-reviews", {
+    command: "open", id: firstList.rows[0].id, ...bookmarkDataset,
+  });
+  assert.equal(savedPhonePosition.origin.fen, issued[0].prompt.fen);
+  assert.equal(savedPhonePosition.origin.prescribedUci, solution(issued[0]));
+  await page.evaluate(() => window.scrollTo(0, 0));
   const secondLayout = await layout();
   const answer = solution(issued[1]);
   await tapMove(page, answer.slice(0, 3) + "5");
@@ -234,6 +268,16 @@ try {
   await button("Return to exercise").click();
   await page.getByText("Play Nf3 on the board.").waitFor();
   assert.equal(await button("Analyze").count(), 0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await button("Review later").tap();
+  await page.getByText("Saved for review.", { exact: true }).waitFor();
+  const repairList = await desktopPost("/api/study/saved-reviews", { command: "list", ...bookmarkDataset });
+  assert.equal(repairList.rows[0].exercise_name, "Phone repair");
+  const repairPosition = await desktopPost("/api/study/saved-reviews", {
+    command: "open", id: repairList.rows[0].id, ...bookmarkDataset,
+  });
+  assert.equal(repairPosition.origin.prescribedUci, "g1f3");
+  assert.equal(repairPosition.origin.playedUci, "f1c4");
   await page.evaluate(() => window.scrollTo(0, 0));
   const repairLayout = await layout();
   const acknowledge = await checkContinuation("Got it — continue", repairLayout);
