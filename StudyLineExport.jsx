@@ -46,10 +46,19 @@ export function useStudyLineExport(visit, origin, launch, positionFailed) {
         setResult({ request, failed: true });
       }
     }
-    void read();
-    return () => {
+    function cancelRead() {
       owner.abort();
       closeReservedLichessTab(request.tab);
+    }
+    function leavePage() {
+      cancelRead();
+      setRequest(current => current === request ? null : current);
+    }
+    window.addEventListener("pagehide", leavePage);
+    void read();
+    return () => {
+      window.removeEventListener("pagehide", leavePage);
+      cancelRead();
     };
   }, [request, visit]);
 

@@ -352,6 +352,64 @@ try {
   }
   console.log("Document lookup and parser failures stayed separate from a legitimate issued-move fallback.");
 
+
+  for (const departure of process.env.TEMPO_SECTION_HISTORY ? ["reload", "history"] : ["reload"]) {
+    const db = join(temp, "pending-departure-" + departure + ".sqlite");
+    await copyFile(seed, db);
+    const url = await serve(db);
+    const { context, page, button } = await session();
+    await page.goto(url);
+    if (departure === "history") {
+      await button("Games").click();
+      await page.waitForURL("**/#games");
+      await button("Study").click();
+      await page.waitForURL(url + "/");
+    }
+    await button("Analyze in Lichess").waitFor();
+    const held = Promise.withResolvers();
+    const accepted = Promise.withResolvers();
+    let first = true;
+    let lineReads = 0;
+    page.on("request", request => { if (request.url().endsWith("/api/study/analysis-line")) lineReads++; });
+    await page.route("**/api/study", async route => {
+      if (route.request().postDataJSON()?.command !== "concede" || !first) return route.continue();
+      first = false;
+      try {
+        const response = await route.fetch();
+        accepted.resolve(await response.json());
+        await held.promise;
+        await route.fulfill({ response });
+      } catch (error) {
+        accepted.reject(error);
+        await route.abort().catch(() => {});
+      }
+    });
+    await button("Analyze in Lichess").click();
+    const reserved = context.waitForEvent("page");
+    await button("Record Again and analyze").click();
+    const tab = await reserved;
+    assert.equal((await accepted.promise).assessment, "again");
+    try {
+      if (departure === "reload") await page.reload();
+      else {
+        await page.goBack();
+        await page.waitForURL("**/#games");
+      }
+      if (!tab.isClosed()) await tab.waitForEvent("close");
+    } finally {
+      held.resolve();
+    }
+    if (departure === "history") await button("Study").click();
+    await page.getByRole("group", { name: "Analysis board" }).waitFor();
+    assert.equal(context.pages().length, 1);
+    assert.equal(lineReads, 0);
+    assert.equal(durable(db).assessments, 1);
+    assert.equal(durable(db).receipts, 1);
+    await context.close();
+    await stop();
+    console.log("Leaving Study by " + departure + " cancelled the pending external launch and preserved one Again.");
+  }
+
   const db = join(temp, "completed.sqlite");
   await copyFile(seed, db);
   const url = await serve(db);
