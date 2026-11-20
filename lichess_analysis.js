@@ -49,10 +49,39 @@ export function lichessAnalysis(fen, line, orientation) {
 }
 
 // The user may close or navigate the reserved tab while Study is waiting.
-export function withReservedLichessTab(tab, action) {
+function withReservedLichessTab(tab, action) {
   try {
     if (tab && !tab.closed && tab.location.href === "about:blank") action(tab);
   } catch {
     // A tab that became cross-origin belongs to the user. The manual link remains.
   }
+}
+
+export function reserveLichessTab() {
+  let tab = null;
+  try {
+    tab = window.open("about:blank", "_blank");
+    if (tab) {
+      tab.opener = null;
+      tab.document.title = "Opening Lichess";
+    }
+    return tab;
+  } catch {
+    closeReservedLichessTab(tab);
+    return null;
+  }
+}
+
+export function closeReservedLichessTab(tab) {
+  withReservedLichessTab(tab, reserved => reserved.close());
+}
+
+export function navigateReservedLichessTab(tab, href) {
+  withReservedLichessTab(tab, reserved => {
+    const link = reserved.document.createElement("a");
+    link.href = href;
+    link.rel = "noreferrer";
+    reserved.document.body.append(link);
+    link.click();
+  });
 }

@@ -19,7 +19,7 @@ import { studyMoveDetails } from "./content_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
-import { withReservedLichessTab } from "./lichess_analysis.js";
+import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
 
 const REPLY_DELAY_MS = 200;
 const NEXT_EXERCISE_DELAY_MS = 500;
@@ -159,18 +159,8 @@ export function App() {
     if (current.busy || current.canRetry || current.refreshRequired || current.storageUnavailable ||
         current.analysis || !Object.entries(address).every(([key, value]) => current.view?.[key] === value)) return;
     const orientation = studyOrientation(current.view.learner_color, flipped);
-    let tab = null;
-    try {
-      tab = window.open("about:blank", "_blank");
-      if (tab) {
-        tab.opener = null;
-        tab.document.title = "Opening Lichess";
-      }
-    } catch {
-      withReservedLichessTab(tab, reserved => reserved.close());
-      tab = null;
-    }
-    const closeTab = () => withReservedLichessTab(tab, reserved => reserved.close());
+    const tab = reserveLichessTab();
+    const closeTab = () => closeReservedLichessTab(tab);
     void enter(address).then(() => {
       const visit = study.getState().analysis;
       if (visit && visit.dataset_id === address.dataset_id && visit.attempt_id === address.attempt_id &&

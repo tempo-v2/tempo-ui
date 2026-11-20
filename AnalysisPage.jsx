@@ -22,7 +22,7 @@ const shape = (move, brush) => ({
   brush,
 });
 
-export function AnalysisPage({ origin, onClose, lichessOrientation }) {
+export function AnalysisPage({ origin, onClose, renderRootLineAction }) {
   const root = origin.fen || start;
   const [path, setPath] = useState([]);
   const [paths, setPaths] = useState([[]]);
@@ -46,8 +46,8 @@ export function AnalysisPage({ origin, onClose, lichessOrientation }) {
       for (const uci of path) playBoardMove(anchored, uci);
       return lineFromBoard(anchored);
     }
-    return path.length ? lineFromBoard(board) : origin.analysisLine?.line;
-  }, [board, path, root, origin.anchorRoute, origin.analysisLine]);
+    return lineFromBoard(board);
+  }, [board, path, root, origin.anchorRoute]);
   const moves = useMemo(
     () => new Map(board.moves({ verbose: true }).map((m) => [m.lan, m])),
     [board],
@@ -162,8 +162,9 @@ export function AnalysisPage({ origin, onClose, lichessOrientation }) {
             </p>
           )}
           <div className="actions">
-            <LichessControl fen={fen} line={exportLine} orientation={lichessOrientation ?? color}
-              scope={!path.length ? origin.analysisLine?.scope : undefined} />
+            {!path.length && renderRootLineAction
+              ? renderRootLineAction(fen, color)
+              : <LichessControl fen={fen} line={exportLine} orientation={color} />}
             <Button
               disabled={locked || !path.length}
               onClick={() => navigate(path.slice(0, -1))}

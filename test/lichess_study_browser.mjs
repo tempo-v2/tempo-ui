@@ -134,13 +134,15 @@ try {
     assert.deepEqual(commands.map(raw => JSON.parse(raw).command), ["next"]);
     assert.equal(durable(db).assessments, 0);
 
+    await button("Flip board").click();
     await button("Analyze in Lichess").click();
     await button("Record Again and analyze").click();
     await link().waitFor();
     const sent = await Promise.race([destination, page.waitForTimeout(5000).then(() => {
       throw new Error("Study did not open Lichess");
     })]);
-    verifyAnalysis(sent);
+    verifyAnalysis(sent, "white");
+    assert.equal(new URL(await link().getAttribute("href")).searchParams.get("color"), "black");
     assert.deepEqual(errors, []);
     assert.equal(context.pages().length, 2);
     const tab = context.pages().find(item => item !== page);
@@ -186,10 +188,17 @@ try {
       await stop();
       await serve(db, binary, ui, new URL(url).port);
     }
+    let lineReads = 0;
+    page.on("request", request => { if (request.url().endsWith("/api/study/analysis-line")) lineReads++; });
     await page.reload();
+    await page.getByRole("group", { name: "Analysis board" }).waitFor();
+    assert.equal(context.pages().length, 1);
+    assert.equal(lineReads, 0);
+    await button("Analyze in Lichess").click();
     await link().waitFor();
     verifyAnalysis(await link().getAttribute("href"));
-    assert.equal(context.pages().length, 1);
+    assert.equal(context.pages().length, 2);
+    assert.equal(lineReads, 1);
     assert.equal(concessions.length, 2);
     assert.equal(concessions[0], concessions[1]);
     assert.equal(durable(db).assessments, 1);
@@ -206,7 +215,7 @@ try {
     const url = await serve(db);
     const { context, page, button, link, destination, errors } = await session();
     const hold = Promise.withResolvers();
-    await page.route("**/api/study/analysis-context", async route => {
+    await page.route("**/api/study/analysis-line", async route => {
       await hold.promise;
       await route.continue();
     });
@@ -231,6 +240,83 @@ try {
     await stop();
   }
   console.log("A repurposed tab stayed open and Tempo offered the manual link.");
+
+  {
+    const db = join(temp, "line-failure.sqlite");
+    await copyFile(seed, db);
+    const url = await serve(db);
+    const { context, page, button, link, destination, errors } = await session();
+    let attempts = 0;
+    await page.route("**/api/study/analysis-line", async route => {
+      attempts++;
+      if (attempts === 1) return route.fulfill({ json: { scope: "full_line", line: {} } });
+      if (attempts === 2) return route.abort();
+      return route.continue();
+    });
+    await page.goto(url);
+    await button("Flip board").click();
+    await button("Analyze in Lichess").click();
+    await button("Record Again and analyze").click();
+    const board = page.getByRole("group", { name: "Analysis board" });
+    await board.waitFor();
+    await page.getByText("Try ↗ Lichess again.", { exact: false }).waitFor();
+    assert.equal(await board.getAttribute("data-orientation"), "black");
+    assert.equal(durable(db).assessments, 1);
+    await button("Analyze in Lichess").click();
+    await page.getByText("Try ↗ Lichess again.", { exact: false }).waitFor();
+    assert.equal(attempts, 2);
+    assert.equal(await board.isVisible(), true);
+    await button("Analyze in Lichess").click();
+    verifyAnalysis(await destination);
+    await link().waitFor();
+    assert.equal(new URL(await link().getAttribute("href")).searchParams.get("color"), "black");
+    assert.equal(durable(db).assessments, 1);
+    assert.deepEqual(errors, []);
+    await context.close();
+    await stop();
+  }
+  console.log("Export failures left the analysis board open and retry used its orientation.");
+
+  {
+    const db = join(temp, "document-failure.sqlite");
+    execFileSync(binary, ["init", db]);
+    const url = await serve(db);
+    const { dataset_id } = await post(url, "/api/study", { command: "study_status" });
+    const draft = { dataset_id, name: "Review fixture", learner_color: "white", pgn: "1. e4 e5 *" };
+    const preview = await post(url, "/api/repertoires", { command: "preview", ...draft });
+    assert.equal(preview.status, "preview", JSON.stringify(preview));
+    const saved = await post(url, "/api/repertoires", { command: "save", ...draft, token: preview.token });
+    assert.equal(saved.status, "repertoires", JSON.stringify(saved));
+    const { context, page, button, errors } = await session();
+    await page.goto(url);
+    // Break the optional document path after startup on this disposable fixture.
+    const sql = statement => execFileSync("sqlite3", [db, statement]);
+    sql("ALTER TABLE repertoire_documents RENAME TO unavailable_documents");
+    let exports = 0;
+    page.on("request", request => { if (request.url().endsWith("/api/study/analysis-line")) exports++; });
+    await button("Analyze").click();
+    await page.getByRole("group", { name: "Analysis board" }).waitFor();
+    assert.equal(exports, 0);
+    async function expectReadFailure(code) {
+      const response = page.waitForResponse(reply => reply.url().endsWith("/api/study/analysis-line"));
+      await button("Analyze in Lichess").click();
+      const reply = await response;
+      assert.equal(reply.status(), 400);
+      assert.equal((await reply.json()).code, code);
+      await page.getByText("Could not load the analysis line.", { exact: false }).waitFor();
+      assert.equal(await page.getByRole("group", { name: "Analysis board" }).isVisible(), true);
+      assert.equal(await page.getByText("Issued move only").count(), 0);
+    }
+    await expectReadFailure("store_unavailable");
+    sql("ALTER TABLE unavailable_documents RENAME TO repertoire_documents");
+    sql("UPDATE content_sources SET pgn = '1. impossible *'");
+    await expectReadFailure("analysis_line_invalid");
+    assert.equal(durable(db).assessments, 0);
+    assert.deepEqual(errors, []);
+    await context.close();
+    await stop();
+  }
+  console.log("Document lookup and parser failures stayed separate from a legitimate issued-move fallback.");
 
   const db = join(temp, "completed.sqlite");
   await copyFile(seed, db);

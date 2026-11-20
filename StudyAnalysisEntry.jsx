@@ -1,16 +1,15 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button, StatusNotice } from "@tempo-v2/core-components";
 import { AnalysisPage } from "./AnalysisPage.jsx";
+import { useStudyLineExport } from "./StudyLineExport.jsx";
 import { postCommand } from "./content_transport.js";
-import { lichessAnalysis, withReservedLichessTab } from "./lichess_analysis.js";
-import { UCI, validateRevealedLine } from "./validate_study_view.js";
+import { UCI } from "./validate_study_view.js";
 
 // Mount the analysis board only after the server discloses the addressed decision.
 // Retries here are reads, including after a recovered review concession.
 export function StudyAnalysisEntry({ visit, issue, launch, onClose }) {
   const [result, setResult] = useState(null);
   const [retry, setRetry] = useState(0);
-  const settledLaunch = useRef(null);
   useEffect(() => {
     const owner = new AbortController();
     const { dataset_id, attempt_id, revision, content_version } = visit;
@@ -26,12 +25,6 @@ export function StudyAnalysisEntry({ visit, issue, launch, onClose }) {
             (origin.name !== null && typeof origin.name !== "string") ||
             (origin.playedUci !== null && !UCI.test(origin.playedUci)) || !UCI.test(origin.prescribedUci))
           throw new Error("Tempo could not verify this Study position.");
-        if (origin.analysisLine !== undefined) {
-          const { scope, line } = origin.analysisLine;
-          if (!["full_line", "issued_move"].includes(scope))
-            throw new Error("Tempo could not verify this analysis line.");
-          origin.analysisLine = { scope, line: validateRevealedLine(line) };
-        }
         if (!owner.signal.aborted) setResult({ visit, retry, origin });
       } catch (error) {
         if (!owner.signal.aborted) setResult({ visit, retry, error: error.message });
@@ -41,32 +34,9 @@ export function StudyAnalysisEntry({ visit, issue, launch, onClose }) {
     return () => owner.abort();
   }, [visit, retry]);
   const current = result?.visit === visit && result.retry === retry ? result : null;
-  useEffect(() => () => {
-    if (launch && settledLaunch.current !== launch)
-      withReservedLichessTab(launch.tab, tab => tab.close());
-  }, [launch]);
-  useEffect(() => {
-    if (!launch?.tab || settledLaunch.current === launch || (!current && !issue)) return;
-    settledLaunch.current = launch;
-    withReservedLichessTab(launch.tab, tab => {
-      const origin = current?.origin;
-      const exportLine = origin?.analysisLine;
-      if (!issue && exportLine?.scope === "full_line") {
-        const { href, downloadPgn } = lichessAnalysis(origin.fen, exportLine.line, launch.orientation);
-        if (!downloadPgn) {
-          const link = tab.document.createElement("a");
-          link.href = href;
-          link.rel = "noreferrer";
-          tab.document.body.append(link);
-          link.click();
-          return;
-        }
-      }
-      tab.close();
-    });
-  }, [current, issue, launch]);
+  const renderRootLineAction = useStudyLineExport(visit, current?.origin, launch);
   if (current?.origin && !issue) return <AnalysisPage origin={current.origin} onClose={onClose}
-    lichessOrientation={launch?.orientation} />;
+    renderRootLineAction={renderRootLineAction} />;
   return <main className="tempo-core">
     <h1>Position analysis</h1>
     {issue || current?.error ? <StatusNotice kind="error">{issue || current.error}</StatusNotice>
