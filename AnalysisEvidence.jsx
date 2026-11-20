@@ -1,7 +1,8 @@
 import { Board, Button } from "@tempo-v2/core-components";
 import { LichessControl } from "./LichessControl.jsx";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { comparisonCandidates, leadingMeasuredMoves, measurementText, engineCells, explorerCells, probabilityCells } from "./move_evidence.js";
+import { commandTacticalAnalysis } from "./tactical_history.js";
 import { usePositionEvidence } from "./position_evidence.js";
 
 export const sources = {
@@ -31,6 +32,21 @@ export function AnalysisEvidence({
   const [allLegal,setAllLegal] = useState(false);
   const [ratings, setRatings] = useState("around1500");
   const [retry, setRetry] = useState({});
+  const [pauseIssue, setPauseIssue] = useState(null);
+  const engineRequest = JSON.stringify([origin.datasetId, fen, pins]);
+  const currentEngineRequest = useRef(engineRequest);
+  currentEngineRequest.current = engineRequest;
+  async function pauseAndRetry() {
+    setPauseIssue(null);
+    try {
+      await commandTacticalAnalysis(origin.datasetId, "pause");
+      if (currentEngineRequest.current === engineRequest) {
+        setRetry(value => ({ ...value, stockfish: (value.stockfish || 0) + 1 }));
+      }
+    } catch (error) {
+      setPauseIssue({request: engineRequest, message: error.message});
+    }
+  }
   const [enabled, setEnabled] = useState({});
   const context = {
     dataset_id: origin.datasetId,
@@ -134,13 +150,15 @@ export function AnalysisEvidence({
           <p key={k} role="status">
             {sources[k]} · {r.error}{" "}
             <Button size="compact" variant="quiet"
-              onClick={() => setRetry({ ...retry, [k]: (retry[k] || 0) + 1 })}
+              onClick={r.code === "background_engine_busy" && origin.datasetId
+                ? pauseAndRetry : () => setRetry({ ...retry, [k]: (retry[k] || 0) + 1 })}
             >
-              Retry
+              {r.code === "background_engine_busy" && origin.datasetId ? "Pause analysis and retry" : "Retry"}
             </Button>
           </p>
         ) : null,
       )}
+      {pauseIssue?.request === engineRequest && <p role="status">{pauseIssue.message}</p>}
       {maia.data?.terminal && <p role="status">Maia · No legal moves in this position.</p>}
       {fish.data?.comparison_complete === false && (
         <p role="status">

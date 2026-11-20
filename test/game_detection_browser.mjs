@@ -65,7 +65,7 @@ async function api(route, payload) {
 
 // Observe requests rather than substituting any route. Node requests above
 // are only fixture initialization or independent state checks.
-const detectorRoutes = new Set(["/api/games/detectors", "/api/games/detection", "/api/games/detection-result"]);
+const detectorRoutes = new Set(["/api/games/detectors", "/api/games/detection", "/api/games/detection-result", "/api/games/tactics"]);
 const commands = [];
 
 async function games() {

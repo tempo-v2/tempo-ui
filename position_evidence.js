@@ -44,6 +44,7 @@ export function usePositionEvidence(fen, source, options, retry, legal, enabled 
             setReply({
               key,
               stale: ["stale_dataset","stale_repertoire"].includes(result.code),
+              code: result.code,
               error: result.status === "error" && typeof result.message === "string" && result.message
                 ? result.message : "Position evidence unavailable",
             });

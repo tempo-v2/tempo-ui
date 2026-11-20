@@ -153,6 +153,7 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
     "POST /api/repertoires": catalog,
     "GET /api/games": () => response({ results: [], last_successful_refresh_ms: null }),
     "POST /api/games/library": ({payload}) => response({dataset_id:payload.dataset_id, through:0, next_before:null, entries:[]}),
+    "POST /api/games/tactics": ({payload}) => response({schema_version:1,dataset_id:payload.dataset_id,status:"unavailable",message:"Stockfish is unavailable."}),
     "GET /api/games/job": () => response({ status: "idle" }),
     "GET /api/games/backfill": () => response({ status: "idle" }),
     "GET /api/games/model": () => response(model("idle")),

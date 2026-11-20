@@ -25,9 +25,35 @@ available to Node or set `TEMPO_PLAYWRIGHT` to its installed module path.
 ## Game detector acceptance
 
 Game history can open a read-only detector panel for the selected stored game
-and player perspective. The production registry is empty until a detector is
-registered at the Tempo host boundary. Findings and their positions display
-without writing to the dataset.
+and player perspective. Detectors are registered at the Tempo host boundary;
+the built-in hanging-material detector is available when its engine is
+configured. The panel displays findings and their positions without issuing
+dataset mutations.
+
+The Games page also displays durable hanging-piece history from
+`POST /api/games/tactics`. Counts describe observed decisions: a good capture
+taken, an equally good alternative, a missed good capture, an inferior capture
+taken or declined, or an uncertain comparison. They do not infer what the
+learner recognized. Selected observations show the source position, played
+move, candidate capture scores, and the single Stockfish-selected capture when
+the current analysis proposes a puzzle. Recorded Study card status is separate:
+an issued or fulfilled card can retain its earlier answer when later analysis
+revises the finding. Inferior captures remain comparison records.
+
+History reads have a five-second deadline and repeat three seconds after each
+completed read while mounted. Unmount, dataset replacement, and page changes
+abort the previous owner. Unavailability stops polling until Refresh; transient
+failures retain the last successful page with an explicit stale notice. Each
+page contains at most 30 observations, with explicit Earlier and Latest
+navigation. Opening a source game uses its zero-based pre-move occurrence
+directly. This view never submits Study or capture commands; automatic puzzle
+creation and immediate review requests belong to the server's background game
+analysis.
+
+`test/tactical_history.test.js` covers the typed read contract and legal board
+facts. `test/tactical_history_mounted.test.js` mounts the production component
+and Core board to verify outcome presentation, source navigation, pagination,
+polling recovery, and cancellation of late replies.
 
 From the assembled workspace, build the production UI and both Tempo binaries,
 then run:
