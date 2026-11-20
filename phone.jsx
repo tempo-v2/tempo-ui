@@ -12,4 +12,4 @@ async function requestStudy(path, options) {
   return response;
 }
 
-createRoot(document.getElementById("root")).render(<App requestStudy={requestStudy} />);
+createRoot(document.getElementById("root")).render(<App requestStudy={requestStudy} boardContinuation />);

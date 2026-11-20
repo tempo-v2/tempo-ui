@@ -25,6 +25,26 @@ body {
   align-self: center;
 }
 
+.study-board.with-continuation {
+  --continuation-space: calc(var(--ui-control-height-touch) + 0.5rem);
+  width: min(
+    calc(100% - var(--coordinate-gutter)),
+    calc(100svh - 2 * var(--page-padding) - var(--coordinate-gutter) - var(--continuation-space))
+  );
+  padding-bottom: calc(var(--coordinate-gutter) + var(--continuation-space));
+}
+
+.study-continuation {
+  position: absolute;
+  inset-inline: var(--coordinate-gutter) 0;
+  inset-block-end: 0;
+  display: grid;
+}
+
+.study-continuation .ui-button {
+  min-height: var(--ui-control-height-touch);
+}
+
 .study-panel {
   min-width: 0;
   width: 100%;
@@ -78,6 +98,10 @@ body {
   place-items: center;
   z-index: 12;
   pointer-events: none;
+}
+
+.with-continuation .puzzle-success {
+  inset-block-end: calc(var(--coordinate-gutter) + var(--continuation-space));
 }
 
 .puzzle-success > [aria-hidden] {

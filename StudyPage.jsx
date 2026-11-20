@@ -6,7 +6,7 @@ import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
 import { StudyOutcome } from "./StudyOutcome.jsx";
 import { BoardPreferences } from "./BoardPreferences.jsx";
 import { MoveFeedback } from "./MoveFeedback.jsx";
-import { StudyActions } from "./StudyActions.jsx";
+import { studyActionButtons } from "./StudyActions.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 
 export function StudyPage({
@@ -18,6 +18,7 @@ export function StudyPage({
   actions,
   guided,
   stopped,
+  boardContinuation,
   onNavigate,
   boardRef,
   choice,
@@ -39,6 +40,11 @@ export function StudyPage({
   onCancel,
 }) {
   const attempt = view && !stopped && ["ready", "complete", "abandoned"].includes(view.status);
+  const continuationBelowBoard = attempt && boardContinuation;
+  const { continuation, others } = !advancing && historyIndex === null
+    ? studyActionButtons({ view, state, actions, reproduced: !!guided?.uci, stopped })
+    : {};
+  const panelContinuation = !continuationBelowBoard && continuation;
   const lesson = view?.lesson;
   const inGameReplay = !!gameContext && historyIndex !== null;
   // The source is contiguous, so only a leading Black move needs its own number.
@@ -71,7 +77,7 @@ export function StudyPage({
   return (
     <main className={`tempo-core study-layout${attempt ? " has-board" : ""}`}>
       {attempt && (
-        <div className="study-board">
+        <div className={`study-board${continuationBelowBoard ? " with-continuation" : ""}`}>
           <StudyBoard
             ref={boardRef}
             view={view}
@@ -93,10 +99,13 @@ export function StudyPage({
             onRejectedMove={onRejectedMove}
           />
           {showSuccess && (
-            <div className="exercise-success" role="status">
+            <div className={continuationBelowBoard ? "puzzle-success" : "exercise-success"} role="status">
               <span aria-hidden="true">✓</span>
               <span className="visually-hidden">Exercise complete</span>
             </div>
+          )}
+          {continuationBelowBoard && continuation && (
+            <div className="study-continuation">{continuation}</div>
           )}
         </div>
       )}
@@ -177,8 +186,8 @@ export function StudyPage({
           {state.issue && (
             <StatusNotice kind="error">{state.issue}</StatusNotice>
           )}
-          {!advancing && historyIndex === null && (
-            <StudyActions view={view} state={state} actions={actions} reproduced={!!guided?.uci} stopped={stopped} />
+          {(panelContinuation || others) && (
+            <div className="actions">{panelContinuation}{others}</div>
           )}
           {actions.analyze && attempt && historyIndex === null &&
             (view.status !== "abandoned" || (view.activity === "test" && view.assessment === "again")) && (

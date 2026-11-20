@@ -21,7 +21,7 @@ const storage = {
   save: (e) =>
     sessionStorage.setItem("tempo-study-recovery-v4", JSON.stringify(e)),
 };
-export function App({ initialPage = "study", renderSection, renderAnalysis, requestStudy = fetch }) {
+export function App({ initialPage = "study", renderSection, renderAnalysis, requestStudy = fetch, boardContinuation }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
@@ -334,6 +334,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, requ
       actions={actions}
       guided={guided?.view === view ? guided : null}
       stopped={stopped}
+      boardContinuation={boardContinuation}
       onNavigate={renderSection ? goTo : undefined}
       boardRef={board}
       choice={choice}

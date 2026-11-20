@@ -144,13 +144,32 @@ try {
   proxy.listen(0, "127.0.0.1");
   await once(proxy, "listening");
   browser = await webkit.launch();
-  const page = await browser.newPage(devices["iPhone 15"]);
+  const page = await browser.newPage({ ...devices["iPhone 15"], viewport: { width: 375, height: 600 } });
   page.setDefaultTimeout(10_000);
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   sql = new DatabaseSync(database, { readOnly: true });
   const rows = table => sql.prepare(`SELECT count(*) AS total FROM ${table}`).get().total;
   const button = name => page.getByRole("button", { name, exact: true });
+  const board = page.locator(".study-board cg-board");
+  const layout = () => page.evaluate(() => {
+    const board = document.querySelector(".study-board cg-board").getBoundingClientRect();
+    const panel = document.querySelector(".study-panel").getBoundingClientRect();
+    return { boardTop: board.top, boardBottom: board.bottom, panelTop: panel.top, scroll: window.scrollY };
+  });
+  const checkContinuation = async (name, prior) => {
+    const control = page.locator(".study-continuation").getByRole("button", { name, exact: true });
+    await control.waitFor();
+    assert.equal(await button(name).count(), 1);
+    const bounds = await control.boundingBox();
+    const boardBounds = await board.boundingBox();
+    assert(bounds && boardBounds);
+    assert(bounds.y >= boardBounds.y + boardBounds.height);
+    assert(bounds.y - boardBounds.y - boardBounds.height <= 32);
+    assert(bounds.y + bounds.height <= await page.evaluate(() => window.visualViewport.height));
+    assert.deepEqual(await layout(), prior);
+    return control;
+  };
   await page.goto(`http://127.0.0.1:${proxy.address().port}`);
   await button("Show move").waitFor();
   assert.equal(await page.title(), "Tempo Study");
@@ -162,18 +181,19 @@ try {
   const receipts = rows("receipts");
 
   loseAnswer = true;
+  const initialLayout = await layout();
   await tapMove(page, solution(issued[0]));
-  await button("Retry").waitFor();
+  const retry = await checkContinuation("Retry", initialLayout);
   assert(await page.getByText(/Check Tailscale and make sure your MacBook is awake/).isVisible());
   assert.equal(rows("assessments"), baseline + 1);
   assert.equal(rows("receipts"), receipts + 1);
   failNext = true;
-  await button("Retry").click();
-  await button("Retry next exercise").waitFor();
+  await retry.tap();
+  const retryNext = await checkContinuation("Retry next exercise", initialLayout);
   assert.equal(commands[1].bytes, commands[2].bytes);
   assert.equal(rows("receipts"), receipts + 1);
 
-  await button("Retry next exercise").click();
+  await retryNext.tap();
   await button("Show move").waitFor();
   assert.deepEqual(commands.map(command => command.command), ["next", "answer", "answer", "next", "next"]);
   const desktopPost = async (path, command) => {
@@ -189,10 +209,17 @@ try {
   });
   assert.equal(desktopAttempt.attempt_id, issued[1].attempt_id);
   assert.equal(desktopAttempt.dataset_id, issued[0].dataset_id);
-  await tapMove(page, solution(issued[1]));
+  const secondLayout = await layout();
+  const answer = solution(issued[1]);
+  await tapMove(page, answer.slice(0, 3) + "5");
+  await button("Show move").waitFor({ state: "visible" });
+  await page.locator(".study-panel .status-notice.error").waitFor();
+  await tapMove(page, answer);
+  const continueStudy = await checkContinuation("Continue", secondLayout);
+  await continueStudy.tap();
   await button("Practice tactics").waitFor();
   assert.equal(rows("assessments"), baseline + 2);
-  assert.equal(rows("receipts"), receipts + 2);
+  assert.equal(rows("receipts"), receipts + 3);
   const dataset_id = desktopAttempt.dataset_id;
   const opening = { dataset_id, name: "Phone repair", learner_color: "white", pgn: "1. e4 e5 2. Nf3 *" };
   const { token } = await desktopPost("/api/repertoires", { command: "preview", ...opening });
@@ -207,8 +234,23 @@ try {
   await button("Return to exercise").click();
   await page.getByText("Play Nf3 on the board.").waitFor();
   assert.equal(await button("Analyze").count(), 0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const repairLayout = await layout();
+  const acknowledge = await checkContinuation("Got it — continue", repairLayout);
+  assert(await acknowledge.isDisabled());
+  await tapMove(page, "g1f3");
+  await page.getByText(/Move reproduced/).waitFor();
+  await checkContinuation("Got it — continue", repairLayout);
+  assert(await acknowledge.isEnabled());
+  const beforeAcknowledgement = rows("receipts");
+  const beforeContinuation = commands.length;
+  await acknowledge.tap();
+  await button("Practice tactics").waitFor();
+  assert.deepEqual(commands.slice(beforeContinuation).map(command => command.command), ["acknowledge", "next"]);
+  assert.equal(rows("assessments"), baseline + 2);
+  assert.equal(rows("receipts"), beforeAcknowledgement + 1);
   assert.deepEqual(errors, []);
-  console.log("Phone WebKit touch Study, restricted ingress, exact answer retry, Next retry, shared desktop dataset and inline repair passed.");
+  console.log("Phone WebKit verified touch Study, stable continuation and retry overlays, inline repair, and restricted shared-dataset ingress.");
 } finally {
   sql?.close();
   await browser?.close();
