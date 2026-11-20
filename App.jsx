@@ -1,17 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createStudyController } from "./study_controller.js";
 import { StudyPage } from "./StudyPage.jsx";
-import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
 import { identity, studyOrientation } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
-import { GamesPage } from "./GamesPage.jsx";
-import { RepertoiresPage } from "./RepertoiresPage.jsx";
-import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
-import { readGapContinuation } from "./gap_save.js";
-import { TacticsCollectionPage } from "./TacticsCollectionPage.jsx";
-import { TacticSettingsPage } from "./TacticSettingsPage.jsx";
-import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
-import { hasPendingTacticCommand } from "./tactic_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
 import { studyTransport } from "./study_transport.js";
@@ -30,14 +21,7 @@ const storage = {
   save: (e) =>
     sessionStorage.setItem("tempo-study-recovery-v4", JSON.stringify(e)),
 };
-function initialPage() {
-  if (readGapContinuation()) return "games";
-  if (hasPendingRepertoireCommand()) return "repertoires";
-  if (hasPendingTacticCommand()) return "capture";
-  return /^#games(?:\?|$)/.test(window.location.hash) ? "games" : "study";
-}
-
-export function App() {
+export function App({ initialPage = "study", renderSection, renderAnalysis, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
@@ -74,7 +58,7 @@ export function App() {
     pausedAdvance = useRef(null);
   if (!controller.current)
     controller.current = createStudyController({
-      transport: studyTransport,
+      transport,
       storage,
       makeSubmissionId: () => crypto.randomUUID(),
       render: (view, state) => {
@@ -185,8 +169,8 @@ export function App() {
     else void controller.current.openAnalysis(address).catch(() => {});
   }
   const actions = {
-    analyze: () => analyze(false),
-    analyzeInLichess: () => analyze(true),
+    analyze: renderAnalysis ? () => analyze(false) : undefined,
+    analyzeInLichess: renderAnalysis ? () => analyze(true) : undefined,
     confirmAnalysis: () => {
       if (dialog?.kind !== "analysis") return;
       setDialog(null);
@@ -363,40 +347,21 @@ export function App() {
     sounds.cancel();
     setGuided(null);
     setStopped(false);
-    if (nextPage === "games") window.history.pushState(null, "", "#games");
-    else if (location.hash.startsWith("#games")) window.history.pushState(null, "", location.pathname + location.search);
+    navigateSection?.(nextPage);
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
-  useEffect(() => {
-    function syncPage() {
-      if (hasPendingRepertoireCommand() || hasPendingTacticCommand()) return;
-      if (/^#games(?:\?|$)/.test(location.hash)) {
-        cancelLichessLaunch();
-        setPage("games");
-      } else if (page === "games") {
-        setPage("study");
-        controller.current.start().catch(() => {});
-      }
-    }
-    window.addEventListener("popstate", syncPage);
-    return () => window.removeEventListener("popstate", syncPage);
-  }, [cancelLichessLaunch, page]);
-  if (page === "study" && state.analysis)
-    return <StudyAnalysisEntry visit={state.analysis} issue={state.issue}
-      launch={lichessLaunch?.visit === state.analysis ? lichessLaunch : null}
-      onClose={() => {
-        cancelLichessLaunch();
-        return controller.current.closeAnalysis().catch(() => {});
-      }} />;
-  if (page === "games") return <GamesPage onStudy={() => goTo("study")}
-    onRepertoires={() => goTo("repertoires")} />;
-  if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;
-  if (page === "tactics") return <TacticsCollectionPage onStudy={() => goTo("study")}
-    onCapture={() => goTo("capture")} onSettings={() => goTo("tactic-settings")} />;
-  if (page === "tactic-settings") return <TacticSettingsPage onStudy={() => goTo("study")} />;
-  if (page === "capture")
-    return <TacticsCapturePage datasetId={view?.dataset_id} onStudy={() => goTo("study")} onTactics={() => goTo("tactics")} />;
+  useEffect(() => subscribeNavigation?.(page, nextPage => {
+    if (nextPage === "games") cancelLichessLaunch();
+    setPage(nextPage);
+    if (nextPage === "study") controller.current.start().catch(() => {});
+  }), [cancelLichessLaunch, page, subscribeNavigation]);
+  if (page !== "study") return renderSection(page, goTo, view?.dataset_id);
+  if (state.analysis && renderAnalysis)
+    return renderAnalysis(state.analysis, state.issue, () => {
+      cancelLichessLaunch();
+      return controller.current.closeAnalysis().catch(() => {});
+    }, lichessLaunch?.visit === state.analysis ? lichessLaunch : null);
 
   return (
     <StudyPage
@@ -406,9 +371,8 @@ export function App() {
       actions={actions}
       guided={guided?.view === view ? guided : null}
       stopped={stopped}
-      onRepertoires={() => goTo("repertoires")}
-      onTactics={() => goTo("tactics")}
-      onGames={() => goTo("games")}
+      boardContinuation={boardContinuation}
+      onNavigate={renderSection ? goTo : undefined}
       boardRef={board}
       choice={choice}
       onMove={onMove}

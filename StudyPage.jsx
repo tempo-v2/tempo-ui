@@ -7,7 +7,7 @@ import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
 import { StudyOutcome } from "./StudyOutcome.jsx";
 import { BoardPreferences } from "./BoardPreferences.jsx";
 import { MoveFeedback } from "./MoveFeedback.jsx";
-import { StudyActions } from "./StudyActions.jsx";
+import { studyActionButtons } from "./StudyActions.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
@@ -21,9 +21,8 @@ export function StudyPage({
   actions,
   guided,
   stopped,
-  onRepertoires,
-  onTactics,
-  onGames,
+  boardContinuation,
+  onNavigate,
   boardRef,
   choice,
   onMove,
@@ -44,6 +43,11 @@ export function StudyPage({
   onCancel,
 }) {
   const attempt = view && !stopped && ["ready", "complete", "abandoned"].includes(view.status);
+  const continuationBelowBoard = attempt && boardContinuation;
+  const { continuation, others } = !advancing && historyIndex === null
+    ? studyActionButtons({ view, state, actions, reproduced: !!guided?.uci, stopped })
+    : {};
+  const panelContinuation = !continuationBelowBoard && continuation;
   const lesson = view?.lesson;
   const inGameReplay = !!gameContext && historyIndex !== null;
   // The source is contiguous, so only a leading Black move needs its own number.
@@ -51,7 +55,7 @@ export function StudyPage({
     index === 0 ? notation : notation.replace(/^\d+\.\.\. /, ""));
   const { summary, unavailable, repairsRemaining } = useStudyProgress(view, stopped);
   const replayBlocked = state.busy || state.canRetry || !!choice || !!dialog;
-  const canAnalyze = attempt &&
+  const canAnalyze = !!actions.analyze && attempt &&
     (view.status !== "abandoned" || (view.activity === "test" && view.assessment === "again"));
   const analysisBlocked = replayBlocked || advancing || state.refreshRequired || state.storageUnavailable;
   const title = attempt
@@ -75,7 +79,7 @@ export function StudyPage({
   return (
     <main className={`tempo-core study-layout${attempt ? " has-board" : ""}`}>
       {attempt && (
-        <div className="study-board">
+        <div className={`study-board${continuationBelowBoard ? " with-continuation" : ""}`}>
           <StudyBoard
             ref={boardRef}
             view={view}
@@ -97,10 +101,13 @@ export function StudyPage({
             onRejectedMove={onRejectedMove}
           />
           {showSuccess && (
-            <div className="exercise-success" role="status">
+            <div className={continuationBelowBoard ? "puzzle-success" : "exercise-success"} role="status">
               <span aria-hidden="true">✓</span>
               <span className="visually-hidden">Exercise complete</span>
             </div>
+          )}
+          {continuationBelowBoard && continuation && (
+            <div className="study-continuation">{continuation}</div>
           )}
         </div>
       )}
@@ -181,8 +188,8 @@ export function StudyPage({
           {state.issue && (
             <StatusNotice kind="error">{state.issue}</StatusNotice>
           )}
-          {!advancing && historyIndex === null && (
-            <StudyActions view={view} state={state} actions={actions} reproduced={!!guided?.uci} stopped={stopped} />
+          {(panelContinuation || others) && (
+            <div className="actions">{panelContinuation}{others}</div>
           )}
           {canAnalyze && (
             <div className="actions study-analysis-actions">
@@ -199,24 +206,26 @@ export function StudyPage({
               {!inGameReplay &&
                 <Button size="compact" disabled={replayBlocked}
                   onClick={() => onInspect(gameContext.line.moves.length)}>Replay game</Button>}
-              {gameContext.url && <a href={gameContext.url} target="_blank" rel="noopener noreferrer">
+              {onNavigate && gameContext.url && <a href={gameContext.url} target="_blank" rel="noopener noreferrer">
                 Open original game
               </a>}
             </div>
           )}
         </Surface>
         <StudyProgress summary={summary} unavailable={unavailable} />
-        <nav className="study-navigation" aria-label="Tempo sections">
-          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onRepertoires}>
-            Repertoires
-          </Button>
-          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onTactics}>
-            Tactics
-          </Button>
-          <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={onGames}>
-            Games
-          </Button>
-        </nav>
+        {onNavigate && (
+          <nav className="study-navigation" aria-label="Tempo sections">
+            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("repertoires")}>
+              Repertoires
+            </Button>
+            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("tactics")}>
+              Tactics
+            </Button>
+            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("games")}>
+              Games
+            </Button>
+          </nav>
+        )}
         <div className="actions study-board-controls" aria-label="Board controls" role="group">
           {attempt && <Button size="compact" disabled={!!choice} onClick={onFlip}>Flip board</Button>}
           <Button size="compact" aria-pressed={soundEnabled} onClick={() => onSoundChange(!soundEnabled)}>

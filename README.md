@@ -42,3 +42,14 @@ node tempo-ui/test/game_detection_browser.mjs \
 The runner uses a disposable SQLite database, Chrome, and the built UI served
 by the production host with an external fixture detector. Playwright can be
 resolved by Node or specified with `TEMPO_PLAYWRIGHT`.
+
+## Phone Study
+
+The build also emits the standalone phone Study bundle under `dist/phone`.
+The desktop and phone bundles share the Study session and use the same API.
+Both use the bounded Study transport and immutable command recovery. Phone
+connection hints preserve structured server errors. Desktop owns game links
+and browser navigation; the phone entry contains only Study.
+After building the matching Tempo binary and UI, run
+`node tempo-ui/test/phone_study_browser.mjs` from the assembled workspace
+with Playwright WebKit installed. The test uses a disposable database.
