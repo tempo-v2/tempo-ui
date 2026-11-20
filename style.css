@@ -748,6 +748,78 @@ body {
 .analysis-table caption {text-align:left;font-size:.9rem;margin:.5rem 0;}
 @media(max-width:800px){.analysis-layout{grid-template-columns:minmax(0,1fr);}.analysis-layout>section:first-child{max-width:34rem;width:100%;}}
 
+.desktop-board-resize .desktop-board-frame {
+  /* Allow room for the surrounding page controls on a short desktop. */
+  --board-frame-height: max(12rem, calc(100dvh - var(--board-frame-overhead, 12rem)));
+  display: grid;
+  grid-template-columns: minmax(0, min(100%, var(--board-frame-height)));
+  align-items: center;
+  min-block-size: var(--board-frame-height);
+  min-inline-size: 0;
+}
+
+.desktop-board-resize .analysis-board-frame {
+  padding-inline-start: 1.25rem;
+  padding-block-end: 1.25rem;
+}
+
+.capture-edit-position,
+.capture-setup-form {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.desktop-board-resize :is(.capture-building, .tactic-inspecting) {
+  margin-block-start: 0.75rem;
+  row-gap: 0.5rem;
+}
+
+.desktop-board-resize :is(.capture-building, .tactic-inspecting) :is(.tactic-page-actions, .tactic-builder-layout) {
+  margin-top: 0;
+}
+
+.desktop-board-resize :is(.tactic-builder-layout, .tactic-detail-layout) {
+  grid-template-rows: auto 1fr;
+}
+
+.desktop-board-resize :is(.tactic-builder-layout, .tactic-detail-layout) .desktop-board-frame {
+  --board-frame-overhead: min(16rem, 43dvh);
+}
+
+.desktop-board-resize :is(.capture-edit-position, .capture-setup-form, .tactic-detail-heading) {
+  grid-area: 1 / 2;
+  min-width: 0;
+}
+
+.desktop-board-resize .tactic-board-column {
+  grid-area: 1 / 1 / span 2;
+}
+
+.desktop-board-resize :is(.capture-builder-controls, .capture-setup-controls, .tactic-detail-controls) {
+  grid-area: 2 / 2;
+  min-width: 0;
+}
+
+.desktop-board-resize .gap-board {
+  --board-frame-overhead: 14rem;
+}
+
+.desktop-board-resize .tactic-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.desktop-board-resize .tactic-detail-layout .desktop-board-frame {
+  width: 100%;
+  margin: 0;
+}
+
+.desktop-board-resize .tactic-detail-heading h2 {
+  overflow-wrap: anywhere;
+}
+
 .games-page {max-width:60rem;width:min(calc(100% - 2.5rem),60rem);margin:2.2rem auto;}
 .review-header,.game-row,.card-heading,.review-footer,.board-caption,.review-nav {
   display:flex;align-items:center;justify-content:space-between;gap:1rem;

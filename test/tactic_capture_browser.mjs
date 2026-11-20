@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { checkDesktopBoardLayout, checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -88,9 +89,22 @@ try {
   const importPgn = '[SetUp "1"]\n[FEN "4k3/8/8/8/8/8/8/R3K3 w - - 0 1"]\n\n1. Ra2 *';
   await page.getByLabel("Or paste PGN").fill(importPgn);
   await button("Preview tactics").click();
+  const previewBoard = page.getByRole("group", { name: "Tactic solver preview" });
+  await previewBoard.waitFor();
+  assert.equal(await previewBoard.locator(".tempo-board-resize-handle").count(), 0);
   await button("Select all valid").click();
 
   await button("Build a tactic").click();
+  await checkDesktopBoardResize(page, "Tactic solution board");
+  await button("Edit board or enter FEN").click();
+  await checkDesktopBoardResize(page, "Starting position editor");
+  await button("Cancel position edit").click();
+  await page.setViewportSize({ width: 1000, height: 500 });
+  await checkDesktopBoardLayout(page, "Tactic solution board");
+  await button("Edit board or enter FEN").click();
+  await checkDesktopBoardLayout(page, "Starting position editor");
+  await button("Cancel position edit").click();
+  await page.setViewportSize({ width: 1120, height: 900 });
   const fen = "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 23";
   await useFen(fen.replace("0 23", "0 70000"));
   await addSan("O-O");
@@ -146,6 +160,10 @@ try {
   await button("Tactics").click();
   await button(detail.label).click();
   await page.getByRole("group", { name: "Tactic position" }).waitFor();
+  await checkDesktopBoardResize(page, "Tactic position");
+  await page.setViewportSize({ width: 1000, height: 500 });
+  await checkDesktopBoardLayout(page, "Tactic position");
+  await checkDesktopBoardResize(page, "Tactic position", 8);
   await button("Show solution").click();
   await button("1... O-O").waitFor();
 

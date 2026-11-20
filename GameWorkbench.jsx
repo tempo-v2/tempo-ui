@@ -1,6 +1,7 @@
 import { useNotify } from "./Notifications.jsx";
+import { MainBoard } from "./MainBoard.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Board, Button, PageHeader, SectionHeader, Surface } from "@tempo-v2/core-components";
+import { Button, PageHeader, SectionHeader, Surface } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
 import { readGameReview } from "./game_commands.js";
 import { deliverDurableRepertoireCommand, previewMarkedLines, recoveryCleanupNotice, sendRepertoireCommand } from "./repertoire_commands.js";
@@ -331,8 +332,8 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
     catch { setIssue("Your browser could not save the review marker."); }
   }
   return <div className="review-grid"><section className="board-column">
-    <div className="review-board">
-      <Board shapes={shapes} theme={prefs.theme} pieceSet={prefs.pieceSet} retainMoveOnLock={!!choice} ref={boardInput} fen={fen} orientation={review.learner_color} turn={board.turn() === "w" ? "white" : "black"}
+    <div className="review-board desktop-board-frame">
+      <MainBoard shapes={shapes} theme={prefs.theme} pieceSet={prefs.pieceSet} retainMoveOnLock={!!choice} ref={boardInput} fen={fen} orientation={review.learner_color} turn={board.turn() === "w" ? "white" : "black"}
         mode="legal" locked={locked || !!choice} destinations={destinations} coordinates="edges"
         positionIdentity={fen} positionRevision={ply + branch.length} ariaLabel="Game review board"
         lastMove={lastMove ? [lastMove.slice(0,2),lastMove.slice(2,4)] : undefined}

@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { Chess } from "chess.js";
+import { checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
 
 const { chromium } = await import(process.env.TEMPO_PLAYWRIGHT || "playwright");
 const root = await mkdtemp(join(tmpdir(), "tempo-gap-recommendation-"));
@@ -212,6 +213,7 @@ try {
   await open();
   const startingFen = await board().getAttribute("data-fen");
   await similar.getByText("2 positions", { exact: true }).waitFor();
+  await checkDesktopBoardResize(page, "Repertoire response board");
   assert.equal(await button("Save response").isEnabled(), false);
   ready = true;
   await page.getByText("Suggested exd5", { exact: true }).waitFor();
@@ -248,6 +250,7 @@ try {
 
   await page.setViewportSize({ width: 390, height: 800 });
   await open();
+  assert.equal(await board().locator(".tempo-board-resize-handle").count(), 0);
   await page.getByText("Suggested exd5", { exact: true }).waitFor();
   const [mobileLeft, mobileRight, mobileBelow] = await Promise.all([similar.boundingBox(), engine.boundingBox(), explorer.boundingBox()]);
   assert(Math.abs(mobileLeft.x - mobileRight.x) < 2 && mobileRight.y > mobileLeft.y && mobileBelow.y > mobileRight.y);

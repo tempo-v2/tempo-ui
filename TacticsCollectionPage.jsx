@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Board, Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { MainBoard } from "./MainBoard.jsx";
+import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
@@ -93,8 +94,8 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
 
   const fen = detail?.solution?.moves[index - 1]?.fen ?? detail?.fen;
   return (
-    <main className="tempo-core repertoire-page tactic-collection">
-      <PageHeader title="Tactics" actions={<div className="actions">
+    <main className={`tempo-core repertoire-page tactic-collection${target ? " tactic-inspecting" : ""}`}>
+      <PageHeader title="Tactics" actions={<div className="actions tactic-page-actions">
         <Button onClick={onStudy}>Study</Button>
         <Button onClick={onCapture}>Capture tactics</Button>
         <Button onClick={onSettings}>Tactics settings</Button>
@@ -102,31 +103,37 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
       {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
       {target ? (
         <Surface>
-          <Button onClick={() => changeTarget(null)}>Back to tactics</Button>
-          {detail ? <>
-            <h2>{detail.label}</h2>
-            <div className="capture-board">
-              <Board fen={fen} orientation={detail.learner_color} turn={turnFromFen(fen)}
-                mode="select" readOnly positionIdentity={`${target}:${index}`}
-                positionRevision={0} ariaLabel="Tactic position" />
+          <div className={detail ? "tactic-detail-layout" : undefined}>
+            <div className="tactic-detail-heading">
+              <Button onClick={() => changeTarget(null)}>Back to tactics</Button>
+              {detail && <h2>{detail.label}</h2>}
             </div>
-            <h3>Sources</h3>
-            {detail.provenance.length
-              ? <ul>{detail.provenance.map((text, i) => <li key={i}><Source text={text} /></li>)}</ul>
-              : <p>No source recorded.</p>}
-            {detail.availability !== "active" && <p>Unavailable in Study.</p>}
-            {detail.solution_blocked ? (
-              <>
-                <p>This tactic is open in Study. Return there to continue or use the available move help.</p>
-                <Button onClick={onStudy}>Return to Study</Button>
-              </>
-            ) : detail.solution
-              ? <>
-                <MoveTrail line={detail.solution} index={index} onInspect={setIndex} />
-                <LichessControl fen={fen} line={detail.solution} orientation={detail.learner_color} />
-              </>
-              : <Button onClick={() => loadDetail(true)}>Show solution</Button>}
-          </> : !issue && <p role="status">Loading tactic…</p>}
+            {detail ? <>
+              <div className="capture-board desktop-board-frame tactic-board-column">
+                <MainBoard fen={fen} orientation={detail.learner_color} turn={turnFromFen(fen)}
+                  mode="select" readOnly positionIdentity={`${target}:${index}`}
+                  positionRevision={0} ariaLabel="Tactic position" />
+              </div>
+              <div className="tactic-detail-controls">
+                <h3>Sources</h3>
+                {detail.provenance.length
+                  ? <ul>{detail.provenance.map((text, i) => <li key={i}><Source text={text} /></li>)}</ul>
+                  : <p>No source recorded.</p>}
+                {detail.availability !== "active" && <p>Unavailable in Study.</p>}
+                {detail.solution_blocked ? (
+                  <>
+                    <p>This tactic is open in Study. Return there to continue or use the available move help.</p>
+                    <Button onClick={onStudy}>Return to Study</Button>
+                  </>
+                ) : detail.solution
+                  ? <>
+                    <MoveTrail line={detail.solution} index={index} onInspect={setIndex} />
+                    <LichessControl fen={fen} line={detail.solution} orientation={detail.learner_color} />
+                  </>
+                  : <Button onClick={() => loadDetail(true)}>Show solution</Button>}
+              </div>
+            </> : !issue && <p role="status">Loading tactic…</p>}
+          </div>
         </Surface>
       ) : (
         <Surface>

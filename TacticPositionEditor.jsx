@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Board, Button, StatusNotice } from "@tempo-v2/core-components";
+import { MainBoard } from "./MainBoard.jsx";
+import { Button, StatusNotice } from "@tempo-v2/core-components";
 import { canSetCastling, editSetupPieces, emptyFen, normalizeCaptureFen, readSetup, startingFen, writeSetup } from "./tactic_builder.js";
 
 const roles = ["king", "queen", "rook", "bishop", "knight", "pawn"];
@@ -47,72 +48,74 @@ export function TacticPositionEditor({ fen, hasSolution, locked, onApply, onCanc
   }
 
   return (
-    <div className="repertoire-form">
-      {hasSolution && <p>Applying a different starting position clears the solution.</p>}
-      <form className="capture-fen" onSubmit={event => {
-        event.preventDefault();
-        apply(fenText);
-      }}>
-        <label>Starting position FEN
-          <input value={fenText} onChange={event => {
-            setFenText(event.target.value);
-            setIssue(null);
-          }} disabled={locked} placeholder="Paste a six-field FEN" spellCheck="false" />
-        </label>
-        <Button type="submit" disabled={locked || !fenText.trim()}>Use FEN</Button>
-      </form>
-      {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
-      <div className="tactic-builder-layout">
-        <Board fen={boardFen} orientation={turn} turn={turn} check={false} mode="select" locked={locked}
+    <div className="repertoire-form tactic-builder-layout">
+      <div className="capture-setup-form">
+        {hasSolution && <p>Applying a different starting position clears the solution.</p>}
+        <form className="capture-fen" onSubmit={event => {
+          event.preventDefault();
+          apply(fenText);
+        }}>
+          <label>Starting position FEN
+            <input value={fenText} onChange={event => {
+              setFenText(event.target.value);
+              setIssue(null);
+            }} disabled={locked} placeholder="Paste a six-field FEN" spellCheck="false" />
+          </label>
+          <Button type="submit" disabled={locked || !fenText.trim()}>Use FEN</Button>
+        </form>
+        {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
+      </div>
+      <div className="desktop-board-frame tactic-board-column">
+        <MainBoard fen={boardFen} orientation={turn} turn={turn} check={false} mode="select" locked={locked}
           drawingEnabled={false} coordinates="edges" positionIdentity={`${boardFen}:${tool}`}
           positionRevision={0} ariaLabel="Starting position editor" onSelect={selectSquare}
           shapes={from ? [{ orig: from, brush: "green" }] : []} />
-        <div className="capture-setup-controls">
-          <label>Side to move
-            <select value={setup.turn} disabled={locked} onChange={event =>
-              replaceSetup({ ...setup, turn: event.target.value, enPassant: "-" })}>
-              <option value="w">White</option>
-              <option value="b">Black</option>
-            </select>
-          </label>
-          <div className="capture-piece-tools" role="group" aria-label="Piece editing tools">
-            <div className="actions">
-              <Button disabled={locked} aria-pressed={tool === "move"} onClick={() => selectTool("move")}>Move pieces</Button>
-              <Button disabled={locked} aria-pressed={tool === "."} onClick={() => selectTool(".")}>Remove piece</Button>
-            </div>
-            {["White", "Black"].map((color, row) => (
-              <div className="capture-piece-palette" key={color}>
-                {roles.map((role, index) => {
-                  const lower = role === "knight" ? "n" : role[0];
-                  const piece = row === 0 ? lower.toUpperCase() : lower;
-                  const label = `${color} ${role}`;
-                  return <Button key={piece} disabled={locked} aria-pressed={tool === piece}
-                    aria-label={label} title={label} onClick={() => selectTool(piece)}>
-                    {String.fromCodePoint(0x2654 + row * 6 + index)}
-                  </Button>;
-                })}
-              </div>
-            ))}
-          </div>
-          <fieldset className="capture-castling">
-            <legend>Castling rights</legend>
-            {rights.map(([right, label]) => <label key={right}>
-              <input type="checkbox" checked={setup.rights.includes(right)}
-                disabled={locked || !canSetCastling(setup.pieces, right)} onChange={event => {
-                  const value = event.target.checked ? setup.rights + right : setup.rights.replace(right, "");
-                  replaceSetup({ ...setup, rights: [..."KQkq"].filter(candidate => value.includes(candidate)).join("") });
-                }} />{label}
-            </label>)}
-          </fieldset>
-          <div className="actions">
-            <Button disabled={locked} onClick={() => replaceSetup(readSetup(emptyFen))}>Clear board</Button>
-            <Button disabled={locked} onClick={() => replaceSetup(readSetup(startingFen))}>Reset board</Button>
-          </div>
-        </div>
       </div>
-      <div className="actions">
-        <Button variant="primary" disabled={locked} onClick={() => apply(boardFen)}>Use board position</Button>
-        <Button disabled={locked} onClick={onCancel}>Cancel position edit</Button>
+      <div className="capture-setup-controls">
+        <label>Side to move
+          <select value={setup.turn} disabled={locked} onChange={event =>
+            replaceSetup({ ...setup, turn: event.target.value, enPassant: "-" })}>
+            <option value="w">White</option>
+            <option value="b">Black</option>
+          </select>
+        </label>
+        <div className="capture-piece-tools" role="group" aria-label="Piece editing tools">
+          <div className="actions">
+            <Button disabled={locked} aria-pressed={tool === "move"} onClick={() => selectTool("move")}>Move pieces</Button>
+            <Button disabled={locked} aria-pressed={tool === "."} onClick={() => selectTool(".")}>Remove piece</Button>
+          </div>
+          {["White", "Black"].map((color, row) => (
+            <div className="capture-piece-palette" key={color}>
+              {roles.map((role, index) => {
+                const lower = role === "knight" ? "n" : role[0];
+                const piece = row === 0 ? lower.toUpperCase() : lower;
+                const label = `${color} ${role}`;
+                return <Button key={piece} disabled={locked} aria-pressed={tool === piece}
+                  aria-label={label} title={label} onClick={() => selectTool(piece)}>
+                  {String.fromCodePoint(0x2654 + row * 6 + index)}
+                </Button>;
+              })}
+            </div>
+          ))}
+        </div>
+        <fieldset className="capture-castling">
+          <legend>Castling rights</legend>
+          {rights.map(([right, label]) => <label key={right}>
+            <input type="checkbox" checked={setup.rights.includes(right)}
+              disabled={locked || !canSetCastling(setup.pieces, right)} onChange={event => {
+                const value = event.target.checked ? setup.rights + right : setup.rights.replace(right, "");
+                replaceSetup({ ...setup, rights: [..."KQkq"].filter(candidate => value.includes(candidate)).join("") });
+              }} />{label}
+          </label>)}
+        </fieldset>
+        <div className="actions">
+          <Button disabled={locked} onClick={() => replaceSetup(readSetup(emptyFen))}>Clear board</Button>
+          <Button disabled={locked} onClick={() => replaceSetup(readSetup(startingFen))}>Reset board</Button>
+        </div>
+        <div className="actions">
+          <Button variant="primary" disabled={locked} onClick={() => apply(boardFen)}>Use board position</Button>
+          <Button disabled={locked} onClick={onCancel}>Cancel position edit</Button>
+        </div>
       </div>
     </div>
   );
