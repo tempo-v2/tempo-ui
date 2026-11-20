@@ -61,6 +61,10 @@ export function readReviewMark(address) {
 }
 export function GameWorkbench({ address, dataset, books, recordedComparisons, onClose, changeBook, onSaved }) {
   const [attempt, setAttempt] = useState(0);
+  const [staleScope, setStaleScope] = useState(null);
+  const scope = JSON.stringify([dataset, address.dataset_id, address.source, address.game_id, address.learner, address.repertoire_id]);
+  const stale = scope === staleScope;
+  const markStale = React.useCallback(() => setStaleScope(scope), [scope]);
   const [load, setLoad] = useState({});
   const [notice, setNotice] = useState("");
   const [savedSelection,setSavedSelection] = useState(null);
@@ -91,6 +95,7 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
           const visited = {...active, ply:active.ply ?? decisionPly(review.comparison)};
           if (book) rememberVisit(visited, {comparison:{repertoire_id:book.id, name:book.name,
             document_id:review.document_id, text:reviewSummary(review,sheet)}});
+          setStaleScope(null);
           setLoad({ key, review, sheet });
         }
       } catch (e) { if (!abort.signal.aborted) setLoad({ key, error: e.message }); }
@@ -123,8 +128,10 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
       </select>
     </label>}/></div>
     {notice && <p role="status" className="review-saved">{notice}</p>}
+    {stale && <div className="review-card" role="alert">The repertoire changed. Prepared moves and arrows shown here belong to the earlier comparison.{" "}
+      <Button disabled={locked} onClick={()=>setAttempt(n=>n+1)}>Reload comparison</Button></div>}
     {current.error ? <section className="review-card" role="alert"><p>{current.error}</p><Button onClick={() => setAttempt(n => n + 1)}>Retry review</Button> <Button onClick={() => changeBook(book?.id || null, opening)}>Open opening decision</Button></section>
-      : current.review ? <ReviewBoard key={key} address={address} review={current.review} sheet={current.sheet}
+      : current.review ? <ReviewBoard stale={stale} markStale={markStale} key={key} address={address} review={current.review} sheet={current.sheet}
         recorded={recordedComparisons?.find(r=>r.repertoire_id===book?.id)} book={book} locked={locked} setLocked={setLocked} savedSelection={savedSelection} onSaved={(label,selection) => {
           setSavedSelection(selection);
           setNotice(label); onSaved(); setAttempt(n => n + 1);
@@ -133,7 +140,7 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
   </main>;
 }
 
-function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked, savedSelection, onSaved, onReload }) {
+function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book, locked, setLocked, savedSelection, onSaved, onReload }) {
   const { positions, comparison } = review;
   const initial = new URLSearchParams(window.location.hash.split("?")[1]);
   const wantedPly = initial.has("ply") ? Number(initial.get("ply")) : decisionPly(comparison);
@@ -194,6 +201,7 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
   const inBranch = branch.length > 0;
   const [evidenceRetry,setEvidenceRetry] = useState(0);
   const branchEvidence = useReviewRepertoireEvidence(fen,review,legal,evidenceRetry,!!book && (inBranch || candidates));
+  useEffect(() => { if (branchEvidence.stale) markStale(); }, [branchEvidence.stale, markStale]);
   const prepared = inBranch ? (branchEvidence.prepared ?? []) : current.prepared_uci;
   const lastBranchMove = board.history({verbose:true}).at(-1);
   const endpoint = lastBranchMove ? notation(lastBranchMove.before, lastBranchMove.lan) : ply > 0 ? sheet[ply - 1] : "Starting position";
@@ -257,6 +265,7 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
       if (!save) {
         setPreview(null);
         const doc = await sendRepertoireCommand({command:"read_document", dataset_id:review.dataset_id, repertoire_id:book.id}, AbortSignal.timeout(20000));
+        if (doc.status === "document" && doc.dataset_id === review.dataset_id && doc.repertoire_id === book.id && doc.revision !== review.revision) markStale();
         if (doc.status !== "document" || doc.dataset_id !== review.dataset_id || doc.repertoire_id !== book.id ||
             doc.revision !== review.revision || doc.document.status !== "available")
           throw new Error("The repertoire changed or its document is unavailable. Reload the comparison.");
@@ -268,8 +277,10 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
             anchor_fen:positions[anchor].fen, lines:[path] }, AbortSignal.timeout(20000)),
           readGameReview({...source, line:{from_ply:anchor,moves:path}}, AbortSignal.timeout(20000)),
         ]);
-        if (annotated.revision !== review.revision || annotated.document_id !== review.document_id)
+        if (annotated.revision !== review.revision || annotated.document_id !== review.document_id) {
+          markStale();
           throw new Error("The repertoire changed. Reload the comparison.");
+        }
         const unchanged = doc.document.pgn === r.save_command.pgn;
         if (!isCurrent(version)) throw new Error("The draft changed during preview. Preview its current line.");
         const signedVersion = !draft && !unchanged ? writeDraft(cursor) : version;
@@ -328,7 +339,7 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
     <div className="review-nav"><Button disabled={locked || (!ply && !inBranch)} onClick={stepBack}>← Previous</Button>
       {inBranch ? <Button disabled={locked} onClick={() => navigate(ply)}>Return to played line</Button>
         : <Button disabled={locked || ply === sheet.length} onClick={() => navigate(ply + 1)}>Next move →</Button>}</div>
-    <div className="review-board-tools"><label><input type="checkbox" checked={arrows} onChange={e=>setArrows(e.target.checked)}/> Prepared and played arrows</label>
+    <div className="review-board-tools"><label><input type="checkbox" checked={arrows} onChange={e=>setArrows(e.target.checked)}/> {stale ? "Earlier comparison arrows" : "Prepared and played arrows"}</label>
       <details><summary>Enter a move</summary><form onSubmit={e=>{
         e.preventDefault();
         const field=e.currentTarget.elements.move;
@@ -339,30 +350,28 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
       }}><label>Chess move <input name="move" disabled={locked} onInput={e=>e.target.setCustomValidity("")}/></label><button disabled={locked}>Play move</button></form></details></div>
     {inBranch && <p className="branch-line"><strong>Variation</strong> {lineText(current.fen, branch)}</p>}
   </section><div className="review-side">
-    <Surface className="review-card"><SectionHeader title="Opening decision"><span>Current repertoire</span></SectionHeader>
+    <Surface className="review-card"><SectionHeader title="Opening decision"><span>{stale ? "Earlier comparison" : "Current repertoire"}</span></SectionHeader>
       {!book ? <p>Select the repertoire you want to compare.</p> : !comparison?.source_available ?
         <p>The authored comparison is unavailable.</p> : dep ? <>
           <button className="decision-link" disabled={locked} onClick={() => navigate(decision, [], Math.max(0,dep.ply-1))}>{sheet[dep.ply - 1]} · {departures[dep.kind]}</button>
-          {dep.kind === "learner_move" && <p>Prepared here · {positions[dep.ply - 1].prepared_uci.map(m => san(positions[dep.ply - 1].fen,m)).join(", ") || "Unavailable"}</p>}
+          {dep.kind === "learner_move" && <p>{stale ? "Previously prepared" : "Prepared here"} · {positions[dep.ply - 1].prepared_uci.map(m => san(positions[dep.ply - 1].fen,m)).join(", ") || "Unavailable"}</p>}
         </> : <p>The played line matches the current repertoire through the end of this game.</p>}
-      {changedFinding && <p className="recorded-finding"><small>Earlier comparison · {recordedText}. The decision above uses the current repertoire.</small></p>}
+      {changedFinding && <p className="recorded-finding"><small>{stale ? "At import" : "Earlier comparison"} · {recordedText}. {stale ? "The displayed review also predates the latest change." : "The decision above uses the current repertoire."}</small></p>}
       {transpositionPly > 0 && <p><button className="inline-link" disabled={locked} onClick={() => navigate(transpositionPly)}>See move-order transposition at {sheet[transpositionPly-1]}</button></p>}
       {comparison?.reentry_ply && <button className="inline-link" disabled={locked} onClick={() => navigate(comparison.reentry_ply - 1)}>Back in preparation before {sheet[comparison.reentry_ply - 1]}</button>}
     </Surface>
     <Surface className="review-card"><SectionHeader title="This position"><span>{inBranch ? "Explored line" : "Played line"}</span></SectionHeader>
       {!inBranch && current.played_uci && <p><button className="inline-link" disabled={locked} onClick={() => navigate(ply+1)}>
         Played next <strong>{notation(current.fen,current.played_uci)}</strong> →</button></p>}
-      {book && (!inBranch ? <><p>{states[current.book_state]}{current.introduced === true ? " · Introduced in Study" : current.introduced === false ? " · Not yet introduced in Study" : ""}</p>
-        {prepared.length > 0 && <div className="move-choices">{prepared.map(m => <button key={m} disabled={locked} onClick={() => play(m)}>Prepared · {san(current.fen,m)}</button>)}</div>}
+      {book && (!inBranch ? <><p>{stale && "Earlier comparison · "}{states[current.book_state]}{current.introduced === true ? " · Introduced in Study" : current.introduced === false ? " · Not yet introduced in Study" : ""}</p>
+        {prepared.length > 0 && <div className="move-choices">{prepared.map(m => <button key={m} disabled={locked} onClick={() => play(m)}>{stale ? "Previously prepared" : "Prepared"} · {san(current.fen,m)}</button>)}</div>}
         {alternate && <p className="transposition"><strong>Same position by another move order</strong><br/>{lineText(positions[0].fen,alternate)}</p>}
       </> : <p>Exploring a variation from the played game.</p>)}
-      {(inBranch || branchEvidence.stale) && branchEvidence.error && <p role="status">{branchEvidence.error} {branchEvidence.stale
-        ? <Button disabled={locked} onClick={onReload}>Reload comparison</Button>
-        : <Button disabled={locked} onClick={()=>setEvidenceRetry(n=>n+1)}>Retry preparation</Button>}</p>}
-      {exactLearner && prepared.length > 0 && <small>Green shows preparation. Red shows a different played move.</small>}
+      {inBranch && !stale && !branchEvidence.stale && branchEvidence.error && <p role="status">{branchEvidence.error} <Button disabled={locked} onClick={()=>setEvidenceRetry(n=>n+1)}>Retry preparation</Button></p>}
+      {exactLearner && prepared.length > 0 && <small>{stale ? "Green shows earlier preparation." : "Green shows preparation."} Red shows a different played move.</small>}
       <button className="inline-link candidate-toggle" aria-expanded={candidates} onClick={() => {setCandidates(value => !value);setCircle(null);setEngineMarks(null);}}>
         {candidates ? "Hide candidate moves" : "Compare candidate moves"}</button>
-      {candidates && <ReviewMoveTable fen={fen} review={review} book={book} legal={legal} prepared={prepared} repertoireEvidence={branchEvidence} retryRepertoire={()=>setEvidenceRetry(n=>n+1)}
+      {candidates && <ReviewMoveTable fen={fen} review={review} book={book} legal={legal} prepared={prepared} repertoireEvidence={stale ? {stale:true,error:"Earlier comparison. Reload to check saved moves."} : branchEvidence} retryRepertoire={()=>setEvidenceRetry(n=>n+1)}
         played={!inBranch ? current.played_uci : null} onPlayedLine={!inBranch} play={play} locked={locked} circle={circle} setCircle={setCircle} onEngineMarks={setEngineMarks}/>}
       {draftError && <div role="alert">{draftError} <Button disabled={locked} onClick={()=>writeDraft(null)}>Discard draft</Button></div>}
       {!draftError && (draft || (book && hasSelection)) && <div className="preview-line">
@@ -397,6 +406,7 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
             learnerMove ? "New answer" : "New opponent move";
           return <li key={i}><strong>{notation(edge.fen,edge.uci)}</strong><span>{label}</span></li>;
         })}</ul>
+        {stale && <p>This preview describes the earlier comparison.</p>}
         {preview.replacements.map((r,i) => <p key={i}>{r.route} · {r.old_move} → {r.new_move}</p>)}
         {preview.retired_routes.map((r,i) => <p key={i}>Would retire {r}</p>)}
         {preview.conflict ? <p>Saving is blocked here. Choose a continuation that preserves the existing answers and lines.</p>
@@ -405,7 +415,7 @@ function ReviewBoard({ address, review, sheet, recorded, book, locked, setLocked
       </div>}
       {pending && <div role="status"><p>A repertoire save is awaiting confirmation.</p>
         <Button disabled={flight.current} onClick={()=>command(true)}>Retry same save</Button></div>}
-      {issue && <div role="alert"><p>{issue}</p>{!locked && <Button onClick={onReload}>Reload comparison</Button>}</div>}
+      {issue && <div role="alert"><p>{issue}</p>{!locked && !stale && <Button onClick={onReload}>Reload comparison</Button>}</div>}
     </Surface>
     <Surface className="review-card"><SectionHeader title="Played moves"><button className="inline-link" disabled={locked} onClick={() => navigate(0)}>Starting position</button></SectionHeader>
       <div className="move-sheet">{sheet.map((label,i) => <button key={i} disabled={locked} aria-current={!inBranch && ply === i + 1 ? "step" : undefined}
