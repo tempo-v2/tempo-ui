@@ -102,7 +102,35 @@ try {
   assert.equal(resumed.activity, "teach");
   assert.equal(resumed.target_id, issued.target_id);
   assert.notEqual(resumed.attempt_id, issued.attempt_id);
-  console.log("Chrome passed cancel, suspend, lost response, restart, exact retry and resume.");
+  const companion = { ...input, name: "Companion", pgn: "1. d4 Nf6 2. c4 *" };
+  const companionPreview = await post("repertoires", { ...companion, command: "preview" });
+  assert.equal((await post("repertoires", { ...companion, command: "save", token: companionPreview.token })).status, "repertoires");
+  const importGame = (command_id, learner, moves, day) => post("games/import", {
+    command_id, learner, dataset_id: list.dataset_id,
+    pgn: `[White "${learner}"]\n[Black "Opponent"]\n[Date "2024.10.${day}"]\n\n${moves} 1-0`,
+  });
+  const choice = await importGame("two-book-choice", "ChoiceLearner", "1. Nf3 Nf6", "01");
+  assert.equal(choice.results[0].choices[0].candidates.length, 2);
+  await page.reload();
+  await button("Repertoires").click();
+  await button("Suspend Companion").click();
+  await dialog.getByRole("button", { name: "Suspend repertoire" }).click();
+  await button("Resume Companion").waitFor();
+  await importGame("game-gap", "GapLearner", "1. d4 Nf6 2. Bf4", "02");
+  await button("Study").click();
+  await button("Games").click();
+  await page.getByText("Compare the game again to refresh these corrective choices.").waitFor({state: "attached"});
+  assert.equal(await page.getByText("Corrective target for half-move 1").count(), 0);
+
+  await page.getByText("Provider history and opponent coverage gaps", { exact: true }).click();
+  await button("Fix response").click();
+  await page.route("**/api/analysis/evidence", route =>
+    route.request().postDataJSON().source === "repertoire" ? route.continue() : route.abort());
+  const evidence = page.waitForRequest(request => request.url().endsWith("/api/analysis/evidence")
+    && request.postDataJSON().source === "repertoire");
+  await button("Analyze lines").click();
+  assert.equal((await evidence).postDataJSON().repertoire_scope, "game");
+  console.log("Chrome passed suspension recovery, resume, stale game choices and the Games analysis scope.");
 } finally {
   await browser?.close();
   await stop();

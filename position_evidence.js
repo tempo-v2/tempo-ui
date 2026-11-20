@@ -79,6 +79,7 @@ export function useReviewRepertoireEvidence(fen, review, legal, retry, enabled) 
   const available = !!review.repertoire_id && review.comparison?.source_available && !!review.document_id;
   const reply = usePositionEvidence(fen, "repertoire", {
     dataset_id:review.dataset_id, repertoire_id:review.repertoire_id, learner_color:review.learner_color,
+    repertoire_scope:"game",
     review_version:{revision:review.revision, document_id:review.document_id},
   }, retry, legal, !!(available && enabled));
   if (!available && enabled) return {error:"Authored preparation is unavailable for this game comparison."};
