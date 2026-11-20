@@ -5,7 +5,6 @@ import { LichessControl } from "./LichessControl.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
 import { StudyOutcome } from "./StudyOutcome.jsx";
-import { BoardPreferences } from "./BoardPreferences.jsx";
 import { MoveFeedback } from "./MoveFeedback.jsx";
 import { studyActionButtons } from "./StudyActions.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
@@ -29,7 +28,6 @@ export function StudyPage({
   choice,
   onMove,
   onRejectedMove,
-  prefs,
   flipped,
   historyIndex,
   historyLine,
@@ -38,7 +36,7 @@ export function StudyPage({
   onFlip,
   dialog,
   setDialog,
-  onPrefsChange,
+  onOpenSettings,
   soundEnabled,
   onSoundChange,
   onChoose,
@@ -85,13 +83,12 @@ export function StudyPage({
           <StudyBoard
             ref={boardRef}
             view={view}
-            prefs={prefs}
             flipped={flipped}
             historyFen={historyIndex === null ? undefined : historyIndex === 0
               ? historyLine?.start_fen : historyLine?.moves[historyIndex - 1]?.fen}
             gameReplay={inGameReplay}
             gameDeviation={gameContext?.playedUci}
-            guidedMove={view.corrective_repair ? guided?.uci : undefined}
+            guidedMove={guided?.uci}
             locked={
               state.busy ||
               state.canRetry ||
@@ -259,7 +256,8 @@ export function StudyPage({
           <Button size="compact" aria-pressed={soundEnabled} onClick={() => onSoundChange(!soundEnabled)}>
             {soundEnabled ? "Mute board" : "Unmute board"}
           </Button>
-          <Button size="compact" onClick={() => setDialog("preferences")}>Board preferences</Button>
+          <Button size="compact" disabled={replayBlocked || advancing || reviewMark?.busy}
+            onClick={onOpenSettings}>Settings</Button>
           <Button size="compact" onClick={() => setDialog("help")}>Shortcuts</Button>
         </div>
       </aside>
@@ -276,8 +274,18 @@ export function StudyPage({
           </div>
         </Dialog>
       )}
-      <BoardPreferences dialog={dialog?.kind === "analysis" ? null : dialog} onClose={() => setDialog(null)} prefs={prefs}
-        onChange={onPrefsChange} soundEnabled={soundEnabled} onSoundChange={onSoundChange} />
+      {dialog === "help" && <Dialog open title="Keyboard shortcuts" onClose={() => setDialog(null)}>
+        <dl className="shortcut-list">
+          <dt>Enter</dt><dd>Primary study action</dd>
+          <dt>F</dt><dd>Flip the board</dd>
+          <dt>?</dt><dd>Open shortcuts</dd>
+          <dt>← / →</dt><dd>Previous or next revealed position</dd>
+          <dt>Home / End</dt><dd>Beginning or end of revealed moves</dd>
+          <dt>R</dt><dd>Return to the live position</dd>
+          <dt>Escape</dt><dd>Close the dialog</dd>
+        </dl>
+        <Button onClick={() => setDialog(null)}>Close</Button>
+      </Dialog>}
       <PromotionChooser
         choice={choice}
         onChoose={onChoose}

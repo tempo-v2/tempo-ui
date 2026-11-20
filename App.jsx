@@ -4,12 +4,13 @@ import { StudyPage } from "./StudyPage.jsx";
 import { identity, studyOrientation } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { completedReviewAddress, studyReviewAddresses, useReviewMark } from "./saved_review_commands.js";
-import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
+import { learnerCue, replyCue } from "./board_sounds.js";
 
 import { studyTransport } from "./study_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
-import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
+import { BoardPreferencesProvider, useBoardPreferences, useBoardSounds } from "./board_preferences.jsx";
+import { SettingsPage } from "./SettingsPage.jsx";
 import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
 
 const REPLY_DELAY_MS = 200;
@@ -22,13 +23,18 @@ const storage = {
   save: (e) =>
     sessionStorage.setItem("tempo-study-recovery-v4", JSON.stringify(e)),
 };
-export function App({ initialPage = "study", renderSection, renderAnalysis, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
+export function App(props) {
+  return <BoardPreferencesProvider><TempoApp {...props} /></BoardPreferencesProvider>;
+}
+
+function TempoApp({ initialPage = "study", renderSection, renderAnalysis, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation, sharedSettings = false }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
     [stopped, setStopped] = useState(false),
     [guided, setGuided] = useState(null);
-  const [prefs, setPrefs] = useState(loadBoardPreferences);
+  const { prefs, update } = useBoardPreferences();
+  const [settingsOrigin, setSettingsOrigin] = useState(null);
   const [flipped, setFlipped] = useState(false);
   const [history, setHistory] = useState(null);
   const [dialog, setDialog] = useState(null);
@@ -47,8 +53,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
       lichessReservation.current = null;
     };
   }, [cancelLichessLaunch]);
-  const [sounds] = useState(() => createBoardSounds(prefs.volume));
-  const [soundEnabled, setSoundEnabled] = useState(sounds.enabled);
+  const sounds = useBoardSounds();
   const studyVisit = useRef(0);
   const reviewMark = useReviewMark();
   const lastCompleted = useRef(null);
@@ -92,11 +97,9 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
       },
     });
   useEffect(() => {
-    void sounds.prepare();
     if (page === "study") controller.current.start().catch(() => {});
     return () => {
       clearTimeout(replyTimer.current);
-      sounds.cancel();
     };
   }, []);
   useEffect(() => {
@@ -362,12 +365,26 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
+  function openSettings(section) {
+    pausedAdvance.current = view;
+    sounds.cancel();
+    setSettingsOrigin({ page, section });
+    setPage("settings");
+  }
+  function closeSettings() {
+    setPage(settingsOrigin.page);
+    if (settingsOrigin.page === "study" && (stopped || view?.status === "empty")) {
+      controller.current.studyStatus().catch(() => {});
+    }
+  }
   useEffect(() => subscribeNavigation?.(page, nextPage => {
     if (nextPage === "games") cancelLichessLaunch();
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }), [cancelLichessLaunch, page, subscribeNavigation]);
-  if (page !== "study") return renderSection(page, goTo, view?.dataset_id);
+  if (page === "settings") return <SettingsPage shared={sharedSettings}
+    initialSection={settingsOrigin.section} onBack={closeSettings} />;
+  if (page !== "study") return renderSection(page, goTo, view?.dataset_id, openSettings);
   if (state.analysis && renderAnalysis)
     return renderAnalysis(state.analysis, state.issue, () => {
       cancelLichessLaunch();
@@ -390,7 +407,6 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
       choice={choice}
       onMove={onMove}
       onRejectedMove={onRejectedMove}
-      prefs={prefs}
       flipped={flipped}
       historyIndex={inspecting ? history.index : null}
       historyLine={historyLine}
@@ -399,17 +415,9 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
       onFlip={onFlip}
       dialog={dialog}
       setDialog={openDialog}
-      onPrefsChange={changes => {
-        const next = { ...prefs, ...changes };
-        setPrefs(next);
-        saveBoardPreferences(next);
-        sounds.setVolume(next.volume);
-      }}
-      soundEnabled={soundEnabled}
-      onSoundChange={enabled => {
-        sounds.setEnabled(enabled);
-        setSoundEnabled(enabled);
-      }}
+      onOpenSettings={() => openSettings("board")}
+      soundEnabled={prefs.soundEnabled}
+      onSoundChange={enabled => update({ soundEnabled: enabled })}
       onChoose={onChoose}
       onCancel={() => {
         choiceRef.current = null;

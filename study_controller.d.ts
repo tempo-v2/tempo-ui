@@ -31,6 +31,7 @@ export interface RenderState {
   readonly canRetry: boolean;
   readonly retryingNext: boolean;
   readonly refreshRequired: boolean;
+  readonly passiveSummary: boolean;
   readonly storageUnavailable: boolean;
   readonly issue: string | null;
 }

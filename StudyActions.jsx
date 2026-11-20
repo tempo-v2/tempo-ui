@@ -32,17 +32,18 @@ export function studyActionButtons({ view, state, actions, reproduced, stopped }
     };
   }
   if (view?.status === "empty" && !view.done) return {
-    continuation: <Button variant="primary" disabled={disabled} onClick={actions.resumeSkipped}>Resume skipped</Button>,
+    continuation: state.passiveSummary
+      ? <Button variant="primary" disabled={disabled} onClick={actions.next}>Continue study</Button>
+      : <Button variant="primary" disabled={disabled} onClick={actions.resumeSkipped}>Resume skipped</Button>,
     others: stop,
   };
   if (view?.status === "empty") {
-    const moreTactics = view.learn_more_count ?? 10;
     return {
       others: <>
         {view.can_practice_tactics && <Button disabled={disabled} onClick={actions.practiceTactics}>Practice tactics</Button>}
         {view.can_learn_more_tactics && (
           <Button disabled={disabled} onClick={actions.learnMoreTactics}>
-            Learn up to {moreTactics} more {moreTactics === 1 ? "tactic" : "tactics"} today
+            Learn more tactics today
           </Button>
         )}
         <Button disabled={disabled} onClick={actions.next}>Check again</Button>

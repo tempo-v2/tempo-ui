@@ -12,6 +12,7 @@ export function createStudyController({
     busy = false,
     issue = null;
   let refreshRequired = false;
+  let passiveSummary = false;
   let pending = null;
   let analysisVisit = null;
   const envelope = (command, visit) => visit ? { pending: command, analysis: visit } : { pending: command };
@@ -32,6 +33,7 @@ export function createStudyController({
     analysis: !pending && analysisVisit?.phase === "open" ? analysisVisit : null,
     retryingNext: pending?.command === "next",
     refreshRequired,
+    passiveSummary,
     storageUnavailable,
     issue,
   });
@@ -83,6 +85,8 @@ export function createStudyController({
         issue = response.message;
       } else {
         view = response;
+        // A status read can report newly eligible work before Next has picked it.
+        passiveSummary = command.command === "study_status";
         refreshRequired = false;
         issue = null;
       }

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Board, Button, PageHeader, SectionHeader, Surface } from "@tempo-v2/core-components";
+import { TempoBoard as Board, useBoardSounds } from "./board_preferences.jsx";
+import { Button, PageHeader, SectionHeader, Surface } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
 import { readGameReview } from "./game_commands.js";
 import { deliverDurableRepertoireCommand, previewMarkedLines, recoveryCleanupNotice, sendRepertoireCommand } from "./repertoire_commands.js";
@@ -8,8 +9,7 @@ import { PromotionChooser } from "./PromotionChooser.jsx";
 import { useReviewRepertoireEvidence } from "./position_evidence.js";
 import { moveArrow } from "./move_evidence.js";
 import { ReviewMoveTable } from "./ReviewMoveTable.jsx";
-import { loadBoardPreferences } from "./BoardPreferences.jsx";
-import { createBoardSounds, learnerCue } from "./board_sounds.js";
+import { learnerCue } from "./board_sounds.js";
 import { promotionRoles } from "./promotion_roles.js";
 import { draftSaveBinding, settleReviewDraftSave, useReviewDraft } from "./review_draft.js";
 import { rememberVisit, reviewAddress, reviewUrl } from "./review_route.js";
@@ -162,9 +162,7 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
   const [arrows,setArrows] = useState(true);
   const [circle,setCircle] = useState(null);
   const [engineMarks,setEngineMarks] = useState(null);
-  const [prefs] = useState(loadBoardPreferences);
-  const [sounds] = useState(() => createBoardSounds(prefs.volume));
-  useEffect(() => { void sounds.prepare(); return () => sounds.cancel(); }, [sounds]);
+  const sounds = useBoardSounds();
   const boardInput = useRef(null);
   const flight = useRef(false);
   const {draft,draftError,write,version,isCurrent,bindSave,refresh:refreshDraft} = useReviewDraft(address,positions,() => setPreview(null));
@@ -321,7 +319,7 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
   }
   return <div className="review-grid"><section className="board-column">
     <div className="review-board">
-      <Board shapes={shapes} theme={prefs.theme} pieceSet={prefs.pieceSet} retainMoveOnLock={!!choice} ref={boardInput} fen={fen} orientation={review.learner_color} turn={board.turn() === "w" ? "white" : "black"}
+      <Board shapes={shapes} retainMoveOnLock={!!choice} ref={boardInput} fen={fen} orientation={review.learner_color} turn={board.turn() === "w" ? "white" : "black"}
         mode="legal" locked={locked || !!choice} destinations={destinations} coordinates="edges"
         positionIdentity={fen} positionRevision={ply + branch.length} ariaLabel="Game review board"
         lastMove={lastMove ? [lastMove.slice(0,2),lastMove.slice(2,4)] : undefined}

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Board, Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
+import { Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
 import { AnalysisEvidence } from "./AnalysisEvidence.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";

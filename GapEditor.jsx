@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Chess } from "chess.js";
-import { Board, Button, Dialog, StatusNotice } from "@tempo-v2/core-components";
+import { TempoBoard as Board } from "./board_preferences.jsx";
+import { Button, Dialog, StatusNotice } from "@tempo-v2/core-components";
 import { playBoardMove } from "./board_move.js";
 import { GapAnalysis, GapExplorer } from "./GapAnalysis.jsx";
 import { previewGapResponse, repertoireError, staleGapCodes, writeGapContinuation } from "./gap_save.js";
