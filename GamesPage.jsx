@@ -106,16 +106,20 @@ function GameResults({ groups, showFindings, results, repertoires, history = fal
                 ))}</ul>
               </details>
             )}
-            {onChoose && result.choices.map(choice => (
-              <div className="actions" key={choice.ply}>
-                <span>Corrective target for half-move {choice.ply}</span>
-                {choice.candidates.map(candidate => (
-                  <Button key={candidate.target_id} onClick={() => onChoose(result, choice, candidate)}>
-                    {repertoires.find(book => book.id === candidate.repertoire_id)?.name ?? candidate.repertoire_id}
-                  </Button>
-                ))}
-              </div>
-            ))}
+            {onChoose && result.choices.map(choice => {
+              const candidates = choice.candidates.filter(candidate =>
+                repertoires.find(book => book.id === candidate.repertoire_id)?.activity !== "suspended");
+              return candidates.length > 0 && (
+                <div className="actions" key={choice.ply}>
+                  <span>Corrective target for half-move {choice.ply}</span>
+                  {candidates.map(candidate => (
+                    <Button key={candidate.target_id} onClick={() => onChoose(result, choice, candidate)}>
+                      {repertoires.find(book => book.id === candidate.repertoire_id)?.name ?? candidate.repertoire_id}
+                    </Button>
+                  ))}
+                </div>
+              );
+            })}
             <p>{result.matches} matched · {result.deviations} learner misses · {result.opponent_deviations} opponent deviations · {result.coverage_gaps} outside coverage</p>
             </div>; })}
             {history && dataset && (

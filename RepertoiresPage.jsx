@@ -57,6 +57,7 @@ export function RepertoiresPage({ onStudy }) {
   const [selectedFile, setSelectedFile] = useState("");
   const [rename, setRename] = useState(null);
   const [reset, setReset] = useState(null);
+  const [activityChange, setActivityChange] = useState(null);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(true);
   const [pending, setPending] = useState(null);
@@ -153,6 +154,11 @@ export function RepertoiresPage({ onStudy }) {
             reply.repertoires.find(({ id }) => id === next.reset.repertoire_id);
           if (item) setNotice(`Progress reset for ${item.name}.`);
         }
+        if (next.activity) {
+          const item = reply.dataset_id === next.activity.dataset_id &&
+            reply.repertoires.find(({ id }) => id === next.activity.repertoire_id);
+          if (item) setNotice(item.activity === "suspended" ? `${item.name} is suspended.` : `${item.name} is active.`);
+        }
         next = { ...next, list: false };
         setRefresh(next);
       }
@@ -177,6 +183,16 @@ export function RepertoiresPage({ onStudy }) {
       inFlight.current = false;
       setBusy(false);
     }
+  }
+
+  function setRepertoireActivity(item, activity) {
+    setActivityChange(null);
+    request({
+      command: "set_activity",
+      ...documentAddress(catalog.dataset_id, item.id),
+      command_id: crypto.randomUUID(),
+      activity,
+    }, { durable: true });
   }
 
   async function request(command, { durable = false, stored = false } = {}) {
@@ -213,6 +229,11 @@ export function RepertoiresPage({ onStudy }) {
         const item = catalog?.repertoires.find(({ id }) => id === reply.repertoire_id);
         setNotice(item ? `Progress reset for ${item.name}.` : "Repertoire progress reset.");
         const next = { list: true, reset: reply };
+        setRefresh(next);
+        await refreshCurrent(next);
+      } else if (reply.status === "activity_set") {
+        setPreview(null);
+        const next = { list: true, activity: reply };
         setRefresh(next);
         await refreshCurrent(next);
       } else if (durable) {
@@ -340,7 +361,8 @@ export function RepertoiresPage({ onStudy }) {
       {recoveryBlocked && <Button onClick={resumeRecovery}>Retry reading recovery</Button>}
       {pending && <Button pending={busy}
         onClick={() => request(pending, { durable: true, stored: true })}>
-        {pending.command === "reset_progress" ? "Retry reset" : "Retry save"}
+        {pending.command === "reset_progress" ? "Retry reset" :
+          pending.command === "set_activity" ? "Retry activity change" : "Retry save"}
       </Button>}
       {!catalog && !locked && (
         <Button onClick={() => request({ command: "list" })}>Reload repertoires</Button>
@@ -355,7 +377,7 @@ export function RepertoiresPage({ onStudy }) {
               <ul className="repertoire-list">
                 {catalog.repertoires.map((item) => (
                   <li key={item.id}>
-                    <div><strong>{item.name}</strong> <span className="repertoire-details">· {item.learner_color} · {item.positions} positions</span></div>
+                    <div><strong>{item.name}</strong> <span className="repertoire-details">· {item.learner_color} · {item.positions} positions{item.activity === "suspended" && " · Suspended"}</span></div>
                     <div className="actions">
                       <Button disabled={locked || !!editor} onClick={() => setAnalysis({
                         datasetId: catalog.dataset_id, repertoireId: item.id, color: item.learner_color, name: item.name,
@@ -367,6 +389,15 @@ export function RepertoiresPage({ onStudy }) {
                         readDocument(documentAddress(catalog.dataset_id, item.id), true)}>
                         Download PGN<span className="visually-hidden"> for {item.name}</span>
                       </Button>
+                      {item.activity === "suspended" ? (
+                        <Button disabled={locked || !!editor} onClick={() => setRepertoireActivity(item, "active")}>
+                          Resume<span className="visually-hidden"> {item.name}</span>
+                        </Button>
+                      ) : (
+                        <Button disabled={locked || !!editor} onClick={() => setActivityChange(item)}>
+                          Suspend<span className="visually-hidden"> {item.name}</span>
+                        </Button>
+                      )}
                       <Button disabled={locked || !!editor} onClick={() => setReset(item)}>
                         Reset progress<span className="visually-hidden"> for {item.name}</span>
                       </Button>
@@ -520,6 +551,16 @@ export function RepertoiresPage({ onStudy }) {
           )}
         </>
       )}
+      <Dialog open={!!activityChange} title={`Suspend ${activityChange?.name ?? "this repertoire"}?`}
+        onClose={() => setActivityChange(null)}>
+        <p>Study, new cards, and game coverage checks pause until you resume. Your repertoire and progress are kept.</p>
+        <div className="actions">
+          <Button onClick={() => setActivityChange(null)}>Cancel</Button>
+          <Button variant="primary" disabled={locked} onClick={() => setRepertoireActivity(activityChange, "suspended")}>
+            Suspend repertoire
+          </Button>
+        </div>
+      </Dialog>
       <Dialog open={!!reset} title={`Reset progress for ${reset?.name ?? "this repertoire"}?`}
         onClose={() => setReset(null)}>
         <p>This erases the repertoire’s Study history and review schedule.

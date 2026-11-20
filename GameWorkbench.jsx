@@ -69,8 +69,10 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
   const [notice, setNotice] = useState("");
   const [savedSelection,setSavedSelection] = useState(null);
   const [locked, setLocked] = useState(false);
-  const book = books.find(item => item.id === address.repertoire_id);
-  const key = JSON.stringify([dataset, address.dataset_id, address.source, address.game_id, address.learner, address.repertoire_id, address.ply, address.branch, address.start, attempt]);
+  const selectedBook = books.find(item => item.id === address.repertoire_id);
+  const suspended = selectedBook?.activity === "suspended";
+  const book = suspended ? undefined : selectedBook;
+  const key = JSON.stringify([dataset, address.dataset_id, address.source, address.game_id, address.learner, address.repertoire_id, address.ply, address.branch, address.start, attempt, suspended]);
   useEffect(() => {
     if (!dataset) return;
     const abort = new AbortController();
@@ -78,9 +80,9 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
       try {
         if (address.dataset_id !== dataset || !address.source || !address.game_id || !address.learner)
           throw new Error("This game link does not identify a game in the current dataset.");
-        if (address.repertoire_id && !book) throw new Error("The selected repertoire is no longer available.");
+        if (address.repertoire_id && !selectedBook) throw new Error("The selected repertoire is no longer available.");
         const request = { dataset_id: dataset, source: address.source, game_id: address.game_id,
-          learner: address.learner, repertoire_id: address.repertoire_id };
+          learner: address.learner, repertoire_id: book?.id ?? null };
         const review = await readGameReview(request, abort.signal);
         if (address.ply !== null && address.ply !== undefined &&
             (!Number.isSafeInteger(address.ply) || address.ply < 0 || address.ply >= review.positions.length))
@@ -102,7 +104,7 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
     }
     void loadReview();
     return () => abort.abort();
-  }, [key, book?.id]);
+  }, [key, selectedBook?.id, book?.id]);
   const current = load.key === key ? load : {};
   const opening = {ply:null, start:null, branch:[]};
   function switchBook(id) {
@@ -120,13 +122,14 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
       <PageHeader title={current.review ? current.review.white + " vs " + current.review.black : "Game review"}
         subtitle={current.review && address.learner+" as "+current.review.learner_color+" · "+current.review.result}
         actions={<label>Destination repertoire
-      <select value={address.repertoire_id || ""} disabled={locked}
+      <select value={book?.id ?? ""} disabled={locked}
         onChange={e => switchBook(e.target.value || null)}>
         <option value="">Select a repertoire</option>
-        {books.filter(b => !current.review || b.learner_color === current.review.learner_color).map(b =>
+        {books.filter(b => b.activity !== "suspended" && (!current.review || b.learner_color === current.review.learner_color)).map(b =>
           <option key={b.id} value={b.id}>{b.name} · {b.learner_color}</option>)}
       </select>
     </label>}/></div>
+    {suspended && <p role="status">{selectedBook.name} is suspended. Resume it in Repertoires to compare this game.</p>}
     {notice && <p role="status" className="review-saved">{notice}</p>}
     {stale && <div className="review-card" role="alert">The repertoire changed. Prepared moves and arrows shown here belong to the earlier comparison.{" "}
       <Button disabled={locked} onClick={()=>setAttempt(n=>n+1)}>Reload comparison</Button></div>}
