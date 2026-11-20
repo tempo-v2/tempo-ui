@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createStudyController } from "./study_controller.js";
 import { StudyPage } from "./StudyPage.jsx";
 import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
-import { identity } from "./StudyBoard.jsx";
+import { identity, studyOrientation } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { GamesPage } from "./GamesPage.jsx";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
@@ -19,6 +19,7 @@ import { studyMoveDetails } from "./content_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
+import { withReservedLichessTab } from "./lichess_analysis.js";
 
 const REPLY_DELAY_MS = 200;
 const NEXT_EXERCISE_DELAY_MS = 500;
@@ -60,6 +61,7 @@ export function App() {
   const [flipped, setFlipped] = useState(false);
   const [history, setHistory] = useState(null);
   const [dialog, setDialog] = useState(null);
+  const [lichessLaunch, setLichessLaunch] = useState(null);
   const [sounds] = useState(() => createBoardSounds(prefs.volume));
   const [soundEnabled, setSoundEnabled] = useState(sounds.enabled);
   const studyVisit = useRef(0);
@@ -151,21 +153,50 @@ export function App() {
     setChoice(null);
     fn().catch(() => {});
   };
-  function analyze() {
+  function openInLichess(address, enter) {
+    const study = controller.current;
+    const current = study.getState();
+    if (current.busy || current.canRetry || current.refreshRequired || current.storageUnavailable ||
+        current.analysis || !Object.entries(address).every(([key, value]) => current.view?.[key] === value)) return;
+    const orientation = studyOrientation(current.view.learner_color, flipped);
+    let tab = null;
+    try {
+      tab = window.open("about:blank", "_blank");
+      if (tab) {
+        tab.opener = null;
+        tab.document.title = "Opening Lichess";
+      }
+    } catch {
+      withReservedLichessTab(tab, reserved => reserved.close());
+      tab = null;
+    }
+    const closeTab = () => withReservedLichessTab(tab, reserved => reserved.close());
+    void enter(address).then(() => {
+      const visit = study.getState().analysis;
+      if (visit && visit.dataset_id === address.dataset_id && visit.attempt_id === address.attempt_id &&
+          visit.content_version === address.content_version) {
+        setLichessLaunch({ visit, tab, orientation });
+      } else closeTab();
+    }).catch(closeTab);
+  }
+  function analyze(inLichess) {
     pausedAdvance.current = view;
     board.current?.clearInput();
     const { dataset_id, attempt_id, content_version, revision } = view;
     const address = { dataset_id, attempt_id, content_version, revision };
     if (view.status === "ready" && view.activity === "test")
-      openDialog({ kind: "analysis", address, assessment: view.assessment });
+      openDialog({ kind: "analysis", address, assessment: view.assessment, inLichess });
+    else if (inLichess) openInLichess(address, controller.current.openAnalysis);
     else void controller.current.openAnalysis(address).catch(() => {});
   }
   const actions = {
-    analyze,
+    analyze: () => analyze(false),
+    analyzeInLichess: () => analyze(true),
     confirmAnalysis: () => {
       if (dialog?.kind !== "analysis") return;
       setDialog(null);
-      void controller.current.concedeForAnalysis(dialog.address).catch(() => {});
+      if (dialog.inLichess) openInLichess(dialog.address, controller.current.concedeForAnalysis);
+      else void controller.current.concedeForAnalysis(dialog.address).catch(() => {});
     },
     next: run(() => {
       pausedAdvance.current = view;
@@ -341,7 +372,11 @@ export function App() {
   }
   if (page === "study" && state.analysis)
     return <StudyAnalysisEntry visit={state.analysis} issue={state.issue}
-      onClose={() => controller.current.closeAnalysis().catch(() => {})} />;
+      launch={lichessLaunch?.visit === state.analysis ? lichessLaunch : null}
+      onClose={() => {
+        setLichessLaunch(null);
+        return controller.current.closeAnalysis().catch(() => {});
+      }} />;
   if (page === "games") return <GamesPage onStudy={() => goTo("study")}
     onRepertoires={() => goTo("repertoires")} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={() => goTo("study")} />;
