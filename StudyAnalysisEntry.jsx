@@ -34,7 +34,7 @@ export function StudyAnalysisEntry({ visit, issue, launch, onClose }) {
     return () => owner.abort();
   }, [visit, retry]);
   const current = result?.visit === visit && result.retry === retry ? result : null;
-  const renderRootLineAction = useStudyLineExport(visit, current?.origin, launch);
+  const renderRootLineAction = useStudyLineExport(visit, current?.origin, launch, Boolean(issue || current?.error));
   if (current?.origin && !issue) return <AnalysisPage origin={current.origin} onClose={onClose}
     renderRootLineAction={renderRootLineAction} />;
   return <main className="tempo-core">

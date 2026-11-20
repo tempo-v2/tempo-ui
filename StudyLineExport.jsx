@@ -8,16 +8,18 @@ import { validateRevealedLine } from "./validate_study_view.js";
 
 // The authorized position opens first. Only an explicit Lichess action reads the
 // line. Its delivery and retry belong to this visit, independent of Study recovery.
-export function useStudyLineExport(visit, origin, launch) {
+export function useStudyLineExport(visit, origin, launch, positionFailed) {
   const [request, setRequest] = useState(null);
   const [result, setResult] = useState(null);
   const consumedLaunch = useRef(null);
   useEffect(() => () => closeReservedLichessTab(launch?.tab), [launch]);
   useEffect(() => {
-    if (!origin || !launch || consumedLaunch.current === launch) return;
+    if (!launch || consumedLaunch.current === launch) return;
+    if (!origin && !positionFailed) return;
     consumedLaunch.current = launch;
-    setRequest(launch);
-  }, [origin, launch]);
+    if (positionFailed) closeReservedLichessTab(launch.tab);
+    else setRequest(launch);
+  }, [origin, launch, positionFailed]);
   useEffect(() => {
     if (request?.visit !== visit) return;
     const owner = new AbortController();
