@@ -319,8 +319,13 @@ export async function readPersonalPosition(dataset, id, signal) {
 }
 
 function validatePersonalPosition(detail) {
-  if (detail.request_id !== null) count(detail.request_id, true);
-  valid(typeof detail.fulfilled === "boolean");
+  object(detail, ["id", "best_moves", "details", "training"], "personal tactic detail");
+  count(detail.id, true);
+  if (detail.training !== null) {
+    object(detail.training, ["id", "status"], "Study link");
+    count(detail.training.id, true);
+    valid(["queued", "issued", "superseded", "reviewed"].includes(detail.training.status));
+  }
   const { fen, assessment: summary } = detail.details;
   const { legal } = boardMoves(fen);
   move(summary.played, legal);

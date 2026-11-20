@@ -9,6 +9,12 @@ const labels = {
   unclear_play: "Unclear · multiple good moves", unclear_miss: "Unclear · missed the good moves",
   inferior_tactic: "Inferior tactic available", uncertain: "Engine comparison uncertain",
 };
+const trainingLabels = {
+  queued: "Queued in Study",
+  issued: "Issued in Study",
+  superseded: "Earlier Study card",
+  reviewed: "Reviewed in Study",
+};
 const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const speedNames = {bullet: "Bullet", blitz: "Blitz", rapid: "Rapid", classical: "Classical"};
 
@@ -108,7 +114,7 @@ function Finding({row, detail, dataset, onOpen, onSimilar}) {
       {onOpen && <Button variant="quiet" onClick={() => onOpen({dataset_id: dataset, source:row.game.source,
         game_id:row.game.id, learner:row.game.learner, repertoire_id:null, ply:row.ply, start:row.ply, branch:[]})}>Open source game</Button>}
       <Button variant="quiet" onClick={() => onSimilar(row.id)}>Similar positions</Button>
-      {detail.request_id !== null && <p>{detail.fulfilled ? "Reviewed in Study" : "Queued in Study"}</p>}
+      {detail.training !== null && <p>{trainingLabels[detail.training.status]}</p>}
       <table className="tactical-captures"><thead><tr><th>Motif</th><th>Move</th><th>Evaluation</th><th>Pieces involved</th></tr></thead>
         <tbody>{assessment.personal.candidates.map((candidate, index) => <tr key={index}>
           <th scope="row">{motifNames[candidate.motif]}</th>
