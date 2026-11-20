@@ -13,6 +13,8 @@ import {
 import { readRepertoireCatalog } from "./repertoire_commands.js";
 import { GapEditor } from "./GapEditor.jsx";
 import { GameDetectionPanel } from "./GameDetectionPanel.jsx";
+import { commandTacticalAnalysis } from "./tactical_history.js";
+import { TacticalHistory } from "./TacticalHistory.jsx";
 import { readGapContinuation } from "./gap_save.js";
 import { commandRecovery } from "./content_transport.js";
 
@@ -30,6 +32,16 @@ function groupGames(results, history) {
 }
 
 function GameResults({ groups, showFindings, results, repertoires, history = false, onChoose, dataset, onOpen }) {
+  const [queueStatus, setQueueStatus] = useState({});
+  async function enqueue(game, key) {
+    setQueueStatus(current => ({...current, [key]: "Queueing…"}));
+    try {
+      await commandTacticalAnalysis(dataset, "enqueue", {source: game.source, game_id: game.game_id});
+      setQueueStatus(current => ({...current, [key]: "Queued"}));
+    } catch {
+      setQueueStatus(current => ({...current, [key]: "Could not queue. Try again."}));
+    }
+  }
   const [detectorRow, setDetectorRow] = useState(null);
   return (
     <ul className="game-results">
@@ -48,6 +60,9 @@ function GameResults({ groups, showFindings, results, repertoires, history = fal
         return (
           <li key={key}>
             {onOpen && <div className="game-row"><div><Button variant="quiet" size="compact" className="game-title" onClick={() => openGame(review)}>{gameTitle}</Button>
+              {history && dataset && <Button size="compact" variant="quiet" onClick={() => enqueue(result, key)}
+                disabled={["Queued", "Queueing…"].includes(queueStatus[key])}>Queue analysis</Button>}
+              {queueStatus[key] && <span role="status">{queueStatus[key]}</span>}
               <p>{source} · {game?.color ? "Played "+game.color : result.learner}{date != null && " · " + new Date(date).toLocaleDateString(undefined, {timeZone:"UTC"})}
                 </p>
               {game && <><p className="game-opening-name">{[game.eco,game.opening].filter(Boolean).join(" · ") || "Opening moves"}</p>
@@ -255,6 +270,7 @@ function gapKey(gap) {
 export function GamesPage({ onStudy, onRepertoires }) {
   const [review, setReview] = useState(reviewAddress);
   const [importOpen, setImportOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   useEffect(() => {
     function sync() { setReview(reviewAddress()); }
     window.addEventListener("popstate", sync);
@@ -839,7 +855,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     {analysis ? <AnalysisPage origin={analysis} onClose={returnFromAnalysis} /> : (
     <main className="tempo-core repertoire-page games-page">
       <Button size="compact" variant="quiet" onClick={onStudy}>← Study</Button>
-      <PageHeader title="Games" subtitle="Review your opening against your repertoire."
+      <PageHeader title="Games" subtitle="Review your openings and tactical opportunities."
         actions={<Button onClick={() => { setSource("pgn"); setImportOpen(true); }}>Import PGN</Button>} />
       <details className="game-import" open={importOpen || !!pending || !!issue || !!jobError || !!catalogError || recoveryStatus === "blocked"}
         onToggle={e => setImportOpen(e.currentTarget.open)}><summary>Import or refresh games</summary><Surface>
@@ -926,6 +942,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
           {report && <GameReport report={report} importing={!!importReport} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />}
         </Surface></details>
       )}
+      {dataset && <details onToggle={event => setAnalysisOpen(event.currentTarget.open)}>
+        <summary>Game analysis</summary>
+        {analysisOpen && <TacticalHistory dataset={dataset} onOpen={openReview} />}
+      </details>}
       <Surface>
         <SectionHeader title="Game library" />
         {repertoires?.length === 0 && <p>Add a repertoire to compare your games with prepared moves. <Button onClick={onRepertoires}>Open repertoires</Button></p>}
