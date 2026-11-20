@@ -11,7 +11,7 @@ const outcomeDescriptions = {
   missed_good_capture: "You passed up a good capture.",
   took_inferior_capture: "You took the material, but Stockfish preferred another move.",
   declined_inferior_capture: "Taking the apparently free material was worse than another available move.",
-  winning_mate: "Stockfish found a winning mate. Other analyses were skipped.",
+  winning_mate: "Stockfish found a winning mate. Tempo kept the mate finding for this turn.",
   uncertain: "The capture is recorded, but its quality has not been established. This analysis does not add a new puzzle.",
 };
 
