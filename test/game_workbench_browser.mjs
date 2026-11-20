@@ -1,5 +1,6 @@
 // From the assembled workspace, with TEMPO_BINARY and TEMPO_PLAYWRIGHT.
 import assert from "node:assert/strict";
+import { checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
 import { Chess } from "chess.js";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -81,6 +82,12 @@ try {
   await reason.selectOption("opponent_gap");
   await page.getByText("1 game of 3", {exact:true}).waitFor();
   await button("Andy vs River").click();
+  await checkDesktopBoardResize(page, "Game review board");
+  await page.setViewportSize({ width: 1280, height: 500 });
+  await button("Next move →").scrollIntoViewIfNeeded();
+  const next = await button("Next move →").boundingBox();
+  assert(next && next.y >= 0 && next.y + next.height <= 500);
+  await page.setViewportSize({ width: 1280, height: 900 });
   await button("← Games").click();
   assert.equal(await search.inputValue(), "Italian");
   assert.equal(await reason.inputValue(), "opponent_gap");

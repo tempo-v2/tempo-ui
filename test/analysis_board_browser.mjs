@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
 
 const { chromium } = await import(process.env.TEMPO_PLAYWRIGHT || "playwright");
 const temp = await mkdtemp(join(tmpdir(), "tempo-analysis-"));
@@ -20,13 +21,14 @@ try {
   const [line] = await once(createInterface({ input: server.stdout }), "line");
   const url = line.replace("Tempo study at ", "");
   browser = await chromium.launch({ channel: "chrome", headless: true });
-  const page = await browser.newPage();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const button = (name) => page.getByRole("button", { name, exact: true });
   await page.goto(url);
   await button("Repertoires").click();
   await button("Build new repertoire").click();
+  await checkDesktopBoardResize(page, "Analysis board");
   await page.getByRole("checkbox",{name:"All legal moves"}).check();
   await page.getByLabel("Name", { exact: true }).fill("Board test");
   await button("Pin e4").click();

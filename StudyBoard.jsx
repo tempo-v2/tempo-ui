@@ -1,7 +1,7 @@
 import React, { forwardRef, useMemo } from "react";
+import { MainBoard } from "./MainBoard.jsx";
 import { Chess } from "chess.js";
 import { playBoardMove } from "./board_move.js";
-import { Board } from "@tempo-v2/core-components";
 export const identity = (v) =>
   `${v.dataset_id}:${v.attempt_id}:${v.content_version}`;
 export const turnFromFen = (fen) => fen.split(/\s+/)[1] === "b" ? "black" : "white";
@@ -54,7 +54,7 @@ export const StudyBoard = forwardRef(function StudyBoard(
     }
   }
   return (
-    <Board
+    <MainBoard
       ref={ref}
       fen={fen}
       readOnly={!!historyFen}
