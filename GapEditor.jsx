@@ -252,6 +252,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               <Button disabled={locked} onClick={() => onAnalyze({
                 datasetId: gap.address.dataset_id, repertoireId: gap.address.repertoire_id,
                 fen: draft.fen, color, name: gap.details.repertoire_name, anchorRoute: gap.details.anchor_route,
+                repertoireScope: "game",
               })}>Analyze lines</Button>
               <LichessControl fen={fen} line={exportLine} orientation={color} />
               {selected && <Button disabled={locked} onClick={() => select("")}>Clear response</Button>}

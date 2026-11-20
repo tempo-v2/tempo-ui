@@ -106,7 +106,10 @@ function GameResults({ groups, showFindings, results, repertoires, history = fal
                 ))}</ul>
               </details>
             )}
-            {onChoose && result.choices.map(choice => (
+            {onChoose && result.correction_choice_status === "compare_again" && (
+              <p>Compare the game again to refresh these corrective choices.</p>
+            )}
+            {onChoose && result.correction_choice_status !== "compare_again" && result.choices.map(choice => (
               <div className="actions" key={choice.ply}>
                 <span>Corrective target for half-move {choice.ply}</span>
                 {choice.candidates.map(candidate => (

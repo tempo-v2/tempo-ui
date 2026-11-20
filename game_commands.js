@@ -61,6 +61,8 @@ function gameResults(results) {
     const effect = result.effect;
     if (!Object.hasOwn(gameEffects, effect)) throw new TypeError("Invalid Study effect");
     const firstDeviation = result.first_deviation_ply;
+    if (result.correction_choice_status !== undefined && result.correction_choice_status !== "compare_again")
+      throw new TypeError("Invalid corrective choice status");
     return {
       comparison_id: result.comparison_id === undefined
         ? null : string(result.comparison_id, "comparison_id", true),
@@ -80,6 +82,7 @@ function gameResults(results) {
       opponent_deviations: count(result.opponent_deviations, "opponent_deviations"),
       occurrence_end_ms: result.occurrence_end_ms == null
         ? null : count(result.occurrence_end_ms, "occurrence_end_ms"),
+      ...(result.correction_choice_status && { correction_choice_status: result.correction_choice_status }),
       choices: (result.choices ?? []).map(choice => ({
         ply: count(choice.ply, "choice ply"),
         candidates: choice.candidates.map(candidate => ({

@@ -64,7 +64,7 @@ export function createStudyController({
       }
       if (analysisVisit?.phase === "return") {
         const unavailable = command.command === "resume" && (response.status === "error"
-          ? ["stale_content", "stale_dataset", "stale_activity", "unknown_attempt"].includes(response.code)
+          ? ["stale_content", "stale_dataset", "stale_activity", "suspended_repertoire", "unknown_attempt"].includes(response.code)
           : response.status !== "ready" || response.dataset_id !== analysisVisit.dataset_id ||
             response.attempt_id !== analysisVisit.attempt_id || response.content_version !== analysisVisit.content_version);
         nextVisit = unavailable ? { ...analysisVisit, returnTo: "next" } : null;
@@ -80,6 +80,7 @@ export function createStudyController({
           "stale_revision",
           "stale_content",
           "stale_dataset",
+          "suspended_repertoire",
           "unknown_attempt",
         ].includes(response.code);
         issue = response.message;

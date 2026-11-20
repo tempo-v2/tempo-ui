@@ -37,6 +37,7 @@ export function AnalysisEvidence({
     dataset_id: origin.datasetId,
     learner_color: origin.color,
     repertoire_id: origin.repertoireId || undefined,
+    repertoire_scope: origin.repertoireScope,
   };
   const book = usePositionEvidence(fen, "repertoire", context, [
     retry.repertoire,
