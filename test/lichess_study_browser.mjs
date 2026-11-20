@@ -242,6 +242,30 @@ try {
   console.log("A repurposed tab stayed open and Tempo offered the manual link.");
 
   {
+    const db = join(temp, "position-failure.sqlite");
+    await copyFile(seed, db);
+    const url = await serve(db);
+    const { context, page, button, link, destination } = await session();
+    await page.route("**/api/study/analysis-context", route => route.abort(), { times: 1 });
+    await page.goto(url);
+    await button("Analyze in Lichess").click();
+    const reserved = context.waitForEvent("page");
+    await button("Record Again and analyze").click();
+    const tab = await reserved;
+    if (!tab.isClosed()) await tab.waitForEvent("close");
+    await button("Retry opening position").click();
+    await page.getByRole("group", { name: "Analysis board" }).waitFor();
+    assert.equal(context.pages().length, 1);
+    assert.equal(durable(db).assessments, 1);
+    await button("Analyze in Lichess").click();
+    verifyAnalysis(await destination);
+    await link().waitFor();
+    await context.close();
+    await stop();
+  }
+  console.log("A failed analysis position read closed the reserved tab and allowed manual recovery.");
+
+  {
     const db = join(temp, "line-failure.sqlite");
     await copyFile(seed, db);
     const url = await serve(db);
