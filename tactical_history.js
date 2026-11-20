@@ -135,7 +135,11 @@ export function validateTacticalHistory(value, dataset, before) {
   valid(value.status === "running" || value.status === "ready");
   const controlFields = ["paused", "waiting_for_idle"].filter(field => Object.hasOwn(value, field));
   for (const field of controlFields) valid(typeof value[field] === "boolean");
-  object(value, [...(Object.hasOwn(value, "games") ? ["games"] : []), ...controlFields, "schema_version", "dataset_id", "status", "detector", "analysis_version", "last_error",
+  if (Object.hasOwn(value, "wait_reason")) {
+    valid([null, "wall_power", "study_in_front", "study_quiet_period", "foreground_engine"].includes(value.wait_reason));
+    valid(value.waiting_for_idle === (value.wait_reason !== null));
+  }
+  object(value, [...(Object.hasOwn(value, "wait_reason") ? ["wait_reason"] : []), ...(Object.hasOwn(value, "games") ? ["games"] : []), ...controlFields, "schema_version", "dataset_id", "status", "detector", "analysis_version", "last_error",
     "active_game", "statistics", "observations", "next_before"], "tactical history");
   if (value.games !== undefined) {
     valid(Array.isArray(value.games) && value.games.length <= 30);
@@ -214,6 +218,7 @@ export async function readTacticalHistory(dataset, before, signal) {
   if (before !== undefined) count(before, true);
   const value = await requestJson("/api/games/tactics", {
     method: "POST", payload: { dataset_id: dataset, ...(before === undefined ? {} : { before }) },
+    headers: { "X-Tempo-Analysis-Wait-Reason": "1" },
     signal, cache: "no-store", timeoutMs: SMALL_READ_TIMEOUT_MS,
   });
   return validateTacticalHistory(value, dataset, before);
