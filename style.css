@@ -347,6 +347,85 @@ body {
   margin: 0.75rem 0;
 }
 
+.capture-import:not([hidden]) {
+  display: grid;
+  gap: 1rem;
+}
+
+.capture-modes {
+  margin-top: 0;
+}
+
+.tactic-builder-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+@media (min-width: 42rem) {
+  .tactic-builder-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  }
+}
+
+.capture-fen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.capture-setup-controls,
+.capture-san,
+.capture-piece-tools {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+}
+
+.capture-san label {
+  width: 100%;
+}
+
+.capture-piece-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.capture-piece-palette button {
+  min-width: 2.25rem;
+  padding: 0.3rem;
+  font-size: 1.25rem;
+}
+
+.capture-modes button[aria-pressed="true"],
+.capture-piece-tools button[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+.capture-castling {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+}
+
+.capture-castling label {
+  display: flex;
+  align-items: center;
+}
+
+.capture-solution {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  list-style: none;
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .capture-selection {
   display: flex;
   flex-wrap: wrap;

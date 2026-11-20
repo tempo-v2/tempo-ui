@@ -5,6 +5,7 @@ import { turnFromFen } from "./StudyBoard.jsx";
 import { sendRepertoireCommand } from "./repertoire_commands.js";
 import { sendTacticCommand, tacticRecovery } from "./tactic_commands.js";
 import { LichessControl } from "./LichessControl.jsx";
+import { TacticBuilder } from "./TacticBuilder.jsx";
 
 function PreviewBoard({ fen, orientation, record }) {
   const side = turnFromFen(fen);
@@ -124,6 +125,8 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
 
 export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
   const [dataset, setDataset] = useState(datasetId);
+  const [mode, setMode] = useState("import");
+  const [builderKey, setBuilderKey] = useState(0);
   const [pgn, setPgn] = useState("");
   const [preview, setPreview] = useState(null);
   const [selected, setSelected] = useState([]);
@@ -136,7 +139,7 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
   const file = useRef(null);
   const textarea = useRef(null);
   const generation = useRef(0);
-  const saveGeneration = useRef(null);
+  const savedDraft = useRef(null);
   const fileRead = useRef(0);
   const inFlight = useRef(false);
   const locked = busy || recovering || !!pending;
@@ -148,50 +151,13 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
     setDataset(reply.dataset_id);
   }
 
-  async function request(command, durable = false, stored = false) {
+  async function runRequest(task) {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setIssue(null);
-    if (command.command === "save") setNotice(null);
-    const requestedGeneration = generation.current;
-    if (durable && !stored) saveGeneration.current = requestedGeneration;
     try {
-      if (durable) {
-        if (!stored) await tacticRecovery.save(command);
-        setPending(command);
-      }
-      const reply = await sendTacticCommand(command);
-      if (durable && (reply.status !== "error" || !reply.retryable)) {
-        await tacticRecovery.save(null);
-        setPending(null);
-      }
-      if (reply.status === "error") {
-        setIssue(reply.message);
-        if (!reply.retryable && command.command === "save" && saveGeneration.current === generation.current) setPreview(null);
-        if (reply.code === "stale_dataset" && !reply.retryable) await loadDataset();
-      } else if (reply.status === "tactics_preview") {
-        if (requestedGeneration !== generation.current) return;
-        setPreview({ input: command, ...reply });
-        setSelected(previous => previous.filter(record => {
-          if (preview?.input.pgn !== command.pgn) return false;
-          const before = preview.rows.find(row => row.record === record);
-          const after = reply.rows.find(row => row.record === record);
-          return before?.capture_identity && before.capture_identity === after?.capture_identity &&
-            after.status === "valid";
-        }));
-      } else {
-        if (saveGeneration.current === generation.current) {
-          changePgn("");
-          if (file.current) file.current.value = "";
-          textarea.current?.focus();
-        }
-        setNotice({
-          message: reply.count === 1 ? "One tactic saved." : `${reply.count} tactics saved.`,
-          alternateSolutions: reply.alternate_solutions,
-          readyForReview: reply.ready_for_review,
-        });
-      }
+      await task();
     } catch (error) {
       setIssue(error.message || "Delivery uncertain.");
     } finally {
@@ -200,17 +166,84 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
     }
   }
 
+  async function showCommandError(reply) {
+    setIssue(reply.message);
+    if (reply.code === "stale_dataset" && !reply.retryable) await loadDataset();
+  }
+
+  async function save(command, { stored = false } = {}) {
+    setNotice(null);
+    if (!stored) await tacticRecovery.save(command);
+    setPending(command);
+    const reply = await sendTacticCommand(command);
+    const draft = savedDraft.current;
+    const currentImport = draft?.mode === "import" && draft.generation === generation.current;
+    if (reply.status !== "error" || !reply.retryable) {
+      await tacticRecovery.save(null);
+      setPending(null);
+      savedDraft.current = null;
+    }
+    if (reply.status === "error") {
+      if (!reply.retryable && currentImport) setPreview(null);
+      await showCommandError(reply);
+      return;
+    }
+    if (currentImport) {
+      changePgn("");
+      if (file.current) file.current.value = "";
+      textarea.current?.focus();
+    }
+    if (draft?.mode === "build") setBuilderKey(key => key + 1);
+    setNotice({
+      message: reply.count === 1 ? "One tactic saved." : `${reply.count} tactics saved.`,
+      alternateSolutions: reply.alternate_solutions,
+      readyForReview: reply.ready_for_review,
+    });
+  }
+
+  function requestPreview(command) {
+    return runRequest(async () => {
+      const requestedGeneration = generation.current;
+      const reply = await sendTacticCommand(command);
+      if (reply.status === "error") return showCommandError(reply);
+      if (requestedGeneration !== generation.current) return;
+      setPreview({ input: command, ...reply });
+      setSelected(previous => previous.filter(record => {
+        if (preview?.input.pgn !== command.pgn) return false;
+        const before = preview.rows.find(row => row.record === record);
+        const after = reply.rows.find(row => row.record === record);
+        return before?.capture_identity && before.capture_identity === after?.capture_identity &&
+          after.status === "valid";
+      }));
+    });
+  }
+
+  function saveBuiltTactic(pgn) {
+    return runRequest(async () => {
+      setNotice(null);
+      const input = { command: "preview", dataset_id: dataset, pgn };
+      const reply = await sendTacticCommand(input);
+      if (reply.status === "error") return showCommandError(reply);
+      const [row] = reply.rows;
+      if (reply.rows.length !== 1 || row.record !== 0 || row.status !== "valid") {
+        setIssue(row?.message || "The starting position and solution did not produce a valid tactic.");
+        return;
+      }
+      savedDraft.current = { mode: "build" };
+      await save({ ...input, command: "save", token: reply.token, selected: [row.record] });
+    });
+  }
+
   async function resumeRecovery() {
     setRecovering(true);
     setIssue(null);
     try {
       const recovered = await tacticRecovery.load();
+      if (!recovered && !datasetId) await loadDataset();
       setRecovering(false);
       if (recovered) {
         setDataset(recovered.dataset_id);
-        await request(recovered, true, true);
-      } else if (!datasetId) {
-        await loadDataset();
+        await runRequest(() => save(recovered, { stored: true }));
       }
     } catch (error) {
       setIssue(error.message);
@@ -244,18 +277,23 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
 
   function startPreview(event) {
     event.preventDefault();
-    request({ command: "preview", dataset_id: dataset, pgn });
+    requestPreview({ command: "preview", dataset_id: dataset, pgn });
   }
 
   function updateSelection(selection) {
     const selections = (preview.input.selections ?? []).filter(({ record }) => record !== selection.record);
-    request({ ...preview.input, selections: [...selections, selection] });
+    requestPreview({ ...preview.input, selections: [...selections, selection] });
   }
 
   function toggleRecord(record) {
     setSelected((previous) => previous.includes(record)
       ? previous.filter((selectedRecord) => selectedRecord !== record)
       : [...previous, record]);
+  }
+
+  function chooseMode(next) {
+    setMode(next);
+    setIssue(null);
   }
 
   return (
@@ -275,52 +313,60 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
         </StatusNotice>
       )}
       {recovering && issue && <Button onClick={resumeRecovery}>Retry recovery</Button>}
-      {pending && <Button pending={busy} onClick={() => request(pending, true, true)}>Retry capture</Button>}
-      <Surface>
-        <h2>Import PGN</h2>
-        <form className="repertoire-form" onSubmit={startPreview}>
-          <label>PGN file
-            <input ref={file} type="file" accept=".pgn,text/plain" disabled={locked}
-              onChange={(event) => chooseFile(event.target.files[0])} />
-          </label>
-          <label>Or paste PGN
-            <textarea ref={textarea} rows={7} value={pgn} onChange={(event) => {
-              ++fileRead.current;
-              changePgn(event.target.value);
-            }} />
-          </label>
-          <Button type="submit" disabled={locked || !dataset || !pgn.trim()}>Preview tactics</Button>
-        </form>
-      </Surface>
-      {preview && (
+      {pending && <Button pending={busy} onClick={() => runRequest(() => save(pending, { stored: true }))}>Retry capture</Button>}
+      <div className="actions capture-modes" role="group" aria-label="Capture method">
+        <Button disabled={locked} aria-pressed={mode === "import"} onClick={() => chooseMode("import")}>Import PGN</Button>
+        <Button disabled={locked} aria-pressed={mode === "build"} onClick={() => chooseMode("build")}>Build a tactic</Button>
+      </div>
+      <div hidden={mode !== "build"}>
+        <TacticBuilder key={builderKey} locked={locked || mode !== "build"} canSave={!!dataset}
+          saving={busy && mode === "build"} onSave={saveBuiltTactic} />
+      </div>
+      <div hidden={mode !== "import"} className="capture-import">
         <Surface>
-          <h2>Preview tactics</h2>
-          <div className="actions">
-            <Button disabled={locked || !validRows.length}
-              onClick={() => setSelected(validRows.map(row => row.record))}>Select all valid</Button>
-            <Button disabled={locked || !selected.length} onClick={() => setSelected([])}>Clear selection</Button>
-          </div>
-          {preview.rows.map((row) => {
-            const selection = preview.input.selections?.find(({ record }) => record === row.record);
-            return <CaptureRow key={`${row.record}/${JSON.stringify(selection ?? null)}`} row={row} busy={locked}
-              selection={selection}
-              checked={selected.includes(row.record)} onSelect={() => toggleRecord(row.record)}
-              onDraft={dirty => {
-                setDirtyRows(previous => dirty
-                  ? (previous.includes(row.record) ? previous : [...previous, row.record])
-                  : previous.filter(record => record !== row.record));
-                if (dirty) setSelected(previous => previous.filter(record => record !== row.record));
-              }}
-              onApply={updateSelection} />;
-          })}
-          <Button variant="primary" disabled={locked || !selected.length} onClick={() => request({
-            ...preview.input,
-            command: "save",
-            token: preview.token,
-            selected,
-          }, true)}>Save selected tactics</Button>
+          <h2>Import PGN</h2>
+          <form className="repertoire-form" onSubmit={startPreview}>
+            <label>PGN file
+              <input ref={file} type="file" accept=".pgn,text/plain" disabled={locked}
+                onChange={(event) => chooseFile(event.target.files[0])} />
+            </label>
+            <label>Or paste PGN
+              <textarea ref={textarea} rows={7} value={pgn} onChange={(event) => {
+                ++fileRead.current;
+                changePgn(event.target.value);
+              }} />
+            </label>
+            <Button type="submit" disabled={locked || !dataset || !pgn.trim()}>Preview tactics</Button>
+          </form>
         </Surface>
-      )}
+        {preview && (
+          <Surface>
+            <h2>Preview tactics</h2>
+            <div className="actions">
+              <Button disabled={locked || !validRows.length}
+                onClick={() => setSelected(validRows.map(row => row.record))}>Select all valid</Button>
+              <Button disabled={locked || !selected.length} onClick={() => setSelected([])}>Clear selection</Button>
+            </div>
+            {preview.rows.map((row) => {
+              const selection = preview.input.selections?.find(({ record }) => record === row.record);
+              return <CaptureRow key={`${row.record}/${JSON.stringify(selection ?? null)}`} row={row} busy={locked}
+                selection={selection}
+                checked={selected.includes(row.record)} onSelect={() => toggleRecord(row.record)}
+                onDraft={dirty => {
+                  setDirtyRows(previous => dirty
+                    ? (previous.includes(row.record) ? previous : [...previous, row.record])
+                    : previous.filter(record => record !== row.record));
+                  if (dirty) setSelected(previous => previous.filter(record => record !== row.record));
+                }}
+                onApply={updateSelection} />;
+            })}
+            <Button variant="primary" disabled={locked || !selected.length} onClick={() => runRequest(() => {
+              savedDraft.current = { mode: "import", generation: generation.current };
+              return save({ ...preview.input, command: "save", token: preview.token, selected });
+            })}>Save selected tactics</Button>
+          </Surface>
+        )}
+      </div>
     </main>
   );
 }
