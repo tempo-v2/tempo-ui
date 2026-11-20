@@ -630,3 +630,96 @@ body {
 .analysis-table th,.analysis-table td {padding:.4rem;text-align:left;border-bottom:1px solid #ccc;}
 .analysis-table caption {text-align:left;font-size:.9rem;margin:.5rem 0;}
 @media(max-width:800px){.analysis-layout{grid-template-columns:minmax(0,1fr);}.analysis-layout>section:first-child{max-width:34rem;width:100%;}}
+
+.games-page {max-width:60rem;width:min(calc(100% - 2.5rem),60rem);margin:2.2rem auto;}
+.review-header,.game-row,.card-heading,.review-footer,.board-caption,.review-nav {
+  display:flex;align-items:center;justify-content:space-between;gap:1rem;
+}
+.review-header {padding-bottom:1.2rem;border-bottom:1px solid var(--ui-border);}
+.review-header h1 {font-family:var(--ui-font-display);font-size:clamp(2rem,4vw,3.5rem);font-weight:500;letter-spacing:-.045em;margin:.45rem 0 .25rem;}
+.review-header p,.game-row p {color:var(--muted);margin:.3rem 0;}
+.return-link,.inline-link,.decision-link,.game-title {font:inherit;color:var(--green-dark);cursor:pointer;border:0;background:none;padding:0;text-align:left;}
+.return-link,.inline-link {font-size:.9rem;text-underline-offset:3px;}
+.return-link:hover,.inline-link:hover,.game-title:hover,.decision-link:hover {text-decoration:underline;}
+.games-page .game-results {list-style:none;padding:0;}
+.games-page .game-results>li {padding:1rem .2rem;border-top:1px solid var(--ui-border);}
+.games-page .game-results>li:first-child {border-top:0;}
+.game-title {font-weight:650;font-size:1.15rem;}
+.game-row p,.record-details {font-size:.85rem;}
+.record-details {color:var(--muted);margin-top:.65rem;}
+.game-import,.advanced-games,.review-card {background:var(--ui-surface);border:1px solid var(--ui-border);border-radius:var(--ui-radius-surface);}
+.game-import>summary,.advanced-games>summary {cursor:pointer;padding:1rem;font-weight:600;}
+.empty-games {padding:1rem 0;}
+.review-page {width:min(calc(100% - 3rem),75rem);margin:1.6rem auto 3rem;}
+.review-header {align-items:flex-end;margin-bottom:1.2rem;}
+.review-header label,.explore-move {display:grid;gap:.35rem;font-size:.82rem;font-weight:650;}
+.review-header select,.explore-move select {font:inherit;font-size:1rem;padding:.55rem .7rem;border:1px solid var(--ui-border);border-radius:var(--ui-radius-control);background:var(--ui-surface);max-width:100%;}
+.review-grid {display:grid;grid-template-columns:minmax(0,1.18fr) minmax(0,1fr);align-items:start;gap:clamp(1rem,3vw,2.4rem);}
+.board-column {min-width:0;position:sticky;top:.8rem;}
+.review-board {padding:0 .1rem 1.05rem 1.15rem;}
+.board-caption,.review-nav {padding:.5rem .15rem;}
+.board-caption span,.card-heading span,.review-footer {color:var(--muted);font-size:.86rem;}
+.explore-move {margin:.6rem .15rem;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:1rem;}
+.review-side {display:grid;gap:.85rem;}
+.review-card {padding:1rem 1.1rem;overflow-wrap:anywhere;}
+.review-card h2 {font:600 1.18rem var(--ui-font-display);margin:0;}
+.review-card h3 {font-size:1rem;margin:.2rem 0;}
+.review-card p {margin:.55rem 0;line-height:1.45;}
+.card-heading {align-items:baseline;gap:.4rem;flex-wrap:wrap;margin-bottom:.65rem;}
+.decision-link {font-weight:650;font-size:1.05rem;line-height:1.5;}
+.move-choices {display:flex;flex-wrap:wrap;gap:.45rem;}
+.move-choices button,.move-sheet button {font:inherit;border:1px solid var(--ui-border);background:var(--ui-surface);border-radius:.35rem;color:var(--green-dark);cursor:pointer;padding:.4rem .65rem;}
+.move-sheet {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.25rem;max-height:17rem;overflow:auto;}
+.move-sheet button {text-align:left;background:var(--ui-surface);color:inherit;border-color:transparent;}
+.move-sheet button.has-decision {box-shadow:inset .23rem 0 #a37233;}
+.move-sheet button[aria-current="step"] {background:var(--green-dark);color:white;}
+.transposition,.branch-line,.review-saved,.review-preview,.review-conflict {padding:.7rem .85rem;border-radius:var(--ui-radius-control);background:var(--sage);}
+.review-conflict {background:#f4e5da;}
+.review-preview,.review-conflict,.preview-line {margin-top:.75rem;}
+.preview-line {border-top:1px solid var(--ui-border);padding-top:.4rem;}
+.review-footer {padding:.3rem .2rem;}
+@media(max-width:740px) {
+  .review-page,.games-page {width:calc(100% - 1.5rem);margin:1rem auto;}
+  .review-header {align-items:start;flex-direction:column;}
+  .review-grid {grid-template-columns:minmax(0,1fr);}
+  .board-column {position:static;}
+}
+.candidate-toggle {margin-top:.5rem;text-decoration:underline;}
+.candidate-panel {margin:.7rem 0;padding:.7rem .85rem;border-left:.2rem solid var(--ui-border);background:var(--sage);}
+.candidate-panel h3:not(:first-child) {margin-top:.85rem;}
+.candidate-panel small {display:block;font-size:.8rem;color:var(--muted);margin:.3rem 0;}
+.preview-edges {margin:.65rem 0;padding:0;list-style:none;font-size:.9rem;}
+.preview-edges li {display:flex;justify-content:space-between;gap:1rem;padding:.24rem 0;border-top:1px solid var(--ui-border);}
+.library-window {font-size:.85rem;color:var(--muted);}
+.comparison-record + .comparison-record {padding-top:.5rem;margin-top:.5rem;border-top:1px solid var(--ui-border);}
+.preview-line label {display:flex;align-items:center;gap:.55rem;font-size:.85rem;}
+.preview-line select {font:inherit;max-width:100%;padding:.35rem;border:1px solid var(--ui-border);background:var(--ui-surface);border-radius:.3rem;}
+.review-page .review-header {align-items:center; gap:.6rem; padding-bottom:.55rem; margin-bottom:.7rem;}
+.review-page .review-header h1 {font-size:clamp(1.2rem,2vw,1.75rem); margin:.1rem 0;}
+.review-page .review-header p,.review-header label {font-size:.78rem;}
+.review-header select {padding:.22rem .4rem;font-size:.85rem;}
+.review-board-tools,.review-board-tools form {display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;font-size:.86rem;}
+.review-board-tools input:not([type=checkbox]) {width:6rem;}
+.review-board-tools,.candidate-panel details {margin:.6rem 0;}
+.review-source {display:grid;grid-template-columns:1fr auto;gap:.15rem .4rem;padding:.3rem 0;}
+.review-source small {grid-column:1/-1;}
+.candidate-panel > small {display:block;margin:.35rem 0;}
+.review-comparison-scroll {max-width:100%;max-height:22rem;overflow:auto;margin:.5rem 0;}
+.review-comparison-scroll table {width:100%;border-collapse:collapse;font-size:.82rem;}
+.review-comparison-scroll td,.review-comparison-scroll th {padding:.25rem .3rem;border-bottom:1px solid var(--ui-border);text-align:left;white-space:nowrap;}
+.review-comparison-scroll button {border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;}
+.review-comparison-scroll th {position:sticky;top:0;background:var(--ui-surface);}
+.review-comparison-scroll button[aria-pressed=true] {background:var(--sage);}
+.review-side,.candidate-panel,.board-column {min-width:0;}
+
+.games-page > .training-header {padding:.45rem 0 1rem;border-bottom:1px solid var(--ui-border)}
+.games-page .game-title.ui-button {font-size:1.05rem;text-align:start;justify-content:start;padding-inline:.25rem}
+:is(.games-page,.review-page) :is(input,select,summary,button):focus-visible {outline:3px solid var(--ui-focus);outline-offset:3px}
+.review-header .training-header {flex:1;min-width:0;max-width:none;padding:0;gap:1rem}
+.review-header .training-header h1 {overflow-wrap:anywhere}
+.review-card .section-header {display:flex;justify-content:space-between;align-items:baseline;gap:.4rem;flex-wrap:wrap}
+@media(max-width:740px){
+  .review-page .review-header {align-items:stretch}
+  .review-header>.ui-button {align-self:flex-start}
+  .review-header .training-header {align-items:flex-start;flex-wrap:wrap}
+}

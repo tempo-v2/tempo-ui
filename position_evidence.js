@@ -1,75 +1,12 @@
 import { useEffect, useState } from "react";
 import { postCommand } from "./content_transport.js";
+import { checkedPositionEvidence } from "./source_evidence.js";
 
-const counts = (row) =>
-  row &&
-  ["white", "draws", "black"].every(
-    (k) => Number.isSafeInteger(row[k]) && row[k] >= 0,
-  );
-const uci = (value) => typeof value === "string" && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(value);
-const move = (row) => row && uci(row.uci);
-const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-
-function checkedData(source, data) {
-  let valid = false;
-  if (data)
-    switch (source) {
-      case "masters":
-      case "rated":
-        valid =
-          counts(data) &&
-          Array.isArray(data.moves) &&
-          data.moves.every((row) => move(row) && counts(row) && ["white", "draws", "black"].every((k) => row[k] <= data[k]));
-        break;
-      case "stockfish":
-        valid =
-          typeof data.comparison_complete === "boolean" &&
-          Array.isArray(data.candidates) &&
-          data.candidates.every(
-            (row) =>
-              move(row) &&
-              ((Number.isSafeInteger(row.centipawns) && row.mate == null) ||
-                (Number.isSafeInteger(row.mate) && row.centipawns == null)),
-          );
-        break;
-      case "maia":
-        valid =
-          data.probabilities &&
-          typeof data.probabilities === "object" &&
-          !Array.isArray(data.probabilities) &&
-          Object.values(data.probabilities).every(
-            (p) => Number.isFinite(p) && p >= 0 && p <= 1,
-          );
-        break;
-      case "repertoire":
-        valid =
-          Array.isArray(data.exact) &&
-          data.exact.every((row) => move(row) && typeof row.repertoire_id === "string") &&
-          record(data.repertoire_names) &&
-          Object.values(data.repertoire_names).every((name) => typeof name === "string") &&
-          ["current", "other"].every(
-            (group) =>
-              Array.isArray(data.nearby?.[group]) &&
-              data.nearby[group].every(
-                (p) =>
-                  typeof p?.fen === "string" &&
-                  Array.isArray(p.responses) &&
-                  p.responses.every((m) => move(m) && typeof m.san === "string" && typeof m.reusable === "boolean"),
-              ) &&
-              Array.isArray(data.similar_responses?.[group]) &&
-              data.similar_responses[group].every((m) => move(m) && Number.isSafeInteger(m.position_count) && m.position_count > 0),
-          );
-        break;
-    }
-  if (!valid)
-    throw new Error("Tempo could not read this source’s move evidence.");
-  return data;
-}
-
-export function usePositionEvidence(fen, source, options, retry) {
+export function usePositionEvidence(fen, source, options, retry, legal, enabled = true) {
   const [reply, setReply] = useState(null);
-  const key = JSON.stringify([fen, source, options, retry]);
+  const key = JSON.stringify([fen, source, options, retry, enabled]);
   useEffect(() => {
+    if (!enabled) return;
     const owner = new AbortController();
     let timer;
     const request_id = crypto.randomUUID();
@@ -81,6 +18,8 @@ export function usePositionEvidence(fen, source, options, retry) {
         ]);
         const display = async (result) => {
           if (owner.signal.aborted) return;
+          if (result?.request_id !== request_id || result.fen !== fen || result.source !== source)
+            throw new Error("The result belongs to a different position. Try again.");
           if (result.status === "running") {
             timer = setTimeout(async () => {
               try {
@@ -96,17 +35,17 @@ export function usePositionEvidence(fen, source, options, retry) {
                   setReply({ key, error: error.message });
               }
             }, 300);
-          } else if (
-            result.status === "complete" &&
-            result.request_id === request_id &&
-            result.fen === fen &&
-            result.source === source
-          ) {
-            setReply({ key, data: checkedData(source, result.data) });
+          } else if (result.status === "complete") {
+            const data = checkedPositionEvidence(source, result.data, legal);
+            if (options.review_version && !matchesReviewEvidence(data, options, legal)) {
+              setReply({key, stale:true, error:"The evidence belongs to a different repertoire version. Reload the game comparison."});
+            } else setReply({key, data});
           } else
             setReply({
               key,
-              error: result.message || "Position evidence unavailable",
+              stale: ["stale_dataset","stale_repertoire"].includes(result.code),
+              error: result.status === "error" && typeof result.message === "string" && result.message
+                ? result.message : "Position evidence unavailable",
             });
         };
         await display(
@@ -127,4 +66,21 @@ export function usePositionEvidence(fen, source, options, retry) {
     };
   }, [key]);
   return reply?.key === key ? reply : {};
+}
+
+export function matchesReviewEvidence(data, options, legal) {
+  return data.dataset_id === options.dataset_id && data.repertoire_id === options.repertoire_id &&
+    data.document_id === options.review_version.document_id && data.content_revision === options.review_version.revision &&
+    Array.isArray(data.prepared_uci) && data.prepared_uci.every(move => legal.has(move)) &&
+    new Set(data.prepared_uci).size === data.prepared_uci.length;
+}
+
+export function useReviewRepertoireEvidence(fen, review, legal, retry, enabled) {
+  const available = !!review.repertoire_id && review.comparison?.source_available && !!review.document_id;
+  const reply = usePositionEvidence(fen, "repertoire", {
+    dataset_id:review.dataset_id, repertoire_id:review.repertoire_id, learner_color:review.learner_color,
+    review_version:{revision:review.revision, document_id:review.document_id},
+  }, retry, legal, !!(available && enabled));
+  if (!available && enabled) return {error:"Authored preparation is unavailable for this game comparison."};
+  return {...reply, prepared:reply.data?.prepared_uci};
 }

@@ -8,6 +8,8 @@ import { BoardPreferences } from "./BoardPreferences.jsx";
 import { MoveFeedback } from "./MoveFeedback.jsx";
 import { studyActionButtons } from "./StudyActions.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
+import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
+import { postCommand } from "./content_transport.js";
 
 export function StudyPage({
   view,
@@ -64,12 +66,8 @@ export function StudyPage({
   useEffect(() => {
     if (!attemptId || !datasetId) return;
     const request = new AbortController();
-    fetch("/api/study/relevance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dataset_id: datasetId, attempt_id: attemptId }),
-      signal: request.signal,
-    }).then(reply => reply.ok ? reply.json() : null).then(reply => {
+    postCommand("/api/study/relevance", { dataset_id: datasetId, attempt_id: attemptId },
+      request.signal, undefined, { timeoutMs: SMALL_READ_TIMEOUT_MS }).then(reply => {
       if (!request.signal.aborted && typeof reply?.reason === "string") {
         setSelectionReason({ attemptId, datasetId, text: reply.reason });
       }

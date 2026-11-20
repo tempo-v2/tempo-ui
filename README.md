@@ -22,8 +22,34 @@ Run the repertoire editor browser check from the assembled workspace with
 disposable SQLite database through the guarded Make launcher. Make Playwright
 available to Node or set `TEMPO_PLAYWRIGHT` to its installed module path.
 
+## Game detector acceptance
+
+Game history can open a read-only detector panel for the selected stored game
+and player perspective. The production registry is empty until a detector is
+registered at the Tempo host boundary. Findings and their positions display
+without writing to the dataset.
+
+From the assembled workspace, build the production UI and both Tempo binaries,
+then run:
+
+```sh
+make build-ui
+cargo build --locked -p tempo --bin tempo --example game_detection_contract_host
+node tempo-ui/test/game_detection_browser.mjs \
+  target/debug/tempo target/debug/examples/game_detection_contract_host tempo-ui/dist
+```
+
+The runner uses a disposable SQLite database, Chrome, and the built UI served
+by the production host with an external fixture detector. Playwright can be
+resolved by Node or specified with `TEMPO_PLAYWRIGHT`.
+
+## Phone Study
+
 The build also emits the standalone phone Study bundle under `dist/phone`.
 The desktop and phone bundles share the Study session and use the same API.
+Both use the bounded Study transport and immutable command recovery. Phone
+connection hints preserve structured server errors. Desktop owns game links
+and browser navigation; the phone entry contains only Study.
 After building the matching Tempo binary and UI, run
 `node tempo-ui/test/phone_study_browser.mjs` from the assembled workspace
 with Playwright WebKit installed. The test uses a disposable database.

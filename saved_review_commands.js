@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { boundedRead } from "./bounded_read.js";
+import { SHORT_ACK_TIMEOUT_MS, SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { commandRecovery, postCommand } from "./content_transport.js";
 import { validateStudyView } from "./validate_study_view.js";
 
@@ -11,14 +11,18 @@ export const reviewRemoveRecovery = commandRecovery("tempo-pending-review-remove
 
 class ReviewRejection extends Error {}
 
-export async function readReviewCommand(path, command, owner) {
-  const reply = await boundedRead(owner, (signal) => postCommand(path, command, signal));
+async function deliverReviewCommand(path, command, owner, timeoutMs) {
+  const reply = await postCommand(path, command, owner, undefined, { timeoutMs });
   if (reply?.status === "error") {
     const error = validateStudyView(reply);
     if (!error.retryable) throw new ReviewRejection(error.message);
     throw new Error(error.message);
   }
   return reply;
+}
+
+export function readReviewCommand(path, command, owner) {
+  return deliverReviewCommand(path, command, owner, SMALL_READ_TIMEOUT_MS);
 }
 
 export function useReviewWrite(path, recovery, expectedStatus, onAccepted) {
@@ -42,7 +46,7 @@ export function useReviewWrite(path, recovery, expectedStatus, onAccepted) {
         command = await recovery.load();
       }
       if (!command) return;
-      const reply = await readReviewCommand(path, command);
+      const reply = await deliverReviewCommand(path, command, undefined, SHORT_ACK_TIMEOUT_MS);
       if (reply?.status !== expectedStatus || reply.submission_id !== command.submission_id ||
           !Number.isSafeInteger(reply.id) || reply.id < 1 ||
           (command.id != null && command.id !== reply.id)) {

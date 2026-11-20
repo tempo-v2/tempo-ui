@@ -15,7 +15,23 @@ function initialPage() {
   if (readGapContinuation()) return "games";
   if (hasPendingRepertoireCommand()) return "repertoires";
   if (hasPendingTacticCommand()) return "capture";
-  return "study";
+  return /^#games(?:\?|$)/.test(window.location.hash) ? "games" : "study";
+}
+
+function navigateSection(page) {
+  if (page === "games") window.history.pushState(null, "", "#games");
+  else if (location.hash.startsWith("#games"))
+    window.history.pushState(null, "", location.pathname + location.search);
+}
+
+function subscribeNavigation(page, changePage) {
+  function syncPage() {
+    if (hasPendingRepertoireCommand() || hasPendingTacticCommand()) return;
+    if (/^#games(?:\?|$)/.test(location.hash)) changePage("games");
+    else if (page === "games") changePage("study");
+  }
+  window.addEventListener("popstate", syncPage);
+  return () => window.removeEventListener("popstate", syncPage);
 }
 
 function renderSection(page, goTo, datasetId) {
@@ -36,5 +52,6 @@ function renderAnalysis(visit, issue, onClose) {
 }
 
 export function DesktopApp() {
-  return <App initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis} />;
+  return <App initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
+    navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} />;
 }

@@ -4,6 +4,8 @@ import { AnalysisPage } from "./AnalysisPage.jsx";
 import { postCommand } from "./content_transport.js";
 import { validateAnalysisOrigin } from "./analysis_origin.js";
 
+const ANALYSIS_CONTEXT_TIMEOUT_MS = 10_000;
+
 // Mount the analysis board only after the server discloses the addressed decision.
 // Retries here are reads, including after a recovered review concession.
 export function StudyAnalysisEntry({ visit, issue, onClose }) {
@@ -16,7 +18,7 @@ export function StudyAnalysisEntry({ visit, issue, onClose }) {
     async function read() {
       try {
         const origin = await postCommand("/api/study/analysis-context", address,
-          AbortSignal.any([owner.signal, AbortSignal.timeout(10000)]));
+          owner.signal, undefined, { timeoutMs: ANALYSIS_CONTEXT_TIMEOUT_MS });
         validateAnalysisOrigin(origin, address);
         if (!owner.signal.aborted) setResult({ visit, retry, origin });
       } catch (error) {

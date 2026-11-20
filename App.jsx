@@ -3,11 +3,10 @@ import { createStudyController } from "./study_controller.js";
 import { StudyPage } from "./StudyPage.jsx";
 import { identity } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
-import { signalStudyChange } from "./study_presence.js";
 import { completedReviewAddress, studyReviewAddresses, useReviewMark } from "./saved_review_commands.js";
 import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
 
-import { studyMoveDetails } from "./content_transport.js";
+import { studyTransport } from "./study_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
@@ -22,7 +21,7 @@ const storage = {
   save: (e) =>
     sessionStorage.setItem("tempo-study-recovery-v4", JSON.stringify(e)),
 };
-export function App({ initialPage = "study", renderSection, renderAnalysis, requestStudy = fetch, boardContinuation }) {
+export function App({ initialPage = "study", renderSection, renderAnalysis, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
@@ -46,23 +45,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, requ
     pausedAdvance = useRef(null);
   if (!controller.current)
     controller.current = createStudyController({
-      transport: {
-        async send(command) {
-          const signal = command.command !== "study_status";
-          if (signal) signalStudyChange();
-          try {
-            const response = await requestStudy("/api/study", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", ...studyMoveDetails },
-              body: JSON.stringify(command),
-            });
-            if (!response.ok) throw new Error(`Server returned ${response.status}`);
-            return await response.json();
-          } finally {
-            if (signal) signalStudyChange();
-          }
-        },
-      },
+      transport,
       storage,
       makeSubmissionId: () => crypto.randomUUID(),
       render: (view, state) => {
@@ -334,9 +317,14 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, requ
     sounds.cancel();
     setGuided(null);
     setStopped(false);
+    navigateSection?.(nextPage);
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
+  useEffect(() => subscribeNavigation?.(page, nextPage => {
+    setPage(nextPage);
+    if (nextPage === "study") controller.current.start().catch(() => {});
+  }), [page, subscribeNavigation]);
   if (page !== "study") return renderSection(page, goTo, view?.dataset_id);
   if (state.analysis && renderAnalysis)
     return renderAnalysis(state.analysis, state.issue, () => controller.current.closeAnalysis().catch(() => {}));

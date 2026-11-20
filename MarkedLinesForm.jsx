@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@tempo-v2/core-components";
 import {
-  hasPendingRepertoireCommand,
-  savePendingRepertoireCommand,
+  deliverDurableRepertoireCommand,
+  previewMarkedLines,
+  recoveryCleanupNotice,
   sendRepertoireCommand,
 } from "./repertoire_commands.js";
 
@@ -81,9 +82,8 @@ export function useMarkedLines(
     try {
       if (!save) {
         setPreview(null);
-        const r = await sendRepertoireCommand(
+        const r = await previewMarkedLines(
           {
-            command: "marked_preview",
             dataset_id: datasetId,
             repertoire_id: destination,
             name: name.trim(),
@@ -95,25 +95,19 @@ export function useMarkedLines(
           },
           AbortSignal.timeout(20000),
         );
-        if (r.status !== "preview" || !r.save_command?.token)
-          throw new Error(r.message || "Preview unavailable");
         setPreview(r);
       } else {
         const cmd = pending || preview.save_command;
-        if (!pending && hasPendingRepertoireCommand())
-          throw new Error("Reload to recover the pending repertoire save.");
-        if (!pending) await savePendingRepertoireCommand(cmd);
-        setPending(cmd);
-        const r = await sendRepertoireCommand(cmd, AbortSignal.timeout(20000));
+        const { reply: r, cleanupNeeded } = await deliverDurableRepertoireCommand(cmd, {
+          stored: !!pending, onPending: setPending, signal: AbortSignal.timeout(20_000),
+        });
         if (r.status === "error" && r.retryable) throw new Error(r.message);
-        await savePendingRepertoireCommand(null);
-        setPending(null);
         setPreview(null);
-        if (r.status === "error") throw new Error(r.message);
+        if (r.status === "error") throw new Error([r.message, cleanupNeeded && recoveryCleanupNotice].filter(Boolean).join(" "));
         savedAny.current = true;
         setDestination(preview.repertoire_id || destination);
         setMarked([]);
-        setNotice("Repertoire saved.");
+        setNotice(cleanupNeeded ? "Repertoire saved. " + recoveryCleanupNotice : "Repertoire saved.");
         setRefresh((n) => n + 1);
       }
     } catch (e) {
