@@ -107,3 +107,15 @@ test("a correction belongs only to a legal wrong-answer reply", () => {
     assert.throws(() => validateStudyView(ready({ feedback: invalid, legal_moves })), TypeError);
   }
 });
+
+test("an optional opponent lead-in belongs only to an unplayed first decision", () => {
+  const opponent_move = { before_fen: "8/8/8/8/8/8/8/8 b - - 0 1", uci: "e7e5" };
+  assert.deepEqual(validateStudyView(ready({ opponent_move })).opponent_move, opponent_move);
+  assert.throws(() => validateStudyView(ready({ revision: 1, opponent_move })), /opponent/);
+  const earlierMove = { uci: opponent_move.uci };
+  assert.deepEqual(validateStudyView(ready({ revision: 1, opponent_move: earlierMove })).opponent_move, earlierMove);
+  assert.throws(() => validateStudyView(ready({ learner_color: "black", opponent_move })), /opponent/);
+  assert.throws(() => validateStudyView(ready({
+    opponent_move: { ...opponent_move, answer: "e2e4" },
+  })), /opponent/);
+});

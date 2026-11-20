@@ -15,14 +15,17 @@ function cue(move, board, ordinary) {
 }
 
 // Classification is best effort. Tempo's supplied destinations and replies own legality.
-export function learnerCue(fen, uci) {
+function moveCue(fen, uci, ordinary) {
   try {
     const board = new Chess(fen);
-    return cue(playBoardMove(board, uci), board, "move-self");
+    return cue(playBoardMove(board, uci), board, ordinary);
   } catch {
-    return "move-self";
+    return ordinary;
   }
 }
+
+export const learnerCue = (fen, uci) => moveCue(fen, uci, "move-self");
+export const opponentCue = (fen, uci) => moveCue(fen, uci, "move-opponent");
 
 export function replyCue(fen, uci, autoplay) {
   if (!autoplay.length) return null;

@@ -15,6 +15,7 @@ import { postCommand } from "./content_transport.js";
 export function StudyPage({
   view,
   state,
+  leadIn,
   keepMove,
   showSuccess,
   advancing,
@@ -85,6 +86,7 @@ export function StudyPage({
           <StudyBoard
             ref={boardRef}
             view={view}
+            leadIn={leadIn}
             prefs={prefs}
             flipped={flipped}
             historyFen={historyIndex === null ? undefined : historyIndex === 0
@@ -131,8 +133,8 @@ export function StudyPage({
                 <p className="puzzle-turn" role="status">Game replay</p>
               ) : (
                 <div id="puzzle-turn" className="puzzle-turn" role="status">
-                  {view?.status === "ready" &&
-                    (turnFromFen(view.display_fen) === "white" ? "White to move" : "Black to move")}
+                  {view?.status === "ready" && (leadIn ? "Opponent to move" :
+                    turnFromFen(view.display_fen) === "white" ? "White to move" : "Black to move")}
                 </div>
               )}
               {attempt && view.prompt?.decision_count > 1 &&

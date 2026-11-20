@@ -5,10 +5,11 @@ import { StudyPage } from "./StudyPage.jsx";
 import { identity, studyOrientation } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { completedReviewAddress, studyReviewAddresses, useReviewMark } from "./saved_review_commands.js";
-import { createBoardSounds, learnerCue, replyCue } from "./board_sounds.js";
+import { createBoardSounds, learnerCue, opponentCue, replyCue } from "./board_sounds.js";
 
 import { studyTransport } from "./study_transport.js";
 import { useStudyGameContext } from "./study_game_context.js";
+import { useStudyLeadIn } from "./use_study_lead_in.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
 import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
@@ -127,6 +128,11 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transp
   const gameContext = useStudyGameContext(view?.dataset_id, readyRepair ? view.attempt_id : null);
   const historyLine = gameContext?.line ?? view?.history;
   const inspecting = history?.view === view;
+  const onLeadInPlayed = useCallback((fen, uci) => {
+    if (sounds.enabled) sounds.play(opponentCue(fen, uci));
+  }, [sounds]);
+  const showingCard = studying && !stopped && !inspecting && view?.status === "ready";
+  const leadIn = useStudyLeadIn(showingCard ? identity(view) : null, view?.opponent_move, onLeadInPlayed);
   useEffect(() => { setHistory(null); }, [view]);
   const autoAdvance = studying && !stopped && !dialog && !inspecting && canAutoAdvance(view?.status, view?.activity, view?.assessment) &&
     !state.busy && !state.canRetry && !state.refreshRequired && !state.storageUnavailable && advanced.current !== view && pausedAdvance.current !== view;
@@ -284,7 +290,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transp
     if (
       !v ||
       v.status !== "ready" ||
-      dialog || inspecting || snapshot.analysis ||
+      leadIn || dialog || inspecting || snapshot.analysis ||
       state.busy ||
       state.canRetry ||
       state.refreshRequired || state.storageUnavailable ||
@@ -382,6 +388,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, transp
   return (
     <StudyPage
       {...model}
+      leadIn={leadIn}
       showSuccess={autoAdvance && view.activity === "test"}
       advancing={state.busy && advanced.current === view}
       actions={actions}
