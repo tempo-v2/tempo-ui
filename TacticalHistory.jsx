@@ -147,7 +147,7 @@ function HistorySession({ dataset, onOpen }) {
     {view && <>
       {view.paused !== undefined && <div>
         <Button disabled={working} onClick={() => change(view.paused ? "resume" : "pause")}>{view.paused ? "Resume analysis" : "Pause analysis"}</Button>
-        <Button disabled={working || !stats.inconclusive_positions} onClick={() => change("retry")}>Retry inconclusive positions</Button>
+        <Button disabled={working || !stats.retryable_positions} onClick={() => change("retry")}>Retry inconclusive positions</Button>
       </div>}
       <p className="tactical-coverage" role="status">{progress}
         {" · "}{stats.completed_games.toLocaleString()} games checked · {stats.decisions_scanned.toLocaleString()} decisions scanned

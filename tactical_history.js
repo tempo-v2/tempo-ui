@@ -155,7 +155,7 @@ export function validateTacticalHistory(value, dataset, before) {
     object(value.active_game, ["source", "game_id", "learner"], "active game");
     Object.values(value.active_game).forEach(nonempty);
   }
-  const taskFields = ["pending_positions", "inconclusive_positions"].filter(field => Object.hasOwn(value.statistics, field));
+  const taskFields = ["pending_positions", "inconclusive_positions", "retryable_positions"].filter(field => Object.hasOwn(value.statistics, field));
   object(value.statistics, [...statisticFields, ...taskFields], "tactical statistics");
   taskFields.forEach(field => count(value.statistics[field]));
   for (const field of statisticFields.filter(field => field !== "outcomes")) count(value.statistics[field]);

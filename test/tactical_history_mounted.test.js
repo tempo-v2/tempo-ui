@@ -209,12 +209,13 @@ test("analysis controls pause, resume and retry through addressed commands", asy
   ];
   report.statistics.pending_positions = 3;
   report.statistics.inconclusive_positions = 1;
+  report.statistics.retryable_positions = 1;
   const page = await mounted(t, ({url, payload}) => {
     if (url === "/api/games/tactics") return response(structuredClone(report));
     assert.equal(payload.dataset_id, "tactics-fixture");
     if (payload.action === "pause") report.paused = true;
     else if (payload.action === "resume") report.paused = false;
-    else if (payload.action === "retry") report.statistics.inconclusive_positions = 0;
+    else if (payload.action === "retry") report.statistics.retryable_positions = 0;
     else assert.fail(payload.action);
     return response({accepted: true});
   });
