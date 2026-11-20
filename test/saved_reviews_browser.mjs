@@ -49,7 +49,8 @@ try {
   execFileSync(binary, ["import-tactics", database, transfer]);
   let url = await start();
   browser = await chromium.launch({ channel: "chrome", headless: true });
-  const page = await browser.newPage();
+  const desktop = await browser.newContext();
+  const page = await desktop.newPage();
   page.setDefaultTimeout(10_000);
   sql = new DatabaseSync(database, { readOnly: true });
   const studyTables = ["store_state", "attempts", "learning", "assessments", "receipts"];
@@ -98,10 +99,7 @@ try {
     const reply = tab.waitForResponse(response => response.url().endsWith("/api/study/review-mark"));
     await tab.getByRole("button", { name: "Review later", exact: true }).click();
     const response = await reply;
-    assert.equal(response.status(), 200, JSON.stringify({
-      url: response.url(), headers: await response.allHeaders(),
-      request: await response.request().allHeaders(), page: tab.url(),
-    }));
+    assert.equal(response.status(), 200, "the packaged route should accept the mark");
     const marked = await response.json();
     assert.equal(marked.status, "saved", JSON.stringify(marked));
     await tab.getByText("Saved for review.", { exact: true }).waitFor({ timeout: 10_000 });
@@ -154,8 +152,9 @@ try {
   // A new live attempt on the same card still protects the earlier mark.
   assert.deepEqual(await reviews({ command: "open", id: firstId }), { status: "study_required", id: firstId });
   const board = page.locator(".study-board cg-board");
-  async function play(uci) {
-    const box = await board.boundingBox();
+  async function play(uci, surface = board) {
+    await surface.scrollIntoViewIfNeeded();
+    const box = await surface.boundingBox();
     assert(box);
     for (const square of [uci.slice(0, 2), uci.slice(2, 4)]) {
       const file = square.charCodeAt(0) - "a".charCodeAt(0);
@@ -192,7 +191,7 @@ try {
   assert.deepEqual(studyData(), studyBeforeReview);
   assert.equal((await save(firstMark)).id, firstId);
   assert.deepEqual((await reviews({ command: "list" })).rows.map(row => row.id), [list.rows[0].id]);
-  const studyTab = await page.context().newPage();
+  const studyTab = await desktop.newPage();
   await studyTab.goto(url);
   const practiceButton = studyTab.getByRole("button", { name: "Practice tactics", exact: true });
   await practiceButton.waitFor();
@@ -317,7 +316,7 @@ try {
   const preview = await repertoire({ command: "preview", ...book });
   assert(preview.token);
   await repertoire({ command: "save", ...book, token: preview.token });
-  const openingTab = await page.context().newPage();
+  const openingTab = await desktop.newPage();
   await openingTab.goto(url);
   await openingTab.getByText("Play e4 on the board.").waitFor();
   await page.goto(url);
@@ -326,7 +325,7 @@ try {
   await button("Saved for review").click();
   await button("Open analysis").click();
   await page.getByText(/Issued Study move · e4/).waitFor();
-  await button("d4").click();
+  await play("d2d4", page.locator(".analysis-layout cg-board"));
   await button("Mark line").click();
   await button("Preview changes").click();
   await button("Save repertoire").waitFor();
