@@ -8,7 +8,7 @@ import {
   savedReviewsPath,
   useReviewWrite,
 } from "./saved_review_commands.js";
-import { studyChangeStamp } from "./study_presence.js";
+import { studyChangeKey, studyChangeStamp } from "./study_presence.js";
 
 const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
@@ -29,6 +29,7 @@ export function SavedReviewsPage({ datasetId, onStudy }) {
   const [result, setResult] = useState(null);
   const [selection, setSelection] = useState(null);
   const [opened, setOpened] = useState(null);
+  const [openRetry, setOpenRetry] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const remove = useReviewWrite(savedReviewsPath, reviewRemoveRecovery, "removed", () => {
     setCursors([null]);
@@ -50,25 +51,64 @@ export function SavedReviewsPage({ datasetId, onStudy }) {
 
   useEffect(() => {
     if (!selection) return;
-    const owner = new AbortController();
-    const stamp = studyChangeStamp();
-    readReviewCommand(savedReviewsPath, {
-      command: "open", dataset_id: datasetId, id: selection.id,
-    }, owner.signal).then(reply => {
-      if (owner.signal.aborted) return;
-      if (reply?.id !== selection.id) throw new Error("Tempo could not verify the saved mark.");
-      if (reply.status === "study_required") setOpened({ selection, waiting: true });
-      else if (reply.status === "review_context") {
-        if (studyChangeStamp() !== stamp)
-          throw new Error("Study changed while opening this position. Try again.");
-        const origin = validateAnalysisOrigin(reply.origin, { dataset_id: datasetId });
-        setOpened({ selection, origin });
-      } else throw new Error("Tempo could not open the saved position.");
-    }).catch(error => {
-      if (!owner.signal.aborted) setOpened({ selection, error: error.message });
-    });
-    return () => owner.abort();
-  }, [datasetId, selection]);
+    let request;
+    let invalidated = false;
+    function present(value) {
+      setOpened(previous => ({
+        selection, datasetId,
+        origin: previous?.selection === selection && previous.datasetId === datasetId
+          ? previous.origin : null,
+        ...value,
+      }));
+    }
+    async function recheck() {
+      if (invalidated) return;
+      request?.abort();
+      present({ state: "checking" });
+      if (document.hidden) return;
+      const owner = new AbortController();
+      request = owner;
+      const stamp = studyChangeStamp();
+      try {
+        const reply = await readReviewCommand(savedReviewsPath, {
+          command: "open", dataset_id: datasetId, id: selection.id,
+        }, owner.signal);
+        if (owner.signal.aborted) return;
+        if (studyChangeStamp() !== stamp) {
+          invalidate();
+          return;
+        }
+        if (reply?.id !== selection.id) throw new Error("Tempo could not verify the saved mark.");
+        if (reply.status === "study_required") present({ state: "waiting" });
+        else if (reply.status === "review_context") {
+          const origin = validateAnalysisOrigin(reply.origin, { dataset_id: datasetId });
+          present({ state: "open", origin });
+        } else throw new Error("Tempo could not open the saved position.");
+      } catch (error) {
+        if (!owner.signal.aborted) present({ state: "error", error: error.message });
+      }
+    }
+    function invalidate() {
+      invalidated = true;
+      request?.abort();
+      // A cross-tab request can still be in flight or may have lost its reply.
+      // End this disclosure visit. A new, explicit Open gets current authority.
+      present({ state: "invalidated" });
+    }
+    function onStudyChange(event) {
+      if (event.key === studyChangeKey) invalidate();
+    }
+    void recheck();
+    window.addEventListener("storage", onStudyChange);
+    window.addEventListener("pageshow", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      request?.abort();
+      window.removeEventListener("storage", onStudyChange);
+      window.removeEventListener("pageshow", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [datasetId, selection, openRetry]);
 
   function closePosition() {
     setSelection(null);
@@ -76,8 +116,20 @@ export function SavedReviewsPage({ datasetId, onStudy }) {
     setRefresh(number => number + 1);
   }
 
-  const current = opened?.selection === selection ? opened : null;
-  if (current?.origin) return <AnalysisPage origin={current.origin} onClose={closePosition} />;
+  const current = opened?.selection === selection && opened.datasetId === datasetId ? opened : null;
+  const retryOpening = () => setOpenRetry(number => number + 1);
+  const interruption = current?.state === "waiting" ? (
+    <><StatusNotice>Finish in Study to open analysis.</StatusNotice>
+      <Button onClick={retryOpening}>Check again</Button></>
+  ) : current?.state === "invalidated" ? (
+    <StatusNotice>Study changed in another tab. Return to saved reviews to open this position again.</StatusNotice>
+  ) : current?.state === "error" ? (
+    <><StatusNotice kind="error">{current.error}</StatusNotice>
+      <Button onClick={retryOpening}>Retry opening position</Button></>
+  ) : <p role="status">{current?.origin ? "Checking Study…" : "Opening position…"}</p>;
+  if (current?.origin)
+    return <AnalysisPage origin={current.origin} onClose={closePosition}
+      interruption={current.state === "open" ? null : interruption} />;
   return (
     <main className="tempo-core repertoire-page">
       <PageHeader title="Saved for review" actions={<Button onClick={onStudy}>Back to Study</Button>} />
@@ -87,11 +139,7 @@ export function SavedReviewsPage({ datasetId, onStudy }) {
         {selection ? (
           <>
             <Button onClick={closePosition}>Back to saved reviews</Button>
-            {current?.waiting ? <StatusNotice>Finish in Study to open analysis.</StatusNotice>
-              : current?.error ? (
-                <><StatusNotice kind="error">{current.error}</StatusNotice>
-                  <Button onClick={() => setSelection({ id: selection.id })}>Retry opening position</Button></>
-              ) : <p role="status">Opening position…</p>}
+            {interruption}
           </>
         ) : result?.error ? (
           <><StatusNotice kind="error">{result.error}</StatusNotice>

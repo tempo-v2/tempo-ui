@@ -48,15 +48,19 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, requ
     controller.current = createStudyController({
       transport: {
         async send(command) {
-          if (command.command !== "study_status") signalStudyChange();
-          const response = await requestStudy("/api/study", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...studyMoveDetails },
-            body: JSON.stringify(command),
-          });
-          if (!response.ok) throw new Error(`Server returned ${response.status}`);
-          if (command.command !== "study_status") signalStudyChange();
-          return response.json();
+          const signal = command.command !== "study_status";
+          if (signal) signalStudyChange();
+          try {
+            const response = await requestStudy("/api/study", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...studyMoveDetails },
+              body: JSON.stringify(command),
+            });
+            if (!response.ok) throw new Error(`Server returned ${response.status}`);
+            return await response.json();
+          } finally {
+            if (signal) signalStudyChange();
+          }
         },
       },
       storage,

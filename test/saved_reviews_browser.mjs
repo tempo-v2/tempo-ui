@@ -95,8 +95,16 @@ try {
       if (request.url().endsWith("/api/study/review-mark")) submitted = request.postDataJSON();
     });
     await tab.goto(url);
+    const reply = tab.waitForResponse(response => response.url().endsWith("/api/study/review-mark"));
     await tab.getByRole("button", { name: "Review later", exact: true }).click();
-    await tab.getByText("Saved for review.", { exact: true }).waitFor();
+    const response = await reply;
+    assert.equal(response.status(), 200, JSON.stringify({
+      url: response.url(), headers: await response.allHeaders(),
+      request: await response.request().allHeaders(), page: tab.url(),
+    }));
+    const marked = await response.json();
+    assert.equal(marked.status, "saved", JSON.stringify(marked));
+    await tab.getByText("Saved for review.", { exact: true }).waitFor({ timeout: 10_000 });
     const { submission_id, ...position } = submitted;
     assert(submission_id);
     assert.deepEqual(position, {
@@ -184,6 +192,53 @@ try {
   assert.deepEqual(studyData(), studyBeforeReview);
   assert.equal((await save(firstMark)).id, firstId);
   assert.deepEqual((await reviews({ command: "list" })).rows.map(row => row.id), [list.rows[0].id]);
+  const studyTab = await page.context().newPage();
+  await studyTab.goto(url);
+  const practiceButton = studyTab.getByRole("button", { name: "Practice tactics", exact: true });
+  await practiceButton.waitFor();
+  await page.bringToFront();
+  await button("Saved for review").click();
+  await button("Open analysis").click();
+  await page.getByText(/Issued Study move · Nf3/).waitFor();
+
+  let releasePractice;
+  let practiceQueued;
+  let practiceReceived;
+  const holdPractice = new Promise(resolve => { releasePractice = resolve; });
+  const pendingPractice = new Promise(resolve => { practiceQueued = resolve; });
+  const acceptedPractice = new Promise(resolve => { practiceReceived = resolve; });
+  await studyTab.route("**/api/study", async route => {
+    if (route.request().postDataJSON().command !== "practice_tactics") return route.continue();
+    practiceQueued();
+    await holdPractice;
+    const upstream = await route.fetch();
+    practiceReceived(await upstream.json());
+    await route.abort();
+  });
+  await practiceButton.click();
+  await pendingPractice;
+  await page.bringToFront();
+  const invalidated = page.getByText(/Study changed in another tab/);
+  await invalidated.waitFor();
+  assert.equal((await reviews({ command: "open", id: list.rows[0].id })).status, "review_context");
+  assert.equal(await page.getByText(/Issued Study move/).count(), 0);
+  releasePractice();
+  const practice = await acceptedPractice;
+  assert.equal(practice.activity, "practice");
+  assert.equal(practice.target_id, issued.target_id);
+  await invalidated.waitFor();
+  assert.equal(await page.getByLabel("Analysis board", { exact: true }).count(), 0);
+  await button("Return").click();
+  await button("Open analysis").click();
+  await page.getByText("Finish in Study to open analysis.", { exact: true }).waitFor();
+  await post("/api/study", {
+    command: "abandon", dataset_id: practice.dataset_id, attempt_id: practice.attempt_id,
+    expected_revision: practice.revision, submission_id: "leave-other-tab",
+  });
+  await button("Check again").click();
+  await page.getByText(/Issued Study move · Nf3/).waitFor();
+  await button("Return").click();
+  await studyTab.close();
   assert.deepEqual(errors, []);
 
   sql.close();
@@ -199,11 +254,23 @@ try {
     execFileSync(binary, ["import-tactics", database, transfer]);
     url = await start();
     const study = input => post("/api/study", input);
-    const startView = await study({ command: "next" });
+    let startView = await study({ command: "next" });
     const commandFor = (view, command, submission_id) => ({
       command, submission_id, dataset_id: view.dataset_id,
       attempt_id: view.attempt_id, expected_revision: view.revision,
     });
+    let firstMark;
+    if (leave === "concede") {
+      const advanced = await study({ ...commandFor(startView, "answer", "first-run"), answer: { uci: "e2e4" } });
+      firstMark = await save({
+        dataset_id: advanced.dataset_id, attempt_id: advanced.attempt_id,
+        content_version: advanced.content_version, position: { kind: "decision", index: 1 },
+        submission_id: "mark-before-resume",
+      });
+      assert.equal((await study(commandFor(advanced, "skip", "skip-before-resume"))).status, "abandoned");
+      startView = await study({ command: "resume_skipped" });
+      assert.notEqual(startView.attempt_id, advanced.attempt_id);
+    }
     const miss = await study({ ...commandFor(startView, "answer", "miss"), answer: { uci: "d2d4" } });
     assert.equal(miss.assessment, "again");
     const corrected = await study({ ...commandFor(miss, "answer", "correct"), answer: { uci: "e2e4" } });
@@ -211,6 +278,7 @@ try {
     const targetAddress = { dataset_id: corrected.dataset_id, attempt_id: corrected.attempt_id,
       content_version: corrected.content_version };
     const marked = await save({ ...targetAddress, position: { kind: "decision", index: 1 }, submission_id: "mark-later" });
+    if (firstMark) assert.equal(marked.id, firstMark.id);
     const closed = await study(commandFor(corrected, leave, "end-attempt"));
     assert.equal(closed.status, "abandoned");
     const saved = await post("/api/study/saved-reviews", {
@@ -221,9 +289,70 @@ try {
     } else {
       const immediate = await post("/api/study/analysis-context", { ...targetAddress, revision: closed.revision });
       assert.equal(saved.origin.prescribedUci, "g1f3");
-      assert.deepEqual(saved.origin, immediate);
+      assert.equal(saved.origin.fen, immediate.fen);
+      assert.equal(saved.origin.prescribedUci, immediate.prescribedUci);
+      assert.notEqual(saved.origin.attemptId, immediate.attemptId);
+      const receiptFixture = new DatabaseSync(database);
+      try {
+        receiptFixture.prepare("UPDATE receipts SET command=? WHERE id=?")
+          .run("alternate opaque replay fingerprint", "end-attempt");
+      } finally {
+        receiptFixture.close();
+      }
+      const reopened = await post("/api/study/saved-reviews", {
+        command: "open", dataset_id: corrected.dataset_id, id: marked.id,
+      });
+      assert.deepEqual(reopened, saved);
     }
   }
+  await stop();
+  database = join(directory, "analysis-save-review.sqlite");
+  execFileSync(binary, ["init", database]);
+  execFileSync(binary, ["configure", database, "1", "0"]);
+  url = await start();
+  const repertoire = input => post("/api/repertoires", input);
+  const catalog = await repertoire({ command: "list" });
+  const book = { dataset_id: catalog.dataset_id, name: "Save while interrupted",
+    learner_color: "white", pgn: "1. e4 *" };
+  const preview = await repertoire({ command: "preview", ...book });
+  assert(preview.token);
+  await repertoire({ command: "save", ...book, token: preview.token });
+  const openingTab = await page.context().newPage();
+  await openingTab.goto(url);
+  await openingTab.getByText("Play e4 on the board.").waitFor();
+  await page.goto(url);
+  await markButton.click();
+  await page.getByText("Saved for review.", { exact: true }).waitFor();
+  await button("Saved for review").click();
+  await button("Open analysis").click();
+  await page.getByText(/Issued Study move · e4/).waitFor();
+  await button("d4").click();
+  await button("Mark line").click();
+  await button("Preview changes").click();
+  await button("Save repertoire").waitFor();
+
+  const saveBodies = [];
+  await page.route("**/api/repertoires", async route => {
+    if (route.request().postDataJSON().command !== "save") return route.continue();
+    saveBodies.push(route.request().postData());
+    if (saveBodies.length > 1) return route.continue();
+    const upstream = await route.fetch();
+    assert.equal((await upstream.json()).status, "repertoires");
+    await route.abort();
+  });
+  await button("Save repertoire").click();
+  await button("Retry save").waitFor();
+  await openingTab.reload();
+  await page.bringToFront();
+  await page.getByText(/Study changed in another tab/).waitFor();
+  assert.equal(await page.getByLabel("Analysis board", { exact: true }).count(), 0);
+  await button("Retry save").click();
+  await page.getByText("Repertoire saved.", { exact: true }).waitFor();
+  assert.deepEqual(saveBodies, [saveBodies[0], saveBodies[0]]);
+  assert.equal(await page.getByLabel("Analysis board", { exact: true }).count(), 0);
+  await button("Return").click();
+  await page.getByRole("heading", { name: "Saved for review", exact: true }).waitFor();
+  await openingTab.close();
   console.log("Desktop Chrome verified exact multi-move marks, skipped/active blind protection, automatic advance, removal, and restart.");
 } finally {
   sql?.close();
