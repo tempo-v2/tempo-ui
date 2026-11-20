@@ -57,7 +57,7 @@ export function StudyPage({
     index === 0 ? notation : notation.replace(/^\d+\.\.\. /, ""));
   const { summary, unavailable, repairsRemaining } = useStudyProgress(view, stopped);
   const replayBlocked = state.busy || state.canRetry || !!choice || !!dialog;
-  const canAnalyze = actions.analyze && attempt &&
+  const canAnalyze = !!actions.analyze && attempt &&
     (view.status !== "abandoned" || (view.activity === "test" && view.assessment === "again"));
   const analysisBlocked = replayBlocked || advancing || state.refreshRequired || state.storageUnavailable;
   const title = attempt

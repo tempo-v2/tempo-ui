@@ -363,7 +363,7 @@ export function App({ initialPage = "study", renderSection, renderAnalysis, tran
     if (nextPage === "study") controller.current.start().catch(() => {});
   }
   useEffect(() => subscribeNavigation?.(page, nextPage => {
-    cancelLichessLaunch();
+    if (nextPage === "games") cancelLichessLaunch();
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }), [cancelLichessLaunch, page, subscribeNavigation]);
