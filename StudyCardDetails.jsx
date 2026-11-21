@@ -56,6 +56,8 @@ export function StudyCardDetails({ view, onOpen }) {
     }
     window.addEventListener("storage", closeOnStudyChange);
     window.addEventListener("pageshow", closeDetails);
+    window.addEventListener("blur", closeDetails);
+    window.addEventListener("focus", closeDetails);
     document.addEventListener("visibilitychange", closeDetails);
     readReviewCommand("/api/study/card-details", address, owner.signal).then(reply => {
       if (reply?.status !== "card_details" || !reply.details ||
@@ -76,6 +78,8 @@ export function StudyCardDetails({ view, onOpen }) {
       owner.abort();
       window.removeEventListener("storage", closeOnStudyChange);
       window.removeEventListener("pageshow", closeDetails);
+      window.removeEventListener("blur", closeDetails);
+      window.removeEventListener("focus", closeDetails);
       document.removeEventListener("visibilitychange", closeDetails);
     };
   }, [dataset_id, attempt_id, revision, content_version, open, retry]);

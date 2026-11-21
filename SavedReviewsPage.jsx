@@ -70,11 +70,15 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
         ...value,
       }));
     }
-    async function recheck() {
+    function hidePosition() {
       if (invalidated) return;
       request?.abort();
       present({ state: "checking" });
-      if (document.hidden) return;
+    }
+    async function recheck() {
+      if (invalidated) return;
+      hidePosition();
+      if (document.hidden || !document.hasFocus()) return;
       const owner = new AbortController();
       request = owner;
       const stamp = studyChangeStamp();
@@ -110,11 +114,15 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
     void recheck();
     window.addEventListener("storage", onStudyChange);
     window.addEventListener("pageshow", recheck);
+    window.addEventListener("blur", hidePosition);
+    window.addEventListener("focus", recheck);
     document.addEventListener("visibilitychange", recheck);
     return () => {
       request?.abort();
       window.removeEventListener("storage", onStudyChange);
       window.removeEventListener("pageshow", recheck);
+      window.removeEventListener("blur", hidePosition);
+      window.removeEventListener("focus", recheck);
       document.removeEventListener("visibilitychange", recheck);
     };
   }, [datasetId, selection, openRetry]);

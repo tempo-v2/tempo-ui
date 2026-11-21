@@ -262,6 +262,18 @@ try {
   });
   await button("Check again").click();
   await page.getByText(/Issued Study move · Nf3/).waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.getByText(/Issued Study move · Nf3/).waitFor({ state: "detached" });
+  // A separate device changes Study without publishing a browser storage event.
+  const otherDevice = await post("/api/study", { command: "practice_tactics" });
+  assert.equal(otherDevice.target_id, issued.target_id);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.getByText("Finish in Study to open analysis.", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Analysis board", { exact: true }).count(), 0);
+  await post("/api/study", {
+    command: "abandon", dataset_id: otherDevice.dataset_id, attempt_id: otherDevice.attempt_id,
+    expected_revision: otherDevice.revision, submission_id: "leave-other-device",
+  });
   await button("Return").click();
   await studyTab.close();
   assert.deepEqual(errors, []);

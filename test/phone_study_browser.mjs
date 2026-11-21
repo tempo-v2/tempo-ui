@@ -284,6 +284,10 @@ try {
   await page.getByText(/Tempo has no recorded reason/).waitFor();
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
   await page.getByText(/Tempo has no recorded reason/).waitFor({ state: "detached" });
+  await button("Card details").tap();
+  await page.getByText(/Tempo has no recorded reason/).waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.getByText(/Tempo has no recorded reason/).waitFor({ state: "detached" });
   assert.equal(await button("Card details").getAttribute("aria-expanded"), "false");
   await page.evaluate(() => window.scrollTo(0, 0));
   const continueStudy = await checkContinuation("Continue", secondLayout);
