@@ -152,7 +152,31 @@ try {
   await page.waitForFunction(label => document.querySelector(label)?.dataset.fen.startsWith("7k/8/5KQ1/"), boardLabel);
   assert.equal(await root.locator("svg.cg-shapes g[cgHash]").count(), 0);
   assert.deepEqual(commands.map(command => command.command), ["next", "next", "answer", "answer", "next", "answer", "answer", "next"]);
-  console.log("Desktop Study shows the exact opening move once and keeps the board in place through two replies and a correction.");
+
+  const beforeCompletion = await board.boundingBox();
+  const commandCount = commands.length;
+  await board.evaluate(element => {
+    const container = element.closest(".study-board");
+    const observer = new MutationObserver(() => {
+      const cue = container.querySelector('[role="status"]');
+      if (!cue?.textContent.includes("Exercise complete")) return;
+      const { x, y, width, height } = element.getBoundingClientRect();
+      window.completedStudyBoardBounds = { x, y, width, height };
+      observer.disconnect();
+    });
+    observer.observe(container, { childList: true });
+  });
+  const [next] = await Promise.all([
+    page.waitForResponse(response => response.url() === origin + "/api/study" &&
+      response.request().postDataJSON()?.command === "next"),
+    move("g6g7"),
+  ]);
+  assert.ok(next.ok());
+  await page.getByRole("status").filter({ hasText: "Exercise complete" }).waitFor({ state: "hidden" });
+  assert.deepEqual(await page.evaluate(() => window.completedStudyBoardBounds), beforeCompletion,
+    "The completion checkmark should leave the board in place");
+  assert.deepEqual(commands.slice(commandCount).map(command => command.command), ["answer", "next"]);
+  console.log("Desktop Study keeps the board in place through replies, correction and the completion checkmark.");
 } finally {
   await browser?.close();
   if (server?.exitCode === null && server.signalCode === null) {

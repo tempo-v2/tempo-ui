@@ -106,7 +106,7 @@ export function StudyPage({
             onRejectedMove={onRejectedMove}
           />
           {showSuccess && (
-            <div className={continuationBelowBoard ? "puzzle-success" : "exercise-success"} role="status">
+            <div className="puzzle-success" role="status">
               <span aria-hidden="true">✓</span>
               <span className="visually-hidden">Exercise complete</span>
             </div>
