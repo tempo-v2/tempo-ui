@@ -32,5 +32,5 @@ function renderNavigation(page, navigate, navigationLocked) {
 export function PhoneApp() {
   return <App studyPresenceSurface="phone" transport={phoneStudyTransport} boardContinuation
     initialPage={initialPage} renderSection={renderSection} renderNavigation={renderNavigation}
-    navigateSection={navigateSection} />;
+    navigateSection={navigateSection} studyCompanionSection="build" />;
 }

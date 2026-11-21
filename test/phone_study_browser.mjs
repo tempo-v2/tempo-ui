@@ -316,6 +316,16 @@ try {
   assert.equal(commands.length, completedCommands);
   assert.equal(await page.getByRole("tooltip").count(), 0);
 
+  const completedAttempts = rows("attempts");
+  const completedAssessmentCount = rows("assessments");
+  await button("Build").tap();
+  await page.getByRole("heading", { name: "Build repertoire" }).waitFor();
+  await button("Study").tap();
+  await button("Continue").waitFor();
+  assert.equal(commands.length, completedCommands);
+  assert.equal(rows("attempts"), completedAttempts);
+  assert.equal(rows("assessments"), completedAssessmentCount);
+
   const sounds = button("Board sounds");
   const wasPressed = await sounds.getAttribute("aria-pressed");
   await sounds.tap();
