@@ -316,6 +316,17 @@ try {
     await page.getByText(/estimated coverage through your move 3/).waitFor();
     await button("This scan").click();
     await page.getByText(/e5 · 100% estimated/).locator("..").getByRole("button", { name: "Fix response" }).click();
+    await page.getByRole("heading", { name: "Respond to 2…e5", exact: true }).waitFor();
+    const { gaps } = await post("games/gaps", { offset: 0, forecast_repertoire: transposedId });
+    const { position, actual_move, document_revision, gap_kind } = gaps[0];
+    const addressed = { dataset_id, repertoire_id: transposedId, position, actual_move, document_revision, gap_kind };
+    const opened = await post("games/gap-draft", addressed);
+    const marked = await post("repertoires", {
+      command: "marked_preview", dataset_id, repertoire_id: transposedId,
+      base_revision: opened.content_revision, name: transposeInput.name, learner_color: "white",
+      anchor_fen: opened.draft.fen, anchor_route: opened.anchor_route, lines: [["f1g2"]],
+    });
+    assert.match(marked.save_command.pgn, /1\. Nf3 d5 2\. g3 e5 3\. Bg2 \*/);
     const transposedBoard = page.getByLabel("Repertoire response board", { exact: true });
     await transposedBoard.scrollIntoViewIfNeeded();
     const bb = await transposedBoard.locator("cg-board").boundingBox();
@@ -328,6 +339,14 @@ try {
     await page.getByRole("button", { name: "3.Bg2 · New reply", exact: true }).click();
     const transposeLink = new URL(await page.getByRole("link", { name: "Analyze line in Lichess" }).getAttribute("href"));
     assert.match(decodeURIComponent(transposeLink.pathname), /1\. Nf3 d5 2\. g3 e5 3\. Bg2 \*/);
+    const receiptsBeforeReply = facts()[3].length;
+    await button("Save response only").click();
+    await page.getByText("Saved Bg2.", { exact: true }).waitFor();
+    const savedTranspose = await post("repertoires", {
+      command: "read_document", dataset_id, repertoire_id: transposedId,
+    });
+    assert.match(savedTranspose.document.pgn, /Nf3 d5 g3 e5 Bg2 \*\s*$/);
+    assert.equal(facts()[3].length, receiptsBeforeReply + 1);
 
   }
   assert.deepEqual(errors, []);
