@@ -58,8 +58,11 @@ try {
   await writeFile(transfer, JSON.stringify({
     schema_version: 1,
     puzzles: tactics.map(tactic => ({
-      ...tactic, namespace: "phone-test", label: tactic.source_id,
+      ...tactic, namespace: "tempo1-card", label: tactic.source_id,
       provenance: [`tempo1:capture:${tactic.source_id}`, "tempo1:source_kind:game"],
+      legacy_game_captures: [{
+        capture_id: tactic.source_id, solver_fen: tactic.solver_fen, solution: tactic.solution,
+      }],
     })),
   }));
   execFileSync(binary, ["init", database]);
