@@ -14,13 +14,34 @@ export interface Prompt {
   readonly decision_index: number;
   readonly decision_count: number;
 }
+interface TacticPiece {
+  readonly square: string;
+  readonly role: "pawn" | "knight" | "bishop" | "rook" | "queen" | "king";
+  readonly color: "white" | "black";
+}
+type TacticRay = {
+  readonly attacker: TacticPiece;
+  readonly front: TacticPiece;
+  readonly rear: TacticPiece;
+};
+export type TacticExplanation =
+  | (TacticRay & { readonly kind: "pin" | "skewer" })
+  | (TacticRay & { readonly kind: "pin_capture"; readonly captured: TacticPiece })
+  | { readonly kind: "fork"; readonly attacker: TacticPiece; readonly targets: readonly [TacticPiece, TacticPiece] }
+  | { readonly kind: "discovered_attack" | "discovered_check"; readonly attacker: TacticPiece; readonly target: TacticPiece }
+  | { readonly kind: "mate_in_one"; readonly king: TacticPiece; readonly checkers: readonly TacticPiece[] };
 /** Feedback and automatic replies produced by the server-side grader. */
 export type Feedback = {
   readonly message: string;
   readonly autoplay: readonly { readonly uci: string }[];
 } & (
   | { readonly correct: true }
-  | { readonly correct: false; readonly correction_uci: string; readonly correction_san?: string }
+  | {
+      readonly correct: false;
+      readonly correction_uci: string;
+      readonly correction_san?: string;
+      readonly tactic_explanation?: TacticExplanation;
+    }
 );
 /** Server identities copied into later answer/abandon commands. */
 export interface RevealedLine {

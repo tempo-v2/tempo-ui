@@ -8,6 +8,7 @@ import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
 import { StudyOutcome } from "./StudyOutcome.jsx";
 import { BoardPreferences } from "./BoardPreferences.jsx";
 import { MoveFeedback } from "./MoveFeedback.jsx";
+import { presentTacticExplanation } from "./tactic_explanation.js";
 import { studyActionButtons } from "./StudyActions.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
@@ -49,6 +50,8 @@ export function StudyPage({
   onCancel,
 }) {
   const attempt = view && !stopped && ["ready", "complete", "abandoned"].includes(view.status);
+  const tacticClue = attempt && view.status === "ready" && historyIndex === null && !leadIn
+    ? presentTacticExplanation(view.feedback) : null;
   const continuationBelowBoard = attempt && boardContinuation;
   const { continuation, others } = !advancing && historyIndex === null
     ? studyActionButtons({ view, state, actions, reproduced: !!guided?.uci, stopped })
@@ -96,6 +99,7 @@ export function StudyPage({
               ? historyLine?.start_fen : historyLine?.moves[historyIndex - 1]?.fen}
             gameReplay={inGameReplay}
             gameDeviation={gameContext?.playedUci}
+            tacticClue={tacticClue}
             guidedMove={view.corrective_repair ? guided?.uci : undefined}
             locked={
               state.busy ||
@@ -186,7 +190,7 @@ export function StudyPage({
                   )}
                 </StatusNotice>
               )}
-              <MoveFeedback view={view} />
+              <MoveFeedback view={view} tacticClue={tacticClue} />
               {attempt && (view.status === "complete" || view.assessment === "again" ||
                 view.feedback?.correct === false) && (
                 <StudyCardDetails key={JSON.stringify([view.dataset_id, view.attempt_id, view.revision])}

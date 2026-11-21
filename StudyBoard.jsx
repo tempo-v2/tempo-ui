@@ -9,7 +9,7 @@ export const studyOrientation = (color, flipped) =>
   flipped ? (color === "white" ? "black" : "white") : color;
 
 export const StudyBoard = forwardRef(function StudyBoard(
-  { view, leadIn, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation },
+  { view, leadIn, locked, retainMoveOnLock, onMove, onRejectedMove, prefs, flipped, historyFen, guidedMove, gameReplay, gameDeviation, tacticClue },
   ref,
 ) {
   const destinations = useMemo(() => {
@@ -52,6 +52,7 @@ export const StudyBoard = forwardRef(function StudyBoard(
         orig: demonstration.slice(0, 2), dest: demonstration.slice(2, 4), brush: "blue",
       });
     }
+    if (tacticClue) arrows.push(...tacticClue.shapes);
   }
   return (
     <MainBoard
@@ -76,7 +77,9 @@ export const StudyBoard = forwardRef(function StudyBoard(
       onMove={onMove}
       onRejectedMove={onRejectedMove}
       ariaLabel={gameReplay ? "Game replay chessboard" : "Study chessboard"}
-      ariaDescribedBy={!historyFen && view.status === "ready" ? "puzzle-turn" : undefined}
+      ariaDescribedBy={!historyFen && view.status === "ready"
+        ? tacticClue ? "puzzle-turn study-tactic-clue" : "puzzle-turn"
+        : undefined}
     />
   );
 });
