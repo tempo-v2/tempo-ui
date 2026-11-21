@@ -35,9 +35,9 @@ function subscribeNavigation(page, changePage) {
   return () => window.removeEventListener("popstate", syncPage);
 }
 
-function renderSection(page, goTo, datasetId) {
+function renderSection(page, goTo, datasetId, onTacticExcluded) {
   const onStudy = () => goTo("study");
-  if (page === "saved-reviews") return <SavedReviewsPage datasetId={datasetId} onStudy={onStudy} />;
+  if (page === "saved-reviews") return <SavedReviewsPage datasetId={datasetId} onStudy={onStudy} onTacticExcluded={onTacticExcluded} />;
   if (page === "games") return <GamesPage onStudy={onStudy}
     onRepertoires={() => goTo("repertoires")} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={onStudy} />;

@@ -1,3 +1,4 @@
+import { validateCardDetails } from "./card_details.js";
 import { UCI } from "./validate_study_view.js";
 
 export function validateAnalysisOrigin(origin, address) {
@@ -11,5 +12,6 @@ export function validateAnalysisOrigin(origin, address) {
       (origin.name !== null && typeof origin.name !== "string") ||
       (origin.playedUci !== null && !UCI.test(origin.playedUci)) || !UCI.test(origin.prescribedUci))
     throw new Error("Tempo could not verify this Study position.");
+  if (origin.cardDetails !== undefined) validateCardDetails(origin.cardDetails);
   return origin;
 }

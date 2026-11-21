@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { CardDetailsContent } from "./StudyCardDetails.jsx";
 import { MainBoard } from "./MainBoard.jsx";
 import { Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
@@ -199,6 +200,9 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
               ))}
             </select>
           </div>
+          {origin.cardDetails && <details><summary>Card details</summary>
+            <CardDetailsContent details={origin.cardDetails} />
+          </details>}
           {authoring && (
             <MarkedLinesForm draft={draft} path={path} lineLabel={lineLabel} />
           )}

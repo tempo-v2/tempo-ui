@@ -93,8 +93,7 @@ try {
   const phone = await asset.text();
   assert(phone === await readFile(join(ui, "phone/assets/app.js"), "utf8"));
   assert(desktop !== phone);
-  assert(!phone.includes("/api/games/refresh"));
-  assert(!phone.includes("/api/repertoires"));
+  // Diagnostics also contain route names. Verify access by exercising ingress.
   assert.equal((await phoneFetch("/assets/phone.webmanifest")).headers.get("content-type"), "application/manifest+json");
   for (const headers of [
     { Host: new URL(local).host }, { "X-Forwarded-Host": new URL(local).host },
@@ -105,7 +104,7 @@ try {
   const phonePost = (path, command) => phoneFetch(path, {
     method: "POST", headers: { ...jsonHeaders, Origin: phoneOrigin }, body: JSON.stringify(command),
   });
-  for (const path of ["/api/games/import", "/api/repertoires", "/api/tactics", "/api/study/analysis-context", "/api/study/saved-reviews"]) {
+  for (const path of ["/api/games/import", "/api/games/refresh", "/api/repertoires", "/api/tactics", "/api/study/analysis-context", "/api/study/saved-reviews"]) {
     assert.equal((await phonePost(path, {})).status, 404, path);
   }
   assert.equal((await phoneFetch("/api/games")).status, 404);
@@ -198,13 +197,17 @@ try {
   assert.equal(await page.locator(".tempo-board-resize-handle").count(), 0);
   assert.equal(await page.getByRole("navigation", { name: "Tempo sections" }).count(), 0);
   assert.equal(await button("Analyze").count(), 0);
+  assert.equal(await button("Card details").count(), 0);
   await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
   const solution = view => tactics.find(tactic => tactic.solver_fen.split(" ")[0] === view.display_fen.split(" ")[0]).solution[0];
   const baseline = rows("assessments");
   const receipts = rows("receipts");
 
   loseMark = true;
+  const lostMarkReply = page.waitForResponse(reply =>
+    reply.url().endsWith("/api/study/review-mark") && reply.status() === 503);
   await button("Review later").tap();
+  await lostMarkReply;
   await button("Retry saving for review").waitFor();
   const reviewToast = page.locator(".ui-toast").getByText("Saved for review.", { exact: true });
   assert.equal(await reviewToast.count(), 0);
@@ -270,6 +273,11 @@ try {
   await tapMove(page, answer.slice(0, 3) + "5");
   await button("Show move").waitFor({ state: "visible" });
   await page.locator(".study-panel .status-notice.error").waitFor();
+  await button("Card details").tap();
+  await page.getByText(/Tactic · /).waitFor();
+  assert.equal(await page.getByText(/recorded reason/).count(), 0);
+  await button("Card details").tap();
+  await page.evaluate(() => window.scrollTo(0, 0));
   await tapMove(page, answer);
   const continueStudy = await checkContinuation("Continue", secondLayout);
   await continueStudy.tap();

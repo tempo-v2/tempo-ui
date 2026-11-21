@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import { validateAnalysisOrigin } from "./analysis_origin.js";
 import {
   readReviewCommand,
+  reviewExcludeRecovery,
   reviewRemoveRecovery,
   savedReviewsPath,
   useReviewWrite,
 } from "./saved_review_commands.js";
-import { studyChangeKey, studyChangeStamp } from "./study_presence.js";
+import { signalStudyChange, studyChangeKey, studyChangeStamp } from "./study_presence.js";
 
 const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
@@ -16,6 +17,8 @@ function reviewPage(reply) {
   if (reply?.status !== "saved_reviews" || !Array.isArray(reply.rows) ||
       !reply.rows.every(row => Number.isSafeInteger(row?.id) && row.id > 0 &&
         (row.exercise_name === null || typeof row.exercise_name === "string") &&
+        (row.can_remove_from_study === undefined || typeof row.can_remove_from_study === "boolean") &&
+        (row.removed_from_study === undefined || typeof row.removed_from_study === "boolean") &&
         Number.isSafeInteger(row.decision_index) && row.decision_index >= 0 &&
         Number.isFinite(new Date(row.saved_at_ms).valueOf())) ||
       (reply.next !== null && reply.next !== reply.rows.at(-1)?.id)) {
@@ -24,13 +27,19 @@ function reviewPage(reply) {
   return reply;
 }
 
-export function SavedReviewsPage({ datasetId, onStudy }) {
+export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
   const [cursors, setCursors] = useState([null]);
   const [result, setResult] = useState(null);
   const [selection, setSelection] = useState(null);
   const [opened, setOpened] = useState(null);
   const [openRetry, setOpenRetry] = useState(0);
   const [refresh, setRefresh] = useState(0);
+  const [confirmation, setConfirmation] = useState(null);
+  const exclude = useReviewWrite(savedReviewsPath, reviewExcludeRecovery, "excluded", () => {
+    signalStudyChange();
+    onTacticExcluded();
+    setRefresh(number => number + 1);
+  });
   const remove = useReviewWrite(savedReviewsPath, reviewRemoveRecovery, "removed", () => {
     setCursors([null]);
     setRefresh(number => number + 1);
@@ -132,7 +141,22 @@ export function SavedReviewsPage({ datasetId, onStudy }) {
       interruption={current.state === "open" ? null : interruption} />;
   return (
     <main className="tempo-core repertoire-page">
-      <PageHeader title="Saved for review" actions={<Button onClick={onStudy}>Back to Study</Button>} />
+      <PageHeader title="Saved for review" actions={<Button disabled={exclude.busy} onClick={onStudy}>Back to Study</Button>} />
+      {exclude.message && <StatusNotice kind="error">{exclude.message}</StatusNotice>}
+      {exclude.pending && <Button disabled={exclude.busy} onClick={exclude.retry}>Retry removing from Study</Button>}
+      {confirmation !== null && (
+        <Dialog open title="Remove this tactic from Study?" onClose={() => setConfirmation(null)}>
+          <p>Study will stop showing this tactic. Its saved mark, collection entry and learning history will stay available.</p>
+          <div className="actions">
+            <Button onClick={() => setConfirmation(null)}>Cancel</Button>
+            <Button variant="primary" onClick={() => {
+              const id = confirmation;
+              setConfirmation(null);
+              void exclude.send({ command: "exclude_tactic", dataset_id: datasetId, id });
+            }}>Remove from Study</Button>
+          </div>
+        </Dialog>
+      )}
       {remove.message && <StatusNotice kind="error">{remove.message}</StatusNotice>}
       {remove.pending && <Button disabled={remove.busy} onClick={remove.retry}>Retry removal</Button>}
       <Surface>
@@ -153,8 +177,13 @@ export function SavedReviewsPage({ datasetId, onStudy }) {
                     <span>{row.exercise_name || "Study card"} · Move {row.decision_index + 1} · {date.format(row.saved_at_ms)}</span>
                     <div className="actions">
                       <Button onClick={() => setSelection({ id: row.id })}>Open analysis</Button>
-                      <Button disabled={remove.pending || remove.busy}
-                        onClick={() => void remove.send({ command: "remove", dataset_id: datasetId, id: row.id })}>Remove</Button>
+                      {row.removed_from_study && <span>Removed from Study</span>}
+                      {row.can_remove_from_study && <Button disabled={exclude.pending || exclude.busy || remove.pending || remove.busy}
+                        onClick={() => setConfirmation(row.id)}>Remove from Study</Button>}
+                      <Button disabled={remove.pending || remove.busy || exclude.pending || exclude.busy}
+                        onClick={() => void remove.send({ command: "remove", dataset_id: datasetId, id: row.id })}>
+                        Remove saved mark
+                      </Button>
                     </div>
                   </li>
                 ))}

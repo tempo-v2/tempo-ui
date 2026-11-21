@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Button, Dialog, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
 import { StudyBoard, studyOrientation, turnFromFen } from "./StudyBoard.jsx";
 import { LichessControl } from "./LichessControl.jsx";
+import { StudyCardDetails } from "./StudyCardDetails.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
 import { StudyOutcome } from "./StudyOutcome.jsx";
@@ -26,6 +27,7 @@ export function StudyPage({
   boardContinuation,
   reviewMark,
   reviewAddresses,
+  onOpenCardDetails,
   onNavigate,
   boardRef,
   choice,
@@ -185,6 +187,11 @@ export function StudyPage({
                 </StatusNotice>
               )}
               <MoveFeedback view={view} />
+              {attempt && (view.status === "complete" || view.assessment === "again" ||
+                view.feedback?.correct === false) && (
+                <StudyCardDetails key={JSON.stringify([view.dataset_id, view.attempt_id, view.revision])}
+                  view={view} onOpen={onOpenCardDetails} />
+              )}
               {historyLine && (!gameContext || inGameReplay) &&
                 <MoveTrail line={historyLine} index={historyIndex} gameReplay={inGameReplay}
                   onInspect={onInspect} disabled={replayBlocked} onReturn={() => onInspect(null)} />}
