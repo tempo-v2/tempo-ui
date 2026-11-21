@@ -347,7 +347,17 @@ try {
   await page.locator(".review-page").getByText(/Opponent played an unprepared move/).waitFor();
   await expectPiece(page, "d", 4, "black knight");
   await expectPiece(page, "c", 4, "white bishop");
-  await button("Previous move").click();
+  const replayPrevious = button("Previous move");
+  await replayPrevious.focus();
+  assert.equal(await replayPrevious.getAttribute("aria-keyshortcuts"), "ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expectPiece(page, "c", 6, "black knight");
+  const replayNext = button("Next move");
+  await replayNext.focus();
+  assert.equal(await replayNext.getAttribute("aria-keyshortcuts"), "ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expectPiece(page, "d", 4, "black knight");
+  await page.keyboard.press("ArrowLeft");
   await expectPiece(page, "c", 6, "black knight");
   await page.getByRole("button",{name:/Played next 3… Nd4/}).click();
   await choose("d2d3"); await choose("g8f6"); await choose("e1g1");
