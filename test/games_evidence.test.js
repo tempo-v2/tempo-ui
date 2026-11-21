@@ -411,9 +411,9 @@ test("historical status deadline leaves the other evidence available and recover
   await page.advance(5000);
   assert.match(page.text(), /Historical backfill status · Tempo did not respond before the wait ended/);
   stalled = false;
-  await page.click(retryLabel);
+  await page.click("Retry historical status");
   assert.match(page.text(), /Processing Lichess · history-fixture/);
-  assert.equal(page.button(retryLabel), undefined);
+  assert.equal(page.button("Retry historical status"), undefined);
 });
 
 test("a hung Maia read leaves other resources live and times out at five seconds", async t => {
@@ -681,8 +681,8 @@ test("foreign historical status is a recoverable read error scoped to Games", as
   assert.equal(page.stored(), pending);
   const reads = page.count("GET /api/games");
   foreign = false;
-  await page.click(retryLabel);
-  assert.equal(page.button(retryLabel), undefined);
+  await page.click("Retry historical status");
+  assert.equal(page.button("Retry historical status"), undefined);
   assert.equal(page.count("GET /api/games"), reads);
   assert.equal(page.stored(), pending);
   assert.equal(page.count("POST /api/games/backfill/retry"), 0);

@@ -1,9 +1,9 @@
 import { hasReviewDraft } from "./review_draft.js";
 import { GameLibrary, recordedFinding } from "./GameLibrary.jsx";
 import { GameWorkbench, readReviewMark } from "./GameWorkbench.jsx";
-import { readVisit, reviewAddress, reviewUrl, sameGame } from "./review_route.js";
+import { gamesTabs, readVisit, requestedGamesTab, reviewAddress, reviewUrl, sameGame } from "./review_route.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, PageHeader, SectionHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
   chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, readGameJob, refreshGames,
@@ -173,7 +173,6 @@ function HistoricalImport({ job, disabled, onStart, onRetry }) {
   const active = job?.windows?.[job.active_window];
   return (
     <Surface>
-      <h2>Historical backfill</h2>
       <form className="repertoire-form" onSubmit={onStart}>
         <fieldset disabled={disabled || ["running", "paused"].includes(state)}>
           <div className="repertoire-fields">
@@ -269,25 +268,103 @@ function gapKey(gap) {
   return JSON.stringify([gap.repertoire_id, gap.position, gap.actual_move]);
 }
 
+function historyTab() {
+  const tab = requestedGamesTab() ?? window.history.state?.gamesTab;
+  return gamesTabs.some(([id]) => id === tab) ? tab : "library";
+}
+
+function GamesPanel({ id, tab, children }) {
+  return <section className="games-tabpanel" id={`games-panel-${id}`} role="tabpanel"
+    aria-labelledby={`games-tab-${id}`} hidden={id !== tab} tabIndex={0}>
+    {children}
+  </section>;
+}
+
 export function GamesPage({ onStudy, onRepertoires }) {
   const [review, setReview] = useState(reviewAddress);
-  const [importOpen, setImportOpen] = useState(false);
-  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [recovery] = useState(readGapContinuation);
+  const [tab, setTab] = useState(() => recovery ? "coverage" : historyTab());
+  const [analysisVisited, setAnalysisVisited] = useState(tab === "analysis");
+  const [focusRequest, setFocusRequest] = useState(null);
+  const [focusedTab, setFocusedTab] = useState(null);
+  const learnerInput = useRef(null);
+  const tabButtons = useRef({});
+  const gapOpening = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!focusRequest) return;
+    const input = learnerInput.current;
+    if (focusRequest.learner && input && !input.matches(":disabled")) input.focus();
+    else tabButtons.current[focusRequest.tab]?.focus({ preventScroll: true });
+  }, [focusRequest]);
+
   useEffect(() => {
-    function sync() { setReview(reviewAddress()); }
+    if (recovery) {
+      window.history.replaceState({ gamesTab: "coverage" }, "", "#games");
+      setReview(null);
+    }
+    function sync() {
+      const selected = historyTab();
+      if (requestedGamesTab()) {
+        window.history.replaceState({ gamesTab: selected }, "", "#games");
+        window.scrollTo?.(0, 0);
+      }
+      const next = reviewAddress();
+      if (next || selected !== "coverage") cancelGapOpening();
+      setReview(next);
+      setTab(selected);
+      if (selected === "analysis") setAnalysisVisited(true);
+    }
+    if (!recovery && requestedGamesTab()) sync();
     window.addEventListener("popstate", sync);
     window.addEventListener("hashchange", sync);
     return () => { window.removeEventListener("popstate", sync); window.removeEventListener("hashchange", sync); };
-  }, []);
+  }, [recovery]);
+
+  function cancelGapOpening() {
+    if (gapOpening.current) {
+      gapOpening.current.abort();
+      gapOpening.current = null;
+      setWorkingGap(false);
+    }
+  }
+
+  function selectTab(next, { learner = false } = {}) {
+    if (next !== "coverage") cancelGapOpening();
+    window.history.replaceState({ ...window.history.state, gamesTab: next }, "", "#games");
+    setTab(next);
+    if (next === "analysis") setAnalysisVisited(true);
+    if (next !== tab || learner) window.scrollTo?.(0, 0);
+    setFocusRequest({ tab: next, learner });
+  }
+
+  function moveTabFocus(event, index) {
+    const last = gamesTabs.length - 1;
+    const target = {
+      ArrowLeft: index === 0 ? last : index - 1,
+      ArrowRight: index === last ? 0 : index + 1,
+      Home: 0,
+      End: last,
+    }[event.key];
+    if (typeof target !== "number") return;
+    event.preventDefault();
+    tabButtons.current[gamesTabs[target][0]]?.focus();
+  }
+
   function openReview(next, recordedComparisons) {
     const previous = window.history.state?.reviewLibrary;
     const comparisons = recordedComparisons ?? (previous?.dataset_id === next.dataset_id && sameGame(previous,next) ? previous.comparisons : []);
     const reviewLibrary = {dataset_id:next.dataset_id, source:next.source, game_id:next.game_id, learner:next.learner, comparisons};
-    window.history.pushState({reviewLibrary}, "", reviewUrl(next)); setReview(next);
+    window.history.pushState({ reviewLibrary, gamesTab: tab }, "", reviewUrl(next));
+    setReview(next);
     window.scrollTo?.(0, 0);
   }
+
   function closeReview() {
-    window.history.pushState(null, "", "#games"); setReview(null);
+    const selected = historyTab();
+    window.history.pushState({ gamesTab: selected }, "", "#games");
+    setReview(null);
+    selectTab(selected);
     refreshHistory(); refreshEvidenceReads();
   }
   const [source, setSource] = useState("lichess");
@@ -307,7 +384,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [gapActionError, setGapActionError] = useState("");
   const [analysis,setAnalysis] = useState(null);
   const [workingGap, setWorkingGap] = useState(false);
-  const [recovery] = useState(readGapContinuation);
   const [forecastBook, setForecastBook] = useState(() => recovery?.gap.forecastBook ?? null);
   const [gapOffset, setGapOffset] = useState(() => recovery?.gap.offset ?? 0);
   const [activeGap, setActiveGap] = useState(() => recovery?.gap ?? null);
@@ -335,7 +411,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const acceptedCleanup = pendingEntry?.phase === "accepted";
   const commandsBlocked = recoveryStatus !== "ready" || !!pending;
   const sameRefreshRunning = refreshing && matchesRefresh(job, pending);
-  const importReport = importResult?.datasetId === dataset ? importResult.report : null;
+  const canRetryPending = pending && !acceptedCleanup && !busy && !sameRefreshRunning &&
+    (!refreshing || pending.kind === "refresh");
+  const needsRecovery = canRetryPending || (!busy && (acceptedCleanup || recoveryStatus === "blocked"));
+  const currentReport = importResult?.datasetId === dataset ? importResult : null;
+  const choiceReport = currentReport?.kind === "choose" ? currentReport.report : null;
+  const importReport = currentReport?.kind !== "choose" ? currentReport?.report : null;
   const confirmedRefresh = refreshResult?.datasetId === dataset ? refreshResult : null;
   const shownAsCurrent = job?.status === "complete" && confirmedRefresh?.commandId === job.commandId;
   const report = importReport ?? job?.report;
@@ -349,7 +430,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const projection = modelRead?.projection;
   const gapPage = gapRead?.value;
   const evidenceErrors = [
-    ["Historical backfill status", backfillRead?.error],
     ["Maia run status", modelRead?.error],
     ["Opponent gaps", gapRead?.error],
   ].filter(([, message]) => message);
@@ -630,7 +710,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
   }
 
   async function openGap(gap) {
-    const signal = lifecycle.current.signal;
+    const owner = new AbortController();
+    gapOpening.current = owner;
+    const signal = AbortSignal.any([lifecycle.current.signal, owner.signal]);
     setGapActionError("");
     setGapNotice("");
     setWorkingGap(true);
@@ -642,7 +724,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
         refreshEvidenceReads();
       }
     } finally {
-      if (!signal.aborted) setWorkingGap(false);
+      if (gapOpening.current === owner) {
+        gapOpening.current = null;
+        if (!signal.aborted) setWorkingGap(false);
+      }
     }
   }
 
@@ -727,7 +812,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
       const result = await submitGame(command.payload, signal);
       if (!owns(command, signal)) return;
-      setImportResult({ datasetId: command.payload.dataset_id, report: result });
+      setImportResult({ datasetId: command.payload.dataset_id, kind: command.kind, report: result });
       refreshHistory();
       refreshEvidenceReads();
       await settle(command);
@@ -839,180 +924,213 @@ export function GamesPage({ onStudy, onRepertoires }) {
   }
   const libraryOrigin = window.history.state?.reviewLibrary;
   const recordedComparisons = review && libraryOrigin?.dataset_id === review.dataset_id && sameGame(libraryOrigin, review) ? libraryOrigin.comparisons : [];
-  if (review && !activeGap) return <GameWorkbench recordedComparisons={recordedComparisons} address={review} dataset={dataset} books={repertoires ?? []}
-    onClose={closeReview} changeBook={(id, cursor) => openReview({...review, repertoire_id:id, ...cursor})}
-    onSaved={() => {refreshHistory(); refreshEvidenceReads();}} />;
+  const reviewing = review && !activeGap;
+  const panelsHidden = !!(reviewing || analysis);
   return <div className="tempo-core">
-    {analysis ? <AnalysisPage origin={analysis} onClose={returnFromAnalysis} /> : (
-    <main className="tempo-core repertoire-page games-page">
+    {reviewing && <GameWorkbench recordedComparisons={recordedComparisons} address={review} dataset={dataset} books={repertoires ?? []}
+      onClose={closeReview} changeBook={(id, cursor) => openReview({...review, repertoire_id:id, ...cursor})}
+      onSaved={() => {refreshHistory(); refreshEvidenceReads();}} />}
+    {analysis && <AnalysisPage origin={analysis} onClose={returnFromAnalysis} />}
+    <main className="tempo-core repertoire-page games-page" hidden={panelsHidden}>
       <Button size="compact" variant="quiet" onClick={onStudy}>← Study</Button>
-      <PageHeader title="Games" subtitle="Review your openings and tactical opportunities."
-        actions={<><DiagnosticsButton /><Button onClick={() => { setSource("pgn"); setImportOpen(true); }}>Import PGN</Button></>} />
-      <details className="game-import" open={importOpen || !!pending || !!issue || !!jobError || !!catalogError || recoveryStatus === "blocked"}
-        onToggle={e => setImportOpen(e.currentTarget.open)}><summary>Import or refresh games</summary><Surface>
-        <h2>{importing ? "Import a PGN" : "Compare completed games"}</h2>
-        {catalogError && <StatusNotice kind="error">{catalogError}</StatusNotice>}
-        {repertoires?.length === 0 && (
-          <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
-        )}
-        <form className="repertoire-form" onSubmit={submit}>
-          <fieldset disabled={busy || commandsBlocked || refreshing || !dataset}>
-            <div className="repertoire-fields">
-              <label>Source <select value={source} onChange={event => setSource(event.target.value)}>
-                {Object.entries(sourceNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-                <option value="stored">Saved games</option>
-              </select></label>
-              <label>{importing || source === "stored" ? "Learner name" : "Account name"}
-                <input key={source} name="learner" required autoComplete="off" maxLength={128} />
-              </label>
-            </div>
-            {importing ? (
-              <>
-                <label>PGN file <input type="file" name="file" accept=".pgn,.txt,application/x-chess-pgn,text/plain" /></label>
-                <label>Or paste PGN <textarea name="pgn" rows={5} /></label>
-              </>
-            ) : (
-              <div className="repertoire-fields">
-                <label>First day (UTC) <input type="date" name="from" defaultValue={firstDate} max={lastDate} required /></label>
-                <label>Last day (UTC) <input type="date" name="to" defaultValue={lastDate} max={lastDate} required /></label>
-              </div>
-            )}
-            {source === "chess_com" && <p className="game-source-note">Chess.com archives may take up to 12 hours to update.</p>}
-            <div className="actions">
-              <Button type="submit" pending={busy && !refreshing}
-                disabled={busy || refreshing || !job || !!jobError}>
-                {importing ? "Import games" : source === "stored" ? "Reprocess saved games" : "Refresh games"}
-              </Button>
-            </div>
-          </fieldset>
-        </form>
-        {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
-        {cleanupIssue && <StatusNotice kind="error">{cleanupIssue}</StatusNotice>}
-        {recoveryStatus === "blocked" && (
-          <div className="actions">
-            <StatusNotice kind="error">Tempo could not read the pending Games request.</StatusNotice>
-            <Button disabled={busy} onClick={() => setRecoveryStatus("loading")}>Retry recovery</Button>
-            <Button disabled={busy} onClick={() => void cleanup()}>Dismiss pending request</Button>
-          </div>
-        )}
-        {acceptedCleanup && !busy && (
-          <Button onClick={() => void cleanup({ accepted: true })}>Retry cleanup</Button>
-        )}
-        {pending && !acceptedCleanup && !busy && !sameRefreshRunning && (!refreshing || pending.kind === "refresh") && (
-          <div className="actions">
-            {dataset && pending.payload.dataset_id !== dataset && (
-              <StatusNotice kind="error">The pending Games request belongs to a different dataset.</StatusNotice>
-            )}
-            <Button disabled={!dataset || pending.payload.dataset_id !== dataset}
-              onClick={() => void run(() => pending, { recovering: true })}>Retry same request</Button>
-            <Button onClick={() => void cleanup({ unsaved: pendingEntry.phase === "unsaved" })}>Dismiss pending request</Button>
-          </div>
-        )}
-        {jobError && <StatusNotice kind="error">{jobError}</StatusNotice>}
-        {refreshing && !jobError && <p role="status">Refreshing games. You can return to Study while this runs.</p>}
-        {(catalogError || jobError) && (
-          <Button onClick={() => {
-            setJob(null);
-            setJobRevision(value => value + 1);
-            historyOwner.current?.abort();
-            setReload(value => value + 1);
-            refreshEvidenceReads();
-          }}>Reload Games</Button>
-        )}
-      </Surface></details>
-      {confirmedRefresh && (!shownAsCurrent || importReport) && (
-        <Surface>
-          <h2>Recovered refresh results</h2>
-          <GameReport report={confirmedRefresh.report} importing={false} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />
-        </Surface>
-      )}
-      {(refreshFailed || report) && (
-        <details className="game-import" key={importReport ? "import" : "refresh"} open={!!importReport || refreshFailed}><summary>{importReport ? "Import results" : "Latest refresh"}</summary><Surface>
-          <h2>{importReport ? "Import results" : "Latest refresh"}</h2>
-          {refreshFailed && <StatusNotice kind="error">{job.error}</StatusNotice>}
-          {report && <GameReport report={report} importing={!!importReport} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />}
-        </Surface></details>
-      )}
-      {dataset && <details onToggle={event => setAnalysisOpen(event.currentTarget.open)}>
-        <summary>Game analysis</summary>
-        {analysisOpen && <TacticalHistory dataset={dataset} onOpen={openReview} />}
-      </details>}
-      <Surface>
-        <SectionHeader title="Game library" />
-        {repertoires?.length === 0 && <p>Add a repertoire to compare your games with prepared moves. <Button onClick={onRepertoires}>Open repertoires</Button></p>}
-        {history?.lastSuccessfulRefresh != null ? (
-          <p>Last successful provider refresh · {new Date(history.lastSuccessfulRefresh).toLocaleString()}</p>
-        ) : null}
-        {!history && !historyError && <p role="status">Loading game evidence…</p>}
-        {historyError && (
-          <>
-            <StatusNotice kind="error">{historyError}</StatusNotice>
-            <Button onClick={refreshHistory}>Reload game evidence</Button>
-          </>
-        )}
-        {!dataset && history && (history.results.length > 0
-          ? <GameResults results={history.results} history repertoires={repertoires ?? []} />
-          : <p>No games recorded yet.</p>)}
-        {dataset && <GameLibrary key={dataset} dataset={dataset} refresh={historyRevision} books={repertoires ?? []} recent={history?.results}
-          renderRecent={results=><GameResults history results={results} dataset={dataset} onOpen={openReview}
-            onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
-          renderResults={(groups,showFindings)=><GameResults groups={groups} showFindings={showFindings} dataset={dataset} history onOpen={openReview}
-            onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
-          empty={<div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>} />}
-      </Surface>
-      <details className="advanced-games"><summary>Provider history and opponent coverage gaps</summary>
-      <HistoricalImport key={backfill?.job_id ?? "idle"} job={backfill}
-        disabled={!dataset || busy || commandsBlocked || refreshing} onStart={beginBackfill}
-        onRetry={() => void run(() => ({ kind: "backfill-retry", payload: {
-          command_id: crypto.randomUUID(), dataset_id: dataset, job_id: backfill.job_id,
-        } }))} />
-      <Surface>
-        <h2>Opponent coverage gaps</h2>
-        <RepertoireCoverage key={dataset} dataset={dataset} repertoires={repertoires ?? []}
-          forecastBook={forecastBook} onFilter={book => { setForecastBook(book); setGapOffset(0); }}
-          refresh={evidenceRevision} onReport={refreshEvidenceReads} />
-        <div className="actions">
-          <Button disabled={!dataset || modelActionDataset === dataset || model?.status === "running"}
-            onClick={() => void analyze()}>
-            Analyze Maia probabilities
-          </Button>
-        </div>
-        {model && model.status !== "idle" && (
-          <p role="status">{model.profile} · {model.status} · {model.completed} of {model.total} positions
-            {model.error && ` · ${model.error}`}</p>
-        )}
-        {projection && (
-          <p role="status">Modeled reach · {projection.complete_current} complete · {projection.partial_current} partial
-            {" · "}{projection.unavailable} unavailable · {projection.pending} pending</p>
-        )}
-        {modelActionError && <StatusNotice kind="error">{modelActionError}</StatusNotice>}
-        {gapNotice && !activeGap && <StatusNotice>{gapNotice}</StatusNotice>}
-        {gapActionError && <StatusNotice kind="error">{gapActionError}</StatusNotice>}
-        {evidenceErrors.map(([label, message]) => (
-          <StatusNotice key={label} kind="error">{label} · {message}</StatusNotice>
+      <PageHeader title="Games"
+        actions={<><DiagnosticsButton /><Button onClick={() => { setSource("pgn"); selectTab("import", { learner: true }); }}>Import PGN</Button></>} />
+      <div className="games-tabs" role="tablist" aria-label="Games views" onBlur={event => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocusedTab(null);
+      }}>
+        {gamesTabs.map(([id, label], index) => (
+          <button key={id} id={`games-tab-${id}`} ref={node => { tabButtons.current[id] = node; }}
+            type="button" role="tab" aria-selected={tab === id} aria-controls={`games-panel-${id}`}
+            tabIndex={(focusedTab ?? tab) === id ? 0 : -1} onFocus={() => setFocusedTab(id)} onClick={() => selectTab(id)}
+            onKeyDown={event => moveTabFocus(event, index)}>{label}</button>
         ))}
-        {evidenceErrors.length > 0 && <Button onClick={refreshEvidenceReads}>Retry evidence reads</Button>}
-        {(gapPage?.more || gapOffset > 0) && <div className="actions">
-          <Button disabled={gapOffset === 0 || workingGap} onClick={() => setGapOffset(offset => offset - 100)}>Previous gaps</Button>
-          <Button disabled={!gapPage?.more || workingGap} onClick={() => setGapOffset(offset => offset + 100)}>Next gaps</Button>
-        </div>}
-        {!gapPage && !gapRead?.error && <p role="status">Loading opponent gaps…</p>}
-        {gapPage?.gaps.length === 0 && <p>{forecastBook ? "No open suggestions from this scan." : "No confirmed opponent gaps in the current documents."}</p>}
-        {gapPage?.gaps.length > 0 && (
-          <ul className="game-results">{gapPage.gaps.map(gap => (
-            <li key={gapKey(gap)}>
-              <strong>{repertoires?.find(book => book.id === gap.repertoire_id)?.name ?? gap.repertoire_id}</strong>
-              <p>{gap.actual_san ?? "Opponent move"}
-                {gap.games > 0 && ` · ${gap.games} ${gap.games === 1 ? "game" : "games"}`}
-                {gap.forecast && ` · ${coveragePercent(gap.forecast.probability)} estimated first-gap chance${gap.forecast.stale ? " (earlier scan)" : ""}`}
-              </p>
-              <Button disabled={workingGap || !dataset} onClick={() => void openGap(gap)}>Fix response</Button>
-            </li>
-          ))}</ul>
+      </div>
+      {tab !== "import" && needsRecovery && (
+        <div role="status"><Button size="compact" variant="quiet" onClick={() => selectTab("import")}>Review Games request</Button></div>
+      )}
+      <GamesPanel id="import" tab={tab}>
+        <Surface>
+          <h2>{importing ? "Import a PGN" : "Compare completed games"}</h2>
+          {catalogError && <StatusNotice kind="error">{catalogError}</StatusNotice>}
+          {repertoires?.length === 0 && (
+            <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
+          )}
+          <form className="repertoire-form" onSubmit={submit}>
+            <fieldset disabled={busy || commandsBlocked || refreshing || !dataset}>
+              <div className="repertoire-fields">
+                <label>Source <select value={source} onChange={event => setSource(event.target.value)}>
+                  {Object.entries(sourceNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                  <option value="stored">Saved games</option>
+                </select></label>
+                <label>{importing || source === "stored" ? "Learner name" : "Account name"}
+                  <input ref={learnerInput} key={source} name="learner" required autoComplete="off" maxLength={128} />
+                </label>
+              </div>
+              {importing ? (
+                <>
+                  <label>PGN file <input type="file" name="file" accept=".pgn,.txt,application/x-chess-pgn,text/plain" /></label>
+                  <label>Or paste PGN <textarea name="pgn" rows={5} /></label>
+                </>
+              ) : (
+                <div className="repertoire-fields">
+                  <label>First day (UTC) <input type="date" name="from" defaultValue={firstDate} max={lastDate} required /></label>
+                  <label>Last day (UTC) <input type="date" name="to" defaultValue={lastDate} max={lastDate} required /></label>
+                </div>
+              )}
+              {source === "chess_com" && <p className="game-source-note">Chess.com archives may take up to 12 hours to update.</p>}
+              <div className="actions">
+                <Button type="submit" pending={busy && !refreshing}
+                  disabled={busy || refreshing || !job || !!jobError}>
+                  {importing ? "Import games" : source === "stored" ? "Reprocess saved games" : "Refresh games"}
+                </Button>
+              </div>
+            </fieldset>
+          </form>
+          {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
+          {cleanupIssue && <StatusNotice kind="error">{cleanupIssue}</StatusNotice>}
+          {recoveryStatus === "blocked" && (
+            <div className="actions">
+              <StatusNotice kind="error">Tempo could not read the pending Games request.</StatusNotice>
+              <Button disabled={busy} onClick={() => setRecoveryStatus("loading")}>Retry recovery</Button>
+              <Button disabled={busy} onClick={() => void cleanup()}>Dismiss pending request</Button>
+            </div>
+          )}
+          {acceptedCleanup && !busy && (
+            <Button onClick={() => void cleanup({ accepted: true })}>Retry cleanup</Button>
+          )}
+          {canRetryPending && (
+            <div className="actions">
+              {dataset && pending.payload.dataset_id !== dataset && (
+                <StatusNotice kind="error">The pending Games request belongs to a different dataset.</StatusNotice>
+              )}
+              <Button disabled={!dataset || pending.payload.dataset_id !== dataset}
+                onClick={() => void run(() => pending, { recovering: true })}>Retry same request</Button>
+              <Button onClick={() => void cleanup({ unsaved: pendingEntry.phase === "unsaved" })}>Dismiss pending request</Button>
+            </div>
+          )}
+          {jobError && <StatusNotice kind="error">{jobError}</StatusNotice>}
+          {refreshing && !jobError && <p role="status">Refreshing games. You can return to Study while this runs.</p>}
+          {(catalogError || jobError) && (
+            <Button onClick={() => {
+              setJob(null);
+              setJobRevision(value => value + 1);
+              historyOwner.current?.abort();
+              setReload(value => value + 1);
+              refreshEvidenceReads();
+            }}>Reload Games</Button>
+          )}
+        </Surface>
+        {confirmedRefresh && (!shownAsCurrent || importReport) && (
+          <Surface>
+            <h2>Recovered refresh results</h2>
+            <GameReport report={confirmedRefresh.report} importing={false} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />
+          </Surface>
         )}
-      </Surface>
-      </details>
-    </main>)}
+        {(refreshFailed || report) && (
+          <details className="game-import" key={importReport ? "import" : "refresh"} open={!!importReport || refreshFailed}><summary>{importReport ? "Import results" : "Latest refresh"}</summary><Surface>
+            <h2>{importReport ? "Import results" : "Latest refresh"}</h2>
+            {refreshFailed && <StatusNotice kind="error">{job.error}</StatusNotice>}
+            {report && <GameReport report={report} importing={!!importReport} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />}
+          </Surface></details>
+        )}
+        <details className="game-import">
+          <summary>Historical backfill{backfill && backfill.status !== "idle" ? ` · ${backfill.status}` : ""}</summary>
+          <HistoricalImport key={backfill?.job_id ?? "idle"} job={backfill}
+            disabled={!dataset || busy || commandsBlocked || refreshing} onStart={beginBackfill}
+            onRetry={() => void run(() => ({ kind: "backfill-retry", payload: {
+              command_id: crypto.randomUUID(), dataset_id: dataset, job_id: backfill.job_id,
+            } }))} />
+        </details>
+        {backfillRead?.error && (
+          <StatusNotice kind="error">Historical backfill status · {backfillRead.error}
+            {" "}<Button size="compact" onClick={refreshEvidenceReads}>Retry historical status</Button>
+          </StatusNotice>
+        )}
+      </GamesPanel>
+      <GamesPanel id="analysis" tab={tab}>
+        {analysisVisited && <TacticalHistory dataset={dataset} onOpen={openReview} visible={tab === "analysis" && !panelsHidden} />}
+        {!dataset && <p role="status">{catalogError || "Loading Games…"}</p>}
+      </GamesPanel>
+      <GamesPanel id="library" tab={tab}>
+        <Surface>
+          <SectionHeader title="Game library" />
+          {catalogError && <StatusNotice kind="error">{catalogError}
+            {" "}<Button size="compact" onClick={() => selectTab("import")}>Open Games recovery</Button>
+          </StatusNotice>}
+          {choiceReport && <details open>
+            <summary>Corrective choice results</summary>
+            <GameReport report={choiceReport} importing dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />
+          </details>}
+          {repertoires?.length === 0 && <p>Add a repertoire to compare your games with prepared moves. <Button onClick={onRepertoires}>Open repertoires</Button></p>}
+          {history?.lastSuccessfulRefresh != null ? (
+            <p>Last successful provider refresh · {new Date(history.lastSuccessfulRefresh).toLocaleString()}</p>
+          ) : null}
+          {!history && !historyError && <p role="status">Loading game evidence…</p>}
+          {historyError && (
+            <>
+              <StatusNotice kind="error">{historyError}</StatusNotice>
+              <Button onClick={refreshHistory}>Reload game evidence</Button>
+            </>
+          )}
+          {!dataset && history && (history.results.length > 0
+            ? <GameResults results={history.results} history repertoires={repertoires ?? []} />
+            : <p>No games recorded yet.</p>)}
+          {dataset && <GameLibrary key={dataset} dataset={dataset} refresh={historyRevision} books={repertoires ?? []} recent={history?.results}
+            renderRecent={results=><GameResults history results={results} dataset={dataset} onOpen={openReview}
+              onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
+            renderResults={(groups,showFindings)=><GameResults groups={groups} showFindings={showFindings} dataset={dataset} history onOpen={openReview}
+              onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
+            empty={<div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>} />}
+        </Surface>
+      </GamesPanel>
+      <GamesPanel id="coverage" tab={tab}>
+        <Surface>
+          <h2>Opponent coverage gaps</h2>
+          <RepertoireCoverage key={dataset} dataset={dataset} repertoires={repertoires ?? []}
+            forecastBook={forecastBook} onFilter={book => { setForecastBook(book); setGapOffset(0); }}
+            refresh={evidenceRevision} onReport={refreshEvidenceReads} />
+          <div className="actions">
+            <Button disabled={!dataset || modelActionDataset === dataset || model?.status === "running"}
+              onClick={() => void analyze()}>
+              Analyze Maia probabilities
+            </Button>
+          </div>
+          {model && model.status !== "idle" && (
+            <p role="status">{model.profile} · {model.status} · {model.completed} of {model.total} positions
+              {model.error && ` · ${model.error}`}</p>
+          )}
+          {projection && (
+            <p role="status">Modeled reach · {projection.complete_current} complete · {projection.partial_current} partial
+              {" · "}{projection.unavailable} unavailable · {projection.pending} pending</p>
+          )}
+          {modelActionError && <StatusNotice kind="error">{modelActionError}</StatusNotice>}
+          {gapNotice && !activeGap && <StatusNotice>{gapNotice}</StatusNotice>}
+          {gapActionError && <StatusNotice kind="error">{gapActionError}</StatusNotice>}
+          {evidenceErrors.map(([label, message]) => (
+            <StatusNotice key={label} kind="error">{label} · {message}</StatusNotice>
+          ))}
+          {evidenceErrors.length > 0 && <Button onClick={refreshEvidenceReads}>Retry evidence reads</Button>}
+          {(gapPage?.more || gapOffset > 0) && <div className="actions">
+            <Button disabled={gapOffset === 0 || workingGap} onClick={() => setGapOffset(offset => offset - 100)}>Previous gaps</Button>
+            <Button disabled={!gapPage?.more || workingGap} onClick={() => setGapOffset(offset => offset + 100)}>Next gaps</Button>
+          </div>}
+          {!gapPage && !gapRead?.error && <p role="status">Loading opponent gaps…</p>}
+          {gapPage?.gaps.length === 0 && <p>{forecastBook ? "No open suggestions from this scan." : "No confirmed opponent gaps in the current documents."}</p>}
+          {gapPage?.gaps.length > 0 && (
+            <ul className="game-results">{gapPage.gaps.map(gap => (
+              <li key={gapKey(gap)}>
+                <strong>{repertoires?.find(book => book.id === gap.repertoire_id)?.name ?? gap.repertoire_id}</strong>
+                <p>{gap.actual_san ?? "Opponent move"}
+                  {gap.games > 0 && ` · ${gap.games} ${gap.games === 1 ? "game" : "games"}`}
+                  {gap.forecast && ` · ${coveragePercent(gap.forecast.probability)} estimated first-gap chance${gap.forecast.stale ? " (earlier scan)" : ""}`}
+                </p>
+                <Button disabled={workingGap || !dataset} onClick={() => void openGap(gap)}>Fix response</Button>
+              </li>
+            ))}</ul>
+          )}
+        </Surface>
+      </GamesPanel>
+    </main>
       {activeGap && (
         <GapEditor key={gapKey(activeGap.address)} gap={activeGap} suspended={!!analysis} onAnalyze={setAnalysis}
           recovery={activeGap === recovery?.gap ? recovery : null} onAdvance={advanceGap} previousSave={gapNotice}

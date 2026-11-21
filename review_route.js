@@ -1,7 +1,22 @@
+export const gamesTabs = [
+  ["library", "Library"],
+  ["import", "Import"],
+  ["analysis", "Analysis"],
+  ["coverage", "Coverage"],
+];
+
+export function gamesTabUrl(tab) {
+  return gamesTabs.some(([id]) => id === tab) ? "#games?tab=" + tab : "#games";
+}
+
+export function requestedGamesTab() {
+  return gamesTabs.find(([id]) => window.location.hash === gamesTabUrl(id))?.[0];
+}
+
 const identityFields = ["dataset_id", "source", "game_id", "learner"];
 
 export function reviewAddress() {
-  if (!window.location.hash.startsWith("#games?")) return null;
+  if (!window.location.hash.startsWith("#games?") || requestedGamesTab()) return null;
   const params = new URLSearchParams(window.location.hash.slice(7));
   const address = Object.fromEntries(identityFields.map(key => [key, params.get(key)]));
   return { ...address, repertoire_id: params.get("book") || null,

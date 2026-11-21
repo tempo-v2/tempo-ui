@@ -41,7 +41,9 @@ try {
     schema_version: 1,
     puzzles: [{
       namespace: "desktop-mark-test", source_id: "two-moves",
-      label: "Two-move tactic", provenance: ["mark fixture"], solver_fen, solution,
+      label: "Two-move tactic",
+      provenance: ["tempo1:capture:fixture", "tempo1:source_kind:game", "https://lichess.org/fixture"],
+      solver_fen, solution,
     }],
   }));
   execFileSync(binary, ["init", database]);
@@ -70,7 +72,7 @@ try {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
     });
-    assert(response.ok);
+    assert(response.ok || (path === "/api/study/card-details" && response.status === 400));
     return response.json();
   };
   const nextResponse = page.waitForResponse(reply => reply.url().endsWith("/api/study"));
@@ -81,6 +83,13 @@ try {
   const save = command => post("/api/study/review-mark", command);
   const markButton = button("Review later");
   await markButton.waitFor();
+  assert.equal(await button("Card details").count(), 0);
+  const cardAddress = view => ({
+    dataset_id: view.dataset_id, attempt_id: view.attempt_id,
+    content_version: view.content_version, revision: view.revision,
+  });
+  const details = view => post("/api/study/card-details", cardAddress(view));
+  assert.equal((await details(issued)).code, "card_details_unavailable");
   const before = studyData();
   for (const exerciseName of ["First label", "Renamed label", null]) {
     const tab = await browser.newPage();
@@ -192,13 +201,18 @@ try {
   assert.equal(first.origin.prescribedUci, "e2e4");
   const second = await reviews({ command: "open", id: list.rows[0].id });
   assert.equal(second.origin.prescribedUci, "g1f3");
+  assert.equal(second.origin.cardDetails, undefined);
+  const savedDetails = await reviews({ command: "card_details", id: list.rows[0].id });
+  assert.equal(savedDetails.details.kind, "tactic");
+  assert.deepEqual(savedDetails.details.sources, ["Personal capture"]);
+  assert.deepEqual(savedDetails.details.explanation.capture_method, ["Captured from a game"]);
   const studyBeforeReview = studyData();
   await button("Saved for review").click();
   await button("Open analysis").first().click();
   await page.getByRole("heading", { name: "Analysis board" }).waitFor();
   await page.getByText(/Issued Study move · Nf3/).waitFor();
   await button("Return").click();
-  await button("Remove").last().click();
+  await button("Remove saved mark").last().click();
   await page.getByText("Removed from saved reviews.", { exact: true }).waitFor();
   await button("Back to Study").click();
   await button("Practice tactics").waitFor();
@@ -250,6 +264,52 @@ try {
   });
   await button("Check again").click();
   await page.getByText(/Issued Study move · Nf3/).waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.getByText(/Issued Study move · Nf3/).waitFor({ state: "detached" });
+  // A separate device changes Study without publishing a browser storage event.
+  const otherDevice = await post("/api/study", { command: "practice_tactics" });
+  assert.equal(otherDevice.target_id, issued.target_id);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.getByText("Finish in Study to open analysis.", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Analysis board", { exact: true }).count(), 0);
+  await post("/api/study", {
+    command: "abandon", dataset_id: otherDevice.dataset_id, attempt_id: otherDevice.attempt_id,
+    expected_revision: otherDevice.revision, submission_id: "leave-other-device",
+  });
+  await button("Check again").click();
+  await page.getByText(/Issued Study move · Nf3/).waitFor();
+  const checks = "**/api/study/saved-reviews";
+  const checkDelay = Promise.withResolvers();
+  const holdPeriodicChecks = async route => {
+    if (route.request().postDataJSON().command === "check") await checkDelay.promise;
+    await route.continue().catch(() => {});
+  };
+  await page.route(checks, holdPeriodicChecks);
+  const beforeDetails = await post("/api/study", { command: "practice_tactics" });
+  assert.equal(beforeDetails.target_id, issued.target_id);
+  const detailReply = page.waitForResponse(reply =>
+    reply.url().endsWith("/api/study/saved-reviews") && reply.request().postDataJSON().command === "card_details");
+  await button("Card details").click();
+  assert.equal((await (await detailReply).json()).status, "study_required");
+  await page.getByText("Finish in Study to open analysis.", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Captured from a game", { exact: true }).count(), 0);
+  checkDelay.resolve();
+  await page.unroute(checks, holdPeriodicChecks);
+  await post("/api/study", {
+    command: "abandon", dataset_id: beforeDetails.dataset_id, attempt_id: beforeDetails.attempt_id,
+    expected_revision: beforeDetails.revision, submission_id: "leave-before-details",
+  });
+
+  await button("Check again").click();
+  await page.getByText(/Issued Study move · Nf3/).waitFor();
+  const whileVisible = await post("/api/study", { command: "practice_tactics" });
+  assert.equal(whileVisible.target_id, issued.target_id);
+  await page.getByText("Finish in Study to open analysis.", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Analysis board", { exact: true }).count(), 0);
+  await post("/api/study", {
+    command: "abandon", dataset_id: whileVisible.dataset_id, attempt_id: whileVisible.attempt_id,
+    expected_revision: whileVisible.revision, submission_id: "leave-while-visible",
+  });
   await button("Return").click();
   await studyTab.close();
   assert.deepEqual(errors, []);
@@ -259,6 +319,20 @@ try {
   await stop();
   url = await start();
   assert.equal((await reviews({ command: "open", id: list.rows[0].id })).origin.prescribedUci, "g1f3");
+  await page.goto(url);
+  await button("Practice tactics").waitFor();
+  await button("Saved for review").click();
+  await button("Remove from Study").click();
+  await page.getByRole("dialog", { name: "Remove this tactic from Study?" })
+    .getByRole("button", { name: "Remove from Study", exact: true }).click();
+  await page.getByText("Removed from Study", { exact: true }).waitFor();
+  const refreshed = page.waitForResponse(reply =>
+    reply.url().endsWith("/api/study") && reply.request().postDataJSON().command === "next");
+  await button("Back to Study").click();
+  assert.equal((await (await refreshed).json()).can_practice_tactics, false);
+  await page.getByText("Done for today.", { exact: true }).waitFor();
+  assert.equal(await button("Practice tactics").count(), 0);
+
   for (const leave of ["skip", "concede"]) {
     await stop();
     database = join(directory, leave + ".sqlite");
@@ -286,6 +360,9 @@ try {
     }
     const miss = await study({ ...commandFor(startView, "answer", "miss"), answer: { uci: "d2d4" } });
     assert.equal(miss.assessment, "again");
+    const afterMiss = await details(miss);
+    assert.deepEqual(afterMiss.details, { kind: "tactic", sources: ["Personal capture"] });
+    assert.equal((await details(startView)).code, "stale_revision");
     const corrected = await study({ ...commandFor(miss, "answer", "correct"), answer: { uci: "e2e4" } });
     assert.equal(corrected.prompt.decision_index, 1);
     const targetAddress = { dataset_id: corrected.dataset_id, attempt_id: corrected.attempt_id,
@@ -319,6 +396,87 @@ try {
     }
   }
   await stop();
+  database = join(directory, "remove-from-study.sqlite");
+  execFileSync(binary, ["init", database]);
+  execFileSync(binary, ["configure", database, "0", "1"]);
+  execFileSync(binary, ["import-tactics", database, transfer]);
+  url = await start();
+  sql = new DatabaseSync(database, { readOnly: true });
+  const removeNext = page.waitForResponse(reply => reply.url().endsWith("/api/study"));
+  await page.goto(url);
+  const removeCard = await (await removeNext).json();
+  const removedDataset = { dataset_id: removeCard.dataset_id };
+  await markButton.click();
+  await toast.waitFor();
+  await button("Saved for review").click();
+  await button("Remove from Study").click();
+  const dialog = page.getByRole("dialog", { name: "Remove this tactic from Study?" });
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(sql.prepare("SELECT count(*) AS count FROM study_exclusions").get().count, 0);
+
+  const { promise: acceptedRemoval, resolve: acceptRemoval } = Promise.withResolvers();
+  const sent = [];
+  await page.route("**/api/study/saved-reviews", async route => {
+    if (route.request().postDataJSON().command !== "exclude_tactic") return route.continue();
+    sent.push(route.request().postData());
+    if (sent.length > 1) return route.continue();
+    acceptRemoval(await (await route.fetch()).json());
+    await route.abort();
+  });
+  await button("Remove from Study").click();
+  await dialog.getByRole("button", { name: "Remove from Study", exact: true }).click();
+  await button("Retry removing from Study").waitFor();
+  assert.equal((await acceptedRemoval).status, "excluded");
+  await button("Retry removing from Study").click();
+  await page.getByText("Removed from Study", { exact: true }).waitFor();
+  await button("Open analysis").click();
+  await page.getByText(/Issued Study move · e4/).waitFor();
+  await page.getByText("Card details", { exact: true }).click();
+  await page.getByText("Captured from a game", { exact: true }).waitFor();
+  await button("Return").click();
+  assert.deepEqual(sent, [sent[0], sent[0]]);
+  assert.equal(sql.prepare("SELECT count(*) AS count FROM study_exclusions").get().count, 1);
+  assert.equal(sql.prepare("SELECT count(*) AS count FROM assessments").get().count, 0);
+  assert.equal(sql.prepare("SELECT count(*) AS count FROM saved_reviews").get().count, 1);
+  const stale = await post("/api/study", {
+    command: "answer", ...removedDataset, attempt_id: removeCard.attempt_id,
+    expected_revision: removeCard.revision, submission_id: "old-after-removal",
+    answer: { uci: "e2e4" },
+  });
+  assert.equal(stale.code, "stale_activity");
+  await button("Back to Study").click();
+  await page.getByText("Done for today.", { exact: true }).waitFor();
+  assert.equal(await button("Practice tactics").count(), 0);
+  await page.unroute("**/api/study/saved-reviews");
+  sql.close();
+  sql = null;
+  await stop();
+  execFileSync(binary, ["import-tactics", database, transfer]);
+  url = await start();
+  assert.equal((await post("/api/study", { command: "next" })).can_practice_tactics, false);
+  assert.equal((await post("/api/study/saved-reviews", {
+    ...removedDataset, command: "list",
+  })).rows[0].removed_from_study, true);
+  const tactic = await post("/api/tactics-collection", {
+    ...removedDataset, command: "detail", target: removeCard.target_id,
+  });
+  assert.equal(tactic.label, "Two-move tactic");
+  assert.equal(tactic.removed_from_study, true);
+  const due = await post("/api/tactics-collection", { command: "list", filter: "due" });
+  assert.deepEqual(due.rows, []);
+  const capture = {
+    ...removedDataset,
+    pgn: `[Event "Repeat excluded capture"]\n[SetUp "1"]\n[FEN "${solver_fen}"]\n[TempoSetupPlies "0"]\n\n1. e4 e5 2. Nf3 Nc6 *`,
+  };
+  const capturePreview = await post("/api/tactics", { command: "preview", ...capture });
+  const savedAgain = await post("/api/tactics", {
+    command: "save", ...capture, token: capturePreview.token, selected: [0],
+  });
+  assert.equal(savedAgain.status, "tactics_saved", JSON.stringify(savedAgain));
+  assert.equal(savedAgain.ready_for_review, 0);
+  assert.equal((await post("/api/study", { command: "next" })).can_practice_tactics, false);
+  await stop();
+
   database = join(directory, "analysis-save-review.sqlite");
   execFileSync(binary, ["init", database]);
   execFileSync(binary, ["configure", database, "1", "0"]);
@@ -337,6 +495,14 @@ try {
   await markButton.click();
   await page.getByText("Saved for review.", { exact: true }).waitFor();
   await button("Saved for review").click();
+  await button("Open analysis").waitFor();
+  assert.equal(await button("Remove from Study").count(), 0);
+  const openingMark = (await post("/api/study/saved-reviews", {
+    dataset_id: book.dataset_id, command: "list",
+  })).rows[0];
+  assert.equal((await post("/api/study/saved-reviews", { dataset_id: book.dataset_id,
+    command: "exclude_tactic", id: openingMark.id, submission_id: "cannot-exclude-opening",
+  })).status, "error");
   await button("Open analysis").click();
   await page.getByText(/Issued Study move · e4/).waitFor();
   await play("d2d4", page.locator(".analysis-layout cg-board"));

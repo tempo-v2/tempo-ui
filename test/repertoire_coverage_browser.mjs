@@ -95,13 +95,13 @@ try {
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   const button = name => page.getByRole("button", { name, exact: true });
-  const panel = page.locator(".advanced-games").getByRole("heading", { name: "Scan repertoire coverage" }).locator("..");
+  const panel = page.locator("#games-panel-coverage").getByRole("heading", { name: "Scan repertoire coverage" }).locator("..");
 
   async function openCoverage() {
     const url = origin + "/#games";
     if (page.url() === url) await page.reload();
     else await page.goto(url);
-    await page.getByText("Provider history and opponent coverage gaps", { exact: true }).click();
+    await page.getByRole("tab", { name: "Coverage" }).click();
     await panel.locator("select").selectOption(repertoire_id);
   }
 
@@ -187,6 +187,9 @@ try {
 
   dropStart = "after";
   await button("Scan repertoire").click();
+  await page.getByRole("tab", { name: "Library" }).click();
+  assert.equal(await page.getByText(/estimated coverage/).first().isVisible(), false);
+  await page.getByRole("tab", { name: "Coverage" }).click();
   await page.getByText(/85% estimated coverage.*80% target/).waitFor();
   assert.equal(starts.length, 3);
   assert.equal(await button("Retry same scan").count(), 0);
