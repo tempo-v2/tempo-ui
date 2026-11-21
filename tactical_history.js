@@ -19,6 +19,9 @@ const valid = condition => {
 };
 const count = (value, positive = false) => valid(Number.isSafeInteger(value) && value >= (positive ? 1 : 0));
 const nonempty = value => valid(typeof value === "string" && value.trim().length > 0);
+const reportGeneration = /^(.+):([0-9]+)$/s;
+const validateReportGeneration = value => valid(typeof value === "string" && reportGeneration.test(value));
+
 const color = value => value === "white" || value === "black";
 const roleNames = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
 
@@ -140,7 +143,12 @@ export function validateTacticalHistory(value, dataset, before) {
     valid([null, "wall_power", "study_in_front", "study_quiet_period", "foreground_engine"].includes(value.wait_reason));
     valid(value.waiting_for_idle === (value.wait_reason !== null));
   }
-  object(value, [...(Object.hasOwn(value, "report_schema") ? ["report_schema"] : []), ...(Object.hasOwn(value, "wait_reason") ? ["wait_reason"] : []), ...(Object.hasOwn(value, "games") ? ["games"] : []), ...controlFields, "schema_version", "dataset_id", "status", "detector", "analysis_version", "last_error",
+  const reportFields = ["report_schema", "report_generation"].filter(field => Object.hasOwn(value, field));
+  if (value.report_generation !== undefined) {
+    valid(value.report_schema === 2);
+    validateReportGeneration(value.report_generation);
+  }
+  object(value, [...reportFields, ...(Object.hasOwn(value, "wait_reason") ? ["wait_reason"] : []), ...(Object.hasOwn(value, "games") ? ["games"] : []), ...controlFields, "schema_version", "dataset_id", "status", "detector", "analysis_version", "last_error",
     "active_game", "statistics", "observations", "next_before"], "tactical history");
   if (value.games !== undefined) {
     valid(Array.isArray(value.games) && value.games.length <= 30);
@@ -219,7 +227,10 @@ export async function readTacticalHistory(dataset, before, signal) {
   if (before !== undefined) count(before, true);
   const value = await requestJson("/api/games/tactics", {
     method: "POST", payload: { dataset_id: dataset, ...(before === undefined ? {} : { before }) },
-    headers: { "X-Tempo-Analysis-Wait-Reason": "1", "X-Tempo-Tactics-Report": "2" },
+    headers: {
+      "X-Tempo-Analysis-Wait-Reason": "1", "X-Tempo-Tactics-Report": "2",
+      "X-Tempo-Tactics-Report-Generation": "1",
+    },
     signal, cache: "no-store", timeoutMs: SMALL_READ_TIMEOUT_MS,
   });
   return validateTacticalHistory(value, dataset, before);
@@ -252,12 +263,21 @@ export const motifNames = Object.freeze({
   mate_in_one: "Mate in 1", mate_in_two: "Mate in 2",
 });
 
+export function isNewerReportGeneration(available, snapshot) {
+  if (available === undefined || snapshot === undefined || available === snapshot) return false;
+  const [, version, generation] = available.match(reportGeneration);
+  const [, readVersion, readGeneration] = snapshot.match(reportGeneration);
+  return version !== readVersion || BigInt(generation) > BigInt(readGeneration);
+}
+
 export async function readPersonalTactics(dataset, query, signal) {
   const value = await requestJson("/api/games/tactics/report", {
     method: "POST", payload: {dataset_id: dataset, ...query}, signal,
     cache: "no-store", timeoutMs: SMALL_READ_TIMEOUT_MS,
   });
   valid(value?.schema_version === 2 && value.dataset_id === dataset);
+  if (value.report_generation !== undefined) validateReportGeneration(value.report_generation);
+  if (query.report_generation !== undefined) valid(value.report_generation === query.report_generation);
   valid(Array.isArray(value.games) && value.games.length <= 30);
   count(value.archive_games);
   count(value.filtered_games);
@@ -308,12 +328,14 @@ export async function readPersonalTactics(dataset, query, signal) {
 }
 
 
-export async function readPersonalPosition(dataset, id, signal) {
+export async function readPersonalPosition(dataset, id, generation, signal) {
   const value = await requestJson("/api/games/tactics/position", {
-    method: "POST", payload: {dataset_id: dataset, id}, signal,
+    method: "POST", payload: {dataset_id: dataset, id, report_generation: generation}, signal,
     cache: "no-store", timeoutMs: SMALL_READ_TIMEOUT_MS,
   });
   valid(value?.schema_version === 2 && value.dataset_id === dataset && value.detail?.id === id);
+  if (value.report_generation !== undefined) validateReportGeneration(value.report_generation);
+  if (generation !== undefined) valid(value.report_generation === generation);
   validatePersonalPosition(value.detail);
   return value.detail;
 }

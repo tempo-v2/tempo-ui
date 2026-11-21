@@ -1,7 +1,7 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useEffectEvent, useMemo, useState} from "react";
 import {Chess} from "chess.js";
 import {Board, Button, StatusNotice, Surface} from "@tempo-v2/core-components";
-import {motifNames, readPersonalPosition, readPersonalTactics, tacticalNotation, tacticalScore} from "./tactical_history.js";
+import {isNewerReportGeneration, motifNames, readPersonalPosition, readPersonalTactics, tacticalNotation, tacticalScore} from "./tactical_history.js";
 import {sourceNames} from "./game_commands.js";
 
 const labels = {
@@ -114,7 +114,7 @@ function Finding({row, detail, dataset, onOpen, onSimilar}) {
       {onOpen && <Button variant="quiet" onClick={() => onOpen({dataset_id: dataset, source:row.game.source,
         game_id:row.game.id, learner:row.game.learner, repertoire_id:null, ply:row.ply, start:row.ply, branch:[]})}>Open source game</Button>}
       <Button variant="quiet" onClick={() => onSimilar(row.id)}>Similar positions</Button>
-      {detail.training !== null && <p>{trainingLabels[detail.training.status]}</p>}
+      {detail.training !== null && <p>{trainingLabels[detail.training.status]} when this position was read.</p>}
       <table className="tactical-captures"><thead><tr><th>Motif</th><th>Move</th><th>Evaluation</th><th>Pieces involved</th></tr></thead>
         <tbody>{assessment.personal.candidates.map((candidate, index) => <tr key={index}>
           <th scope="row">{motifNames[candidate.motif]}</th>
@@ -134,17 +134,30 @@ function Finding({row, detail, dataset, onOpen, onSimilar}) {
   </article>;
 }
 
-export function PersonalTactics({dataset, onOpen, revision}) {
+export function PersonalTactics({dataset, onOpen, analysisGeneration, analysisProgress}) {
   const [filters, setFilters] = useState({});
   const [before, setBefore] = useState(undefined);
   const [detail, setDetail] = useState(undefined);
   const [position, setPosition] = useState(null);
   const [anchor, setAnchor] = useState(undefined);
-  const [view, setView] = useState(null);
-  const [error, setError] = useState(false);
+  const [generation, setGeneration] = useState(undefined);
+  const [refresh, setRefresh] = useState(0);
+  const [snapshot, setSnapshot] = useState(null);
+  const [failedRequest, setFailedRequest] = useState(null);
+  const readProgress = useEffectEvent(() => analysisProgress);
+  const request = useMemo(() => ({dataset, filters, before, anchor, generation, refresh}),
+    [dataset, filters, before, anchor, generation, refresh]);
+  const view = snapshot?.request === request ? snapshot.value : null;
+  const reportError = failedRequest?.request === request ? failedRequest : null;
+  const newerAnalysis = view && (view.report_generation === undefined
+    ? snapshot.progressAtRead !== analysisProgress
+    : isNewerReportGeneration(analysisGeneration, view.report_generation));
+  const filterOptions = snapshot?.request.dataset === dataset ? snapshot.value : null;
+  const selectedDetail = view?.games.some(row => row.id === detail) ? detail : undefined;
 
   useEffect(() => {
     const owner = new AbortController();
+    const {dataset, filters, before, anchor, generation} = request;
     const requestFilters = {...filters};
     if (filters.clock) {
       const [seconds, increment] = filters.clock.split(":").map(Number);
@@ -155,64 +168,88 @@ export function PersonalTactics({dataset, onOpen, revision}) {
       requestFilters[key] = min || max ? [min === "" ? 0 : Number(min), max === "" ? Number.MAX_SAFE_INTEGER : Number(max)] : undefined;
     }
     const pending = setTimeout(() => {
-      readPersonalTactics(dataset, {filters: requestFilters, before, anchor}, owner.signal).then(value => {
-        if (!owner.signal.aborted) { setView(value); setError(false); }
-      }).catch(() => { if (!owner.signal.aborted) setError(true); });
+      const progressAtRead = readProgress();
+      readPersonalTactics(dataset, {filters: requestFilters, before, anchor, report_generation: generation},
+        owner.signal).then(value => {
+        if (!owner.signal.aborted) setSnapshot({request, value, progressAtRead});
+      }).catch(error => { if (!owner.signal.aborted) setFailedRequest({request, code: error?.code}); });
     }, 120);
     return () => {clearTimeout(pending); owner.abort();};
-  }, [dataset, filters, before, anchor, revision]);
+  }, [request]);
 
   useEffect(() => {
-    if (detail === undefined) { setPosition(null); return; }
+    if (selectedDetail === undefined) return;
     const owner = new AbortController();
-    readPersonalPosition(dataset, detail, owner.signal).then(value => {
-      if (!owner.signal.aborted) { setPosition(value); setError(false); }
-    }).catch(() => { if (!owner.signal.aborted) setError(true); });
+    readPersonalPosition(dataset, selectedDetail, view.report_generation, owner.signal).then(value => {
+      if (!owner.signal.aborted) setPosition({view, selectedDetail, value});
+    }).catch(error => {
+      if (!owner.signal.aborted) setPosition({view, selectedDetail, error: true, code: error?.code});
+    });
     return () => owner.abort();
-  }, [dataset, detail, revision]);
+  }, [dataset, selectedDetail, view]);
 
   function change(key, value) {
     setFilters(current => ({...current, [key]: value}));
     setBefore(undefined);
     setDetail(undefined);
+    setGeneration(anchor === undefined ? undefined : view?.report_generation ?? generation);
+  }
+  function page(before) {
+    setBefore(before);
+    setDetail(undefined);
+    setGeneration(view?.report_generation ?? generation);
+  }
+  function refreshReport() {
+    setGeneration(undefined);
+    setRefresh(value => value + 1);
   }
   const select = (key, label, options) => <Filter label={label} value={filters[key]} choices={options} change={value => change(key,value)}/>;
-  const displayed = detail === undefined ? view?.detail : position?.id === detail ? position : null;
+  const currentPosition = position?.view === view && position.selectedDetail === selectedDetail ? position : null;
+  const displayed = selectedDetail === undefined ? view?.detail : currentPosition?.value;
   const selected = view?.games.find(row => row.id === displayed?.id);
   const bands = values => (values ?? []).map(min => [min, `${min}–${min + 49}`]);
   return <Surface>
     <h2>Personal tactics</h2>
+    <p>Report snapshot. Refresh the report to see newer analysis.</p>
+    <Button size="compact" variant="quiet" onClick={refreshReport}>Refresh report</Button>
+    {newerAnalysis && <p role="status">Newer analysis may be available.</p>}
     <div className="tactical-filters">
       {select("motif", "Motif", Object.entries(motifNames))}
       {select("result", "Result", [["win","Win"],["draw","Draw"],["loss","Loss"],["unknown","Unknown"]])}
       {select("speed", "Speed", Object.entries(speedNames))}
-      {select("clock", "Exact time control", (view?.clocks ?? []).map(clock => [`${clock.seconds}:${clock.increment}`, clockLabel(clock)]))}
-      {select("source", "Site", (view?.sources ?? []).map(site => [site,sourceNames[site] ?? site]))}
-      {select("learner_rating", "Your rating", bands(view?.learner_bands))}
-      {select("opponent_rating", "Opponent rating", bands(view?.opponent_bands))}
+      {select("clock", "Exact time control", (filterOptions?.clocks ?? []).map(clock => [`${clock.seconds}:${clock.increment}`, clockLabel(clock)]))}
+      {select("source", "Site", (filterOptions?.sources ?? []).map(site => [site,sourceNames[site] ?? site]))}
+      {select("learner_rating", "Your rating", bands(filterOptions?.learner_bands))}
+      {select("opponent_rating", "Opponent rating", bands(filterOptions?.opponent_bands))}
       {select("weekday", "Weekday", weekdays.map((day,index) => [index,day]))}
       {select("start_hour", "Start hour (Eastern)", Array.from({length:24}, (_,hour) => [hour,`${String(hour).padStart(2,"0")}:00`]))}
       <LoadFilter label="Games earlier that day" value={filters.prior_today} change={value => change("prior_today",value)}/>
       <LoadFilter label="Games in preceding hour" value={filters.prior_hour} change={value => change("prior_hour",value)}/>
     </div>
-    {error && <StatusNotice kind="error">Unable to read the personal tactics report.</StatusNotice>}
-    {!view && !error && <p role="status">Reading your games…</p>}
+    {reportError && <StatusNotice kind="error">{reportError.code === "report_changed"
+      ? "This report snapshot has changed. Refresh the report to continue."
+      : "Unable to read the personal tactics report."}</StatusNotice>}
+    {!view && !reportError && <p role="status">Reading your games…</p>}
+    {anchor !== undefined && <Button onClick={() => {setAnchor(undefined); setBefore(undefined); setDetail(undefined); setGeneration(undefined);}}>Back to all opportunities</Button>}
+    {before !== undefined && <Button onClick={() => page(undefined)}>Newest</Button>}
     {view && <>
       <LossComparison view={view}/>
       <h3>When to take a break</h3>
       <PlayingLoad title="Games earlier that day" pattern={view.prior_today}/>
       <PlayingLoad title="Games in the preceding hour" pattern={view.prior_hour}/>
       <h3>{anchor ? "Similar positions" : "Tactical opportunities"}</h3>
-      {anchor && <Button onClick={() => {setAnchor(undefined); setDetail(undefined);}}>Back to all opportunities</Button>}
       <div className="tactical-history-layout">
         <ol>{view.games.map(row => <li key={row.id}><Button size="compact" variant="quiet" aria-pressed={selected?.id === row.id}
           onClick={() => setDetail(row.id)}>{row.motifs.map(motif => motifNames[motif]).join(" · ")} · {row.game.result}</Button></li>)}</ol>
         {selected && <Finding key={selected.id} row={selected} detail={displayed} dataset={dataset} onOpen={onOpen}
-          onSimilar={id => {setAnchor(id); setBefore(undefined); setDetail(undefined);}}/>}
+          onSimilar={id => {setAnchor(id); page(undefined);}}/>}
+        {selectedDetail !== undefined && !currentPosition && <p role="status">Reading the selected position…</p>}
+        {currentPosition?.error && <StatusNotice kind="error">{currentPosition.code === "report_changed"
+          ? "This report snapshot has changed. Refresh the report to read the selected position."
+          : "Unable to read the selected position."}</StatusNotice>}
       </div>
       {view.games.length === 0 && <p>No analyzed positions match these filters.</p>}
-      {before !== undefined && <Button onClick={() => {setBefore(undefined);setDetail(undefined);}}>Newest</Button>}
-      {view.next_before !== null && <Button onClick={() => {setBefore(view.next_before);setDetail(undefined);}}>Older</Button>}
+      {view.next_before !== null && <Button onClick={() => page(view.next_before)}>Older</Button>}
     </>}
   </Surface>;
 }

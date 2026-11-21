@@ -1,4 +1,5 @@
 import { waitForDelivery } from "./bounded_read.js";
+import { observeRequest } from "./diagnostics.js";
 
 const storeName = "commands";
 
@@ -135,17 +136,27 @@ function structuredError(value) {
 // Successful JSON is passed unchanged to its endpoint validator, including
 // domain errors carried in HTTP 200 responses.
 export function requestJson(path, { method, payload, headers, cache, signal, timeoutMs, expectedStatus } = {}) {
+  const observation = observeRequest(path, method, timeoutMs);
   return waitForDelivery(signal, async requestSignal => {
+    observation.start();
+    const headerFields = Array.isArray(headers) ? Object.fromEntries(headers)
+      : typeof Headers !== "undefined" && headers instanceof Headers ? Object.fromEntries(headers) : headers;
+    const requestHeaders = { ...headerFields, "X-Tempo-Request-Id": observation.requestId };
+    // A delivery ID is unrelated to any immutable command identity in the body.
+    for (const key of Object.keys(requestHeaders)) {
+      if (key !== "X-Tempo-Request-Id" && key.toLowerCase() === "x-tempo-request-id") delete requestHeaders[key];
+    }
     const response = await fetch(path, {
       ...(method !== undefined && { method }),
       ...(cache !== undefined && { cache }),
-      ...(headers !== undefined && { headers }),
+      headers: requestHeaders,
       ...(payload !== undefined && {
-        headers: { "Content-Type": "application/json", ...headers },
+        headers: { "Content-Type": "application/json", ...requestHeaders },
         body: JSON.stringify(payload),
       }),
       signal: requestSignal,
     });
+    observation.headers(response);
     // A late response from a noncooperative fetch has no caller.
     requestSignal?.throwIfAborted();
     if (response.ok) {
@@ -153,16 +164,19 @@ export function requestJson(path, { method, payload, headers, cache, signal, tim
         throw new JsonHttpError(response.status, undefined,
           `Tempo returned HTTP ${response.status} where HTTP ${expectedStatus} was expected.`);
       }
-      return response.json();
+      const value = await response.json();
+      observation.body();
+      return value;
     }
     let details;
     try {
       details = structuredError(await response.json());
+      observation.body();
     } catch {
       // HTML, an empty reply and malformed JSON still carry the HTTP status.
     }
     throw new JsonHttpError(response.status, details);
-  }, timeoutMs);
+  }, timeoutMs, observation);
 }
 
 // PGN uploads and saves keep caller-selected waiting. They have no shared deadline.
