@@ -172,7 +172,7 @@ export function PersonalTactics({dataset, onOpen, analysisGeneration, analysisPr
       readPersonalTactics(dataset, {filters: requestFilters, before, anchor, report_generation: generation},
         owner.signal).then(value => {
         if (!owner.signal.aborted) setSnapshot({request, value, progressAtRead});
-      }).catch(error => { if (!owner.signal.aborted) setFailedRequest({request, code: error.code}); });
+      }).catch(error => { if (!owner.signal.aborted) setFailedRequest({request, code: error?.code}); });
     }, 120);
     return () => {clearTimeout(pending); owner.abort();};
   }, [request]);
@@ -183,7 +183,7 @@ export function PersonalTactics({dataset, onOpen, analysisGeneration, analysisPr
     readPersonalPosition(dataset, selectedDetail, view.report_generation, owner.signal).then(value => {
       if (!owner.signal.aborted) setPosition({view, selectedDetail, value});
     }).catch(error => {
-      if (!owner.signal.aborted) setPosition({view, selectedDetail, error: true, code: error.code});
+      if (!owner.signal.aborted) setPosition({view, selectedDetail, error: true, code: error?.code});
     });
     return () => owner.abort();
   }, [dataset, selectedDetail, view]);
