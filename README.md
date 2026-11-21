@@ -105,13 +105,18 @@ The runner uses a disposable SQLite database, Chrome, and the built UI served
 by the production host with an external fixture detector. Playwright can be
 resolved by Node or specified with `TEMPO_PLAYWRIGHT`.
 
-## Phone Study
+## Phone Study and Build
 
 The build also emits the standalone phone Study bundle under `dist/phone`.
 The desktop and phone bundles share the Study session and use the same API.
 Both use the bounded Study transport and immutable command recovery. Phone
-connection hints preserve structured server errors. Desktop owns game links
-and browser navigation; the phone entry contains only Study.
+connection hints preserve structured server errors. Build opens on the phone
+at `#build` and uses the same coverage scan and signed gap editor as desktop
+Games. Choose a repertoire, scan to the desired move, then review and save a
+reply or line. Scans are explicit and Build recovers an unconfirmed scan or
+Save on reload.
 After building the matching Tempo binary and UI, run
 `node tempo-ui/test/phone_study_browser.mjs` from the assembled workspace
 with Playwright WebKit installed. The test uses a disposable database.
+Run `node tempo-ui/test/phone_build_browser.mjs` with the same setup and
+`TEMPO_MAIA` pointing to the local Maia directory for the Build journey.

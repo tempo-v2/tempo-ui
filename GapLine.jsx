@@ -64,7 +64,7 @@ export function useGapLine(gap, selected) {
         publish(value);
         if (value.status === "running") timer = setTimeout(() => void observe(false), 400);
       } catch (error) {
-        publish({ status: "error", message: error.message });
+        publish({ status: "error", message: error.message, code: error.code });
       }
     }
     void observe(true);

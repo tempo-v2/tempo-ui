@@ -27,18 +27,29 @@ const storage = {
   save: (e) =>
     sessionStorage.setItem("tempo-study-recovery-v4", JSON.stringify(e)),
 };
+
+export function hasPendingStudyCommand() {
+  try {
+    return !!storage.load()?.pending;
+  } catch {
+    // Open Study so its controller can report the recovery problem.
+    return true;
+  }
+}
+
 export function App(props) {
   return <Notifications><StudyApp {...props} /></Notifications>;
 }
 
 function StudyApp({ initialPage = "study", renderSection, renderAnalysis, renderNavigation, studyPresenceSurface,
-  transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
+  transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation,
+  showOriginalGameLink = false, studyCompanionSection }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
     [stopped, setStopped] = useState(false),
     [guided, setGuided] = useState(null);
-  const savedReviewsFromStudy = useRef(false);
+  const companionFromStudy = useRef(false);
   const [exitGuards, setExitGuards] = useState([]);
   const registerExitGuard = useCallback(guard => {
     setExitGuards(current => [...current, guard]);
@@ -395,12 +406,12 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
     if (page === nextPage) return true;
 
     cancelLichessLaunch();
-    const openingStudyList = page === "study" && nextPage === "saved-reviews";
-    const returningToStudy = page === "saved-reviews" && nextPage === "study" && savedReviewsFromStudy.current;
-    savedReviewsFromStudy.current = openingStudyList;
+    const openingCompanion = page === "study" && nextPage === studyCompanionSection;
+    const returningToStudy = page === studyCompanionSection && nextPage === "study" && companionFromStudy.current;
+    companionFromStudy.current = openingCompanion;
     pausedAdvance.current = view;
-    if (openingStudyList || returningToStudy) {
-      // The list is a read. Preserve the Study visit and any reproduced lesson.
+    if (openingCompanion || returningToStudy) {
+      // Preserve the existing visit, including any reproduced lesson or saved result.
       setPage(nextPage);
       if (returningToStudy && reviewExclusion.current) {
         reviewExclusion.current = false;
@@ -458,7 +469,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
         reviewMark={reviewMark}
         onOpenCardDetails={() => { pausedAdvance.current = view; }}
         reviewAddresses={reviewAddresses}
-        showOriginalGameLink={!!renderSection}
+        showOriginalGameLink={showOriginalGameLink}
         boardRef={board}
         choice={choice}
         onMove={onMove}

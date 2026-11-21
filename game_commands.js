@@ -298,6 +298,7 @@ export async function startCoverage(payload, signal) {
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
 export const startGapAnalysis = (payload, signal) => request("/gap-analysis", payload, signal);
 export const readGapAnalysis = signal => request("/gap-analysis", undefined, signal);
+export const readPhoneGapAnalysis = (signal, address) => read("/gap-analysis/status", signal, address);
 
 export const startGapExplorer = (payload, signal) => request("/gap-explorer", payload, signal);
 export const readGapExplorer = signal => request("/gap-explorer", undefined, signal);

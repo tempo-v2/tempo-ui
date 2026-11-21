@@ -1,7 +1,19 @@
 import { gapDraft } from "./game_commands.js";
 import { pendingRepertoireEntry } from "./repertoire_recovery.js";
 
-export const staleGapCodes = new Set(["stale_dataset", "stale_draft", "stale_gap", "stale_preview", "stale_repertoire", "unavailable_repertoire"]);
+export const staleGapCodes = new Set(["stale_coverage", "stale_dataset", "stale_draft", "stale_gap", "stale_preview", "stale_repertoire", "suspended_repertoire", "unavailable_repertoire"]);
+
+export function gapKey(gap) {
+  return JSON.stringify([gap.repertoire_id, gap.position, gap.actual_move]);
+}
+
+export function gapAddress(datasetId, gap) {
+  return {
+    dataset_id: datasetId, repertoire_id: gap.repertoire_id, position: gap.position,
+    actual_move: gap.actual_move, document_revision: gap.document_revision,
+    ...(Object.hasOwn(gap, "gap_kind") ? { gap_kind: gap.gap_kind } : {}),
+  };
+}
 
 export function repertoireError(reply) {
   return Object.assign(new Error(reply.message), { code: reply.code });

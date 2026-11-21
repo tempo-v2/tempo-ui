@@ -104,7 +104,7 @@ try {
   const phonePost = (path, command) => phoneFetch(path, {
     method: "POST", headers: { ...jsonHeaders, Origin: phoneOrigin }, body: JSON.stringify(command),
   });
-  for (const path of ["/api/games/import", "/api/games/refresh", "/api/repertoires", "/api/tactics", "/api/study/analysis-context", "/api/study/saved-reviews"]) {
+  for (const path of ["/api/games/import", "/api/games/refresh", "/api/games/model", "/api/tactics", "/api/study/analysis-context", "/api/study/saved-reviews"]) {
     assert.equal((await phonePost(path, {})).status, 404, path);
   }
   assert.equal((await phoneFetch("/api/games")).status, 404);
@@ -315,6 +315,16 @@ try {
   await button("Continue").waitFor();
   assert.equal(commands.length, completedCommands);
   assert.equal(await page.getByRole("tooltip").count(), 0);
+
+  const completedAttempts = rows("attempts");
+  const completedAssessmentCount = rows("assessments");
+  await button("Build").tap();
+  await page.getByRole("heading", { name: "Build repertoire" }).waitFor();
+  await button("Study").tap();
+  await button("Continue").waitFor();
+  assert.equal(commands.length, completedCommands);
+  assert.equal(rows("attempts"), completedAttempts);
+  assert.equal(rows("assessments"), completedAssessmentCount);
 
   const sounds = button("Board sounds");
   const wasPressed = await sounds.getAttribute("aria-pressed");
