@@ -93,7 +93,7 @@ export function validateStudyView(value) {
       "legal_moves",
       "in_check",
       "activity",
-      ...["lesson", "exercise_name", "history", "corrective_repair", "opponent_move"].filter((key) => Object.hasOwn(value, key)),
+      ...["lesson", "exercise_name", "history", "corrective_repair", "opponent_move", "repertoire_context"].filter((key) => Object.hasOwn(value, key)),
     ],
     "attempt view",
   );
@@ -137,6 +137,11 @@ export function validateStudyView(value) {
     throw new TypeError("Terminal legal moves must be empty");
 
   const context = {};
+  if (Object.hasOwn(value, "repertoire_context")) {
+    if (value.activity !== "practice" || value.repertoire_context !== "warmup")
+      throw new TypeError("Invalid repertoire warm-up");
+    context.repertoire_context = value.repertoire_context;
+  }
   if (Object.hasOwn(value, "corrective_repair")) {
     if (value.activity !== "teach") throw new TypeError("A corrective repair must be guided");
     context.corrective_repair = boolean(value.corrective_repair, "corrective_repair");

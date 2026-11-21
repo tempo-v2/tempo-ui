@@ -55,6 +55,12 @@ test("any exercise can have a display name", () => {
   assert.throws(() => validateStudyView(ready({ repertoire_name: "Old name" })), TypeError);
 });
 
+test("a warm-up presentation requires an issued Practice", () => {
+  assert.equal(validateStudyView(ready({ activity: "practice", repertoire_context: "warmup" })).repertoire_context, "warmup");
+  assert.throws(() => validateStudyView(ready({ repertoire_context: "warmup" })), /warm-up/);
+  assert.throws(() => validateStudyView(ready({ activity: "practice", repertoire_context: "future" })), /warm-up/);
+});
+
 test("only teaching may include a lesson and it cannot emit a review grade", () => {
   const lesson = { move_uci: "e2e4", move_san: "e4", comments: ["Play the center."] };
   assert.deepEqual(validateStudyView(ready({ activity: "teach", lesson })).lesson, lesson);
