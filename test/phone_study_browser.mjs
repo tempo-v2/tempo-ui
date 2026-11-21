@@ -58,11 +58,7 @@ try {
   await writeFile(transfer, JSON.stringify({
     schema_version: 1,
     puzzles: tactics.map(tactic => ({
-      ...tactic, namespace: "tempo1-card", label: tactic.source_id,
-      provenance: [`tempo1:capture:${tactic.source_id}`, "tempo1:source_kind:game"],
-      legacy_game_captures: [{
-        capture_id: tactic.source_id, solver_fen: tactic.solver_fen, solution: tactic.solution,
-      }],
+      ...tactic, namespace: "puzzle-pack", label: tactic.source_id, provenance: [],
     })),
   }));
   execFileSync(binary, ["init", database]);
@@ -280,7 +276,8 @@ try {
   await page.locator(".study-panel .status-notice.error").waitFor();
   const clue = page.locator("#study-tactic-clue");
   await clue.waitFor();
-  assert.match(await clue.innerText(), /is checkmated by the queen/);
+  assert.equal(await page.locator(".study-panel").evaluate(panel => panel.firstElementChild.contains(document.querySelector("#study-tactic-clue"))), true);
+  assert.match(await clue.innerText(), /^Mate in one\. .*is checkmated by the queen/);
   await page.waitForFunction(from =>
     [...document.querySelectorAll(".study-board svg.cg-shapes g[cgHash]")].some(shape =>
       shape.getAttribute("cgHash").includes(`,${from},${from === "g7" ? "h8" : "a8"},green`)), answer.slice(2));
@@ -356,7 +353,7 @@ try {
   const practiceMove = solution(practice);
   await tapMove(page, practiceMove.slice(0, 3) + "5");
   await clue.waitFor();
-  assert.match(await clue.innerText(), /is checkmated by the queen/);
+  assert.match(await clue.innerText(), /^Mate in one\. .*is checkmated by the queen/);
   await tapMove(page, practiceMove);
   await button("Continue").waitFor();
   assert.equal(await clue.count(), 0);

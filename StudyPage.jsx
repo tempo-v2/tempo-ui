@@ -123,6 +123,7 @@ export function StudyPage({
         </div>
       )}
       <aside className="study-panel" aria-label="Study information">
+        {tacticClue && <MoveFeedback view={view} tacticClue={tacticClue} />}
         <PageHeader title={title} />
         <Surface>
           {stopped ? (
@@ -190,7 +191,7 @@ export function StudyPage({
                   )}
                 </StatusNotice>
               )}
-              <MoveFeedback view={view} tacticClue={tacticClue} />
+              {!tacticClue && <MoveFeedback view={view} />}
               {attempt && (view.status === "complete" || view.assessment === "again" ||
                 view.feedback?.correct === false) && (
                 <StudyCardDetails key={JSON.stringify([view.dataset_id, view.attempt_id, view.revision])}

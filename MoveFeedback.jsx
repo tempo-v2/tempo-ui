@@ -9,7 +9,11 @@ export function MoveFeedback({ view, tacticClue }) {
     <StatusNotice kind="error">
       {view.feedback.message}{san ? ` Play ${san}.` : ""}
       {view.activity === "practice" && " Schedule unchanged."}
-      {tacticClue && <div id="study-tactic-clue">{tacticClue.text}</div>}
+      {tacticClue && (
+        <div id="study-tactic-clue">
+          <strong>{tacticClue.label}.</strong> {tacticClue.text}
+        </div>
+      )}
     </StatusNotice>
   );
 }
