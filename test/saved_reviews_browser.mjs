@@ -58,6 +58,10 @@ try {
   const studyTables = ["store_state", "attempts", "learning", "assessments", "receipts"];
   const studyData = () => studyTables.map(table => sql.prepare(`SELECT * FROM ${table}`).all());
   const button = name => page.getByRole("button", { name, exact: true });
+  async function openSavedReviews() {
+    await button("Study shortcuts").click();
+    await button("Saved for review").click();
+  }
   const studyCommands = [];
   const errors = [];
   let firstMark;
@@ -133,7 +137,7 @@ try {
   const toast = page.locator(".ui-toast").getByText("Saved for review.", { exact: true });
   const layout = () => page.locator("main").evaluate(main => ({
     height: main.scrollHeight,
-    navigation: main.querySelector("nav").getBoundingClientRect().top + window.scrollY,
+    navigation: document.querySelector('nav[aria-label="Tempo sections"]').getBoundingClientRect().top,
   }));
   const beforeMark = await layout();
   await markButton.click();
@@ -162,7 +166,7 @@ try {
   await button("Skip").click();
   await button("Resume skipped").waitFor();
   const commandCount = studyCommands.length;
-  await button("Saved for review").click();
+  await openSavedReviews();
   await button("Open analysis").click();
   await page.getByText("Finish in Study to open analysis.", { exact: true }).waitFor();
   assert.equal(await page.getByRole("heading", { name: "Analysis board" }).count(), 0);
@@ -207,7 +211,7 @@ try {
   assert.deepEqual(savedDetails.details.sources, ["Personal capture"]);
   assert.deepEqual(savedDetails.details.explanation.capture_method, ["Captured from a game"]);
   const studyBeforeReview = studyData();
-  await button("Saved for review").click();
+  await openSavedReviews();
   await button("Open analysis").first().click();
   await page.getByRole("heading", { name: "Analysis board" }).waitFor();
   await page.getByText(/Issued Study move · Nf3/).waitFor();
@@ -224,7 +228,7 @@ try {
   const practiceButton = studyTab.getByRole("button", { name: "Practice tactics", exact: true });
   await practiceButton.waitFor();
   await page.bringToFront();
-  await button("Saved for review").click();
+  await openSavedReviews();
   await button("Open analysis").click();
   await page.getByText(/Issued Study move · Nf3/).waitFor();
 
@@ -321,7 +325,7 @@ try {
   assert.equal((await reviews({ command: "open", id: list.rows[0].id })).origin.prescribedUci, "g1f3");
   await page.goto(url);
   await button("Practice tactics").waitFor();
-  await button("Saved for review").click();
+  await openSavedReviews();
   await button("Remove from Study").click();
   await page.getByRole("dialog", { name: "Remove this tactic from Study?" })
     .getByRole("button", { name: "Remove from Study", exact: true }).click();
@@ -408,7 +412,7 @@ try {
   const removedDataset = { dataset_id: removeCard.dataset_id };
   await markButton.click();
   await toast.waitFor();
-  await button("Saved for review").click();
+  await openSavedReviews();
   await button("Remove from Study").click();
   const dialog = page.getByRole("dialog", { name: "Remove this tactic from Study?" });
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -494,7 +498,7 @@ try {
   await page.goto(url);
   await markButton.click();
   await page.getByText("Saved for review.", { exact: true }).waitFor();
-  await button("Saved for review").click();
+  await openSavedReviews();
   await button("Open analysis").waitFor();
   assert.equal(await button("Remove from Study").count(), 0);
   const openingMark = (await post("/api/study/saved-reviews", {

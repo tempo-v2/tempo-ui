@@ -157,12 +157,13 @@ try {
   const detail = await response.json();
   assert.equal(detail.fen, fen.replace("0 23", "0 1"));
   assert.deepEqual(detail.solution.moves.map(move => move.notation), ["1... O-O", "2. Ra2"]);
-  await button("Tactics").click();
+  await page.getByRole("main").getByRole("button", { name: "Tactics", exact: true }).click();
   await button(detail.label).click();
   await page.getByRole("group", { name: "Tactic position" }).waitFor();
   await checkDesktopBoardResize(page, "Tactic position");
   await page.setViewportSize({ width: 1000, height: 500 });
   await checkDesktopBoardLayout(page, "Tactic position");
+  await page.setViewportSize({ width: 1000, height: 550 });
   await checkDesktopBoardResize(page, "Tactic position", 8);
   await button("Show solution").click();
   await button("1... O-O").waitFor();

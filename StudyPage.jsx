@@ -29,7 +29,7 @@ export function StudyPage({
   reviewMark,
   reviewAddresses,
   onOpenCardDetails,
-  onNavigate,
+  showOriginalGameLink,
   boardRef,
   choice,
   onMove,
@@ -250,28 +250,13 @@ export function StudyPage({
               {!inGameReplay &&
                 <Button size="compact" disabled={replayBlocked}
                   onClick={() => onInspect(gameContext.line.moves.length)}>Replay game</Button>}
-              {onNavigate && gameContext.url && <a href={gameContext.url} target="_blank" rel="noopener noreferrer">
+              {showOriginalGameLink && gameContext.url && <a href={gameContext.url} target="_blank" rel="noopener noreferrer">
                 Open original game
               </a>}
             </div>
           )}
         </Surface>
         <StudyProgress summary={summary} unavailable={unavailable} />
-        {onNavigate && (
-          <nav className="study-navigation" aria-label="Tempo sections">
-            <Button size="compact" disabled={!view?.dataset_id || state.busy || state.canRetry || reviewMark?.busy || !!choice || !!dialog}
-              onClick={() => onNavigate("saved-reviews")}>Saved for review</Button>
-            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("repertoires")}>
-              Repertoires
-            </Button>
-            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("tactics")}>
-              Tactics
-            </Button>
-            <Button size="compact" disabled={state.busy || state.canRetry || !!choice} onClick={() => onNavigate("games")}>
-              Games
-            </Button>
-          </nav>
-        )}
         <div className="actions study-board-controls" aria-label="Board controls" role="group">
           {attempt && <Button size="compact" disabled={!!choice} onClick={onFlip}>Flip board</Button>}
           <Button size="compact" aria-pressed={soundEnabled} onClick={() => onSoundChange(!soundEnabled)}>

@@ -360,7 +360,8 @@ try {
     const { context, page, button } = await session();
     await page.goto(url);
     if (departure === "history") {
-      await button("Games").click();
+      await button("Menu").click();
+      await page.getByRole("link", { name: "Games", exact: true }).click();
       await page.waitForURL("**/#games");
       await button("← Study").click();
       await page.waitForURL(url + "/");
@@ -445,10 +446,15 @@ try {
   await button("Retry next exercise").waitFor();
   await page.getByText("Review recorded as Good.", { exact: true }).waitFor();
   assert.equal(durable(db).assessments, 1);
+  await button("Menu").click();
+  assert.equal(await page.getByRole("link", { name: "Games", exact: true }).isDisabled(), true);
+  await page.keyboard.press("Escape");
+  assert.deepEqual(commands, ["next", "answer", "answer", "next"]);
   await button("Retry next exercise").click();
   await button("Retry next exercise").waitFor({ state: "hidden" });
   assert.deepEqual(commands, ["next", "answer", "answer", "next", "next"]);
   assert.equal(durable(db).assessments, 1);
+  await button("Menu").click();
   await button("Tactics").click();
   await button("Fixture puzzle").click();
   await button("Show solution").waitFor();

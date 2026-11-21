@@ -1,3 +1,4 @@
+import { pushDesktopEntry, replaceDesktopEntry, subscribeGamesHistory } from "./desktop_history.js";
 import { hasReviewDraft } from "./review_draft.js";
 import { GameLibrary, recordedFinding } from "./GameLibrary.jsx";
 import { GameWorkbench, readReviewMark } from "./GameWorkbench.jsx";
@@ -282,6 +283,7 @@ function GamesPanel({ id, tab, children }) {
 
 export function GamesPage({ onStudy, onRepertoires }) {
   const [review, setReview] = useState(reviewAddress);
+  const [analysis, setAnalysis] = useState(null);
   const [recovery] = useState(readGapContinuation);
   const [tab, setTab] = useState(() => recovery ? "coverage" : historyTab());
   const [analysisVisited, setAnalysisVisited] = useState(tab === "analysis");
@@ -300,14 +302,22 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   useEffect(() => {
     if (recovery) {
-      window.history.replaceState({ gamesTab: "coverage" }, "", "#games");
+      replaceDesktopEntry({ gamesTab: "coverage" }, "#games");
       setReview(null);
     }
+  }, [recovery]);
+
+  useEffect(() => {
     function sync() {
       const selected = historyTab();
       if (requestedGamesTab()) {
-        window.history.replaceState({ gamesTab: selected }, "", "#games");
+        replaceDesktopEntry({ gamesTab: selected }, "#games");
         window.scrollTo?.(0, 0);
+      }
+      if (analysis) {
+        setAnalysis(null);
+        setActiveGap(null);
+        refreshEvidenceReads();
       }
       const next = reviewAddress();
       if (next || selected !== "coverage") cancelGapOpening();
@@ -315,11 +325,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
       setTab(selected);
       if (selected === "analysis") setAnalysisVisited(true);
     }
-    if (!recovery && requestedGamesTab()) sync();
-    window.addEventListener("popstate", sync);
-    window.addEventListener("hashchange", sync);
-    return () => { window.removeEventListener("popstate", sync); window.removeEventListener("hashchange", sync); };
-  }, [recovery]);
+    if (requestedGamesTab()) sync();
+    return subscribeGamesHistory(sync);
+  }, [analysis]);
 
   function cancelGapOpening() {
     if (gapOpening.current) {
@@ -331,7 +339,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   function selectTab(next, { learner = false } = {}) {
     if (next !== "coverage") cancelGapOpening();
-    window.history.replaceState({ ...window.history.state, gamesTab: next }, "", "#games");
+    replaceDesktopEntry({ ...window.history.state, gamesTab: next }, "#games");
     setTab(next);
     if (next === "analysis") setAnalysisVisited(true);
     if (next !== tab || learner) window.scrollTo?.(0, 0);
@@ -355,14 +363,14 @@ export function GamesPage({ onStudy, onRepertoires }) {
     const previous = window.history.state?.reviewLibrary;
     const comparisons = recordedComparisons ?? (previous?.dataset_id === next.dataset_id && sameGame(previous,next) ? previous.comparisons : []);
     const reviewLibrary = {dataset_id:next.dataset_id, source:next.source, game_id:next.game_id, learner:next.learner, comparisons};
-    window.history.pushState({ reviewLibrary, gamesTab: tab }, "", reviewUrl(next));
+    pushDesktopEntry({ reviewLibrary, gamesTab: tab }, reviewUrl(next));
     setReview(next);
     window.scrollTo?.(0, 0);
   }
 
   function closeReview() {
     const selected = historyTab();
-    window.history.pushState({ gamesTab: selected }, "", "#games");
+    pushDesktopEntry({ gamesTab: selected }, "#games");
     setReview(null);
     selectTab(selected);
     refreshHistory(); refreshEvidenceReads();
@@ -382,7 +390,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [modelActionError, setModelActionError] = useState("");
   const [modelActionDataset, setModelActionDataset] = useState(null);
   const [gapActionError, setGapActionError] = useState("");
-  const [analysis,setAnalysis] = useState(null);
   const [workingGap, setWorkingGap] = useState(false);
   const [forecastBook, setForecastBook] = useState(() => recovery?.gap.forecastBook ?? null);
   const [gapOffset, setGapOffset] = useState(() => recovery?.gap.offset ?? 0);

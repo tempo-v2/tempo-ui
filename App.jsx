@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import { createStudyController } from "./study_controller.js";
 import { Notifications } from "./Notifications.jsx";
 import { StudyPage } from "./StudyPage.jsx";
@@ -14,6 +14,7 @@ import { useStudyPresence } from "./use_study_presence.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
 import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
+import { PageExitGuardContext } from "./page_exit_guard.js";
 
 const REPLY_DELAY_MS = 200;
 const NEXT_EXERCISE_DELAY_MS = 500;
@@ -29,12 +30,19 @@ export function App(props) {
   return <Notifications><StudyApp {...props} /></Notifications>;
 }
 
-function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyPresenceSurface, transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
+function StudyApp({ initialPage = "study", renderSection, renderAnalysis, renderNavigation, studyPresenceSurface,
+  transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
     [stopped, setStopped] = useState(false),
     [guided, setGuided] = useState(null);
+  const savedReviewsFromStudy = useRef(false);
+  const [exitGuards, setExitGuards] = useState([]);
+  const registerExitGuard = useCallback(guard => {
+    setExitGuards(current => [...current, guard]);
+    return () => setExitGuards(current => current.filter(item => item !== guard));
+  }, []);
   useStudyPresence(page === "study" ? studyPresenceSurface : undefined);
   const [prefs, setPrefs] = useState(loadBoardPreferences);
   const [flipped, setFlipped] = useState(false);
@@ -245,7 +253,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
     function shortcut(event) {
       if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey ||
           event.ctrlKey || event.metaKey || (event.shiftKey && event.key !== "?") ||
-          event.target?.closest?.("input, textarea, select, [contenteditable], a") ||
+          event.target?.closest?.("input, textarea, select, [contenteditable], a, nav") ||
           choiceRef.current || dialog) return;
       const current = controller.current.getState();
       if (event.key === "?") openDialog("help");
@@ -355,21 +363,46 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
     board.current?.previewPromotion(origin.base.slice(2), promotionRoles[role].toLowerCase());
     submit(v, origin.base + role);
   }
-  function goTo(nextPage) {
+  function navigationLocked(nextPage) {
+    if (page === nextPage && page !== "games") return false;
+    if (exitGuards.some(guard => guard.locked)) return true;
+    if (page !== "study") return false;
+    return state.busy || state.canRetry || !!choice || !!dialog ||
+      (nextPage === "saved-reviews" && (!view?.dataset_id || reviewMark.busy));
+  }
+
+  function confirmPageExit() {
+    return !exitGuards.some(guard => guard.locked) &&
+      !exitGuards.some(guard => guard.confirmExit?.() === false);
+  }
+
+  function goTo(nextPage, href) {
+    if (page === nextPage && page !== "games") return true;
+    if (navigationLocked(nextPage) || !confirmPageExit()) return false;
+    navigateSection?.(nextPage, page, href);
+    changePage(nextPage);
+    return true;
+  }
+
+  function changePage(nextPage) {
+    if (page === nextPage) return true;
+
     cancelLichessLaunch();
-    if (nextPage === "saved-reviews" || (page === "saved-reviews" && nextPage === "study")) {
+    const openingStudyList = page === "study" && nextPage === "saved-reviews";
+    const returningToStudy = page === "saved-reviews" && nextPage === "study" && savedReviewsFromStudy.current;
+    savedReviewsFromStudy.current = openingStudyList;
+    pausedAdvance.current = view;
+    if (openingStudyList || returningToStudy) {
       // The list is a read. Preserve the Study visit and any reproduced lesson.
-      pausedAdvance.current = view;
       setPage(nextPage);
-      if (nextPage === "study" && reviewExclusion.current) {
+      if (returningToStudy && reviewExclusion.current) {
         reviewExclusion.current = false;
         if (view?.status === "empty" || (view?.status === "ready" && view.activity !== "teach")) {
           controller.current.start().catch(() => {});
         }
       }
-      return;
+      return true;
     }
-    pausedAdvance.current = view;
     studyVisit.current += 1;
     setDialog(null);
     setHistory(null);
@@ -378,68 +411,83 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
     sounds.cancel();
     setGuided(null);
     setStopped(false);
-    navigateSection?.(nextPage);
     setPage(nextPage);
-    if (nextPage === "study") controller.current.start().catch(() => {});
+    if (nextPage === "study") {
+      reviewExclusion.current = false;
+      controller.current.start().catch(() => {});
+    }
+    return true;
   }
-  useEffect(() => subscribeNavigation?.(page, nextPage => {
-    if (nextPage === "games") cancelLichessLaunch();
-    setPage(nextPage);
-    if (nextPage === "study") controller.current.start().catch(() => {});
-  }), [cancelLichessLaunch, page, subscribeNavigation]);
-  if (page !== "study") return renderSection(page, goTo, view?.dataset_id, () => {
-    reviewExclusion.current = true;
+  const acceptHistory = useEffectEvent(nextPage => {
+    // Browser traversal can leave Study during delivery. Its immutable
+    // pending command and analysis visit remain with the existing controller.
+    if (!confirmPageExit()) return false;
+    return changePage(nextPage);
   });
-  if (state.analysis && renderAnalysis)
-    return renderAnalysis(state.analysis, state.issue, () => {
+  useLayoutEffect(() => subscribeNavigation?.(page, nextPage => acceptHistory(nextPage)), [page, subscribeNavigation]);
+
+  let content;
+  if (page !== "study") {
+    content = renderSection(page, goTo, view?.dataset_id, () => {
+      reviewExclusion.current = true;
+    });
+  } else if (state.analysis && renderAnalysis) {
+    content = renderAnalysis(state.analysis, state.issue, () => {
       cancelLichessLaunch();
       return controller.current.closeAnalysis().catch(() => {});
     }, lichessLaunch?.visit === state.analysis ? lichessLaunch : null);
-
-  return (
-    <StudyPage
-      {...model}
-      leadIn={leadIn}
-      showSuccess={autoAdvance && view.activity === "test"}
-      advancing={state.busy && advanced.current === view}
-      actions={actions}
-      guided={guided?.view === view ? guided : null}
-      stopped={stopped}
-      boardContinuation={boardContinuation}
-      reviewMark={reviewMark}
-      onOpenCardDetails={() => { pausedAdvance.current = view; }}
-      reviewAddresses={reviewAddresses}
-      onNavigate={renderSection ? goTo : undefined}
-      boardRef={board}
-      choice={choice}
-      onMove={onMove}
-      onRejectedMove={onRejectedMove}
-      prefs={prefs}
-      flipped={flipped}
-      historyIndex={inspecting ? history.index : null}
-      historyLine={historyLine}
-      gameContext={gameContext}
-      onInspect={inspect}
-      onFlip={onFlip}
-      dialog={dialog}
-      setDialog={openDialog}
-      onPrefsChange={changes => {
-        const next = { ...prefs, ...changes };
-        setPrefs(next);
-        saveBoardPreferences(next);
-        sounds.setVolume(next.volume);
-      }}
-      soundEnabled={soundEnabled}
-      onSoundChange={enabled => {
-        sounds.setEnabled(enabled);
-        setSoundEnabled(enabled);
-      }}
-      onChoose={onChoose}
-      onCancel={() => {
-        choiceRef.current = null;
-        setChoice(null);
-        board.current?.clearInput();
-      }}
-    />
-  );
+  } else {
+    content = (
+      <StudyPage
+        {...model}
+        leadIn={leadIn}
+        showSuccess={autoAdvance && view.activity === "test"}
+        advancing={state.busy && advanced.current === view}
+        actions={actions}
+        guided={guided?.view === view ? guided : null}
+        stopped={stopped}
+        boardContinuation={boardContinuation}
+        reviewMark={reviewMark}
+        onOpenCardDetails={() => { pausedAdvance.current = view; }}
+        reviewAddresses={reviewAddresses}
+        showOriginalGameLink={!!renderSection}
+        boardRef={board}
+        choice={choice}
+        onMove={onMove}
+        onRejectedMove={onRejectedMove}
+        prefs={prefs}
+        flipped={flipped}
+        historyIndex={inspecting ? history.index : null}
+        historyLine={historyLine}
+        gameContext={gameContext}
+        onInspect={inspect}
+        onFlip={onFlip}
+        dialog={dialog}
+        setDialog={openDialog}
+        onPrefsChange={changes => {
+          const next = { ...prefs, ...changes };
+          setPrefs(next);
+          saveBoardPreferences(next);
+          sounds.setVolume(next.volume);
+        }}
+        soundEnabled={soundEnabled}
+        onSoundChange={enabled => {
+          sounds.setEnabled(enabled);
+          setSoundEnabled(enabled);
+        }}
+        onChoose={onChoose}
+        onCancel={() => {
+          choiceRef.current = null;
+          setChoice(null);
+          board.current?.clearInput();
+        }}
+      />
+    );
+  }
+  return <>
+    {renderNavigation?.(page, goTo, navigationLocked)}
+    <PageExitGuardContext.Provider value={renderNavigation ? registerExitGuard : null}>
+      {content}
+    </PageExitGuardContext.Provider>
+  </>;
 }
