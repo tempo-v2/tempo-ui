@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { MainBoard } from "./MainBoard.jsx";
-import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, IconButton, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { NextIcon, PreviousIcon, SettingsIcon } from "./ControlIcons.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
@@ -98,7 +99,7 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
       <PageHeader title="Tactics" actions={<div className="actions tactic-page-actions">
         <Button onClick={onStudy}>Study</Button>
         <Button onClick={onCapture}>Capture tactics</Button>
-        <Button onClick={onSettings}>Tactics settings</Button>
+        <IconButton label="Tactics settings" onClick={onSettings}><SettingsIcon /></IconButton>
       </div>} />
       {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
       {target ? (
@@ -161,13 +162,13 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
               </li>)}
             </ul>
           ) : <p role="status">{page ? "No tactics match this search." : issue ? "" : "Loading tactics…"}</p>}
-          <div className="actions">
-            <Button disabled={!page || query.cursors.length < 2} onClick={() =>
-              setQuery({ ...query, cursors: query.cursors.slice(0, -1) })}>Previous page</Button>
+          <nav className="actions compact-controls" aria-label="Tactic pages">
+            <IconButton label="Previous page" disabled={!page || query.cursors.length < 2} onClick={() =>
+              setQuery({ ...query, cursors: query.cursors.slice(0, -1) })}><PreviousIcon /></IconButton>
             <span>Page {query.cursors.length}</span>
-            <Button disabled={!page?.next} onClick={() =>
-              setQuery({ ...query, cursors: [...query.cursors, page.next] })}>Next page</Button>
-          </div>
+            <IconButton label="Next page" disabled={!page?.next} onClick={() =>
+              setQuery({ ...query, cursors: [...query.cursors, page.next] })}><NextIcon /></IconButton>
+          </nav>
         </Surface>
       )}
     </main>

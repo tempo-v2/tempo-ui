@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, StatusNotice } from "@tempo-v2/core-components";
+import { Button, IconButton, StatusNotice } from "@tempo-v2/core-components";
+import { NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 import { readGameLibraryPage } from "./game_commands.js";
 import "./game_library.css";
 
@@ -118,8 +119,10 @@ export function GameLibrary({dataset, refresh, books, recent, renderResults, ren
         <p>{selectedBook && filter.reason ? "Try another opening decision for "+selectedBook.name+" or clear the opening search." : "Try a player, fewer opening moves or a different decision."}</p></div> : !recentOnly.length && empty)}
     {!active && recentOnly.length > 0 && <details><summary>Recent comparisons outside this library read</summary>{renderRecent(recentOnly)}</details>}
     {groups.length > PAGE_SIZE && <nav className="library-pages" aria-label="Game pages">
-      <Button disabled={page === 0} onClick={()=>update({page:page-1})}>Previous games</Button>
+      <IconButton label="Previous games" disabled={page === 0}
+        onClick={() => update({page:page-1})}><PreviousIcon /></IconButton>
       <span>{offset+1}–{Math.min(offset+PAGE_SIZE,groups.length)} of {groups.length.toLocaleString()}</span>
-      <Button disabled={offset+PAGE_SIZE>=groups.length} onClick={()=>update({page:page+1})}>Next games</Button></nav>}
+      <IconButton label="Next games" disabled={offset+PAGE_SIZE>=groups.length}
+        onClick={() => update({page:page+1})}><NextIcon /></IconButton></nav>}
   </>;
 }

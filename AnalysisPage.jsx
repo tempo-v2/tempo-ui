@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MainBoard } from "./MainBoard.jsx";
-import { Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
+import { Button, IconButton, PageHeader, StatusNotice } from "@tempo-v2/core-components";
+import { PreviousIcon } from "./ControlIcons.jsx";
 import { Chess } from "chess.js";
 import { AnalysisEvidence } from "./AnalysisEvidence.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
@@ -179,12 +180,13 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
             {!path.length && renderRootLineAction
               ? renderRootLineAction(fen, color)
               : <LichessControl fen={fen} line={exportLine} orientation={color} />}
-            <Button
+            <IconButton
+              label="Back one move"
               disabled={locked || !path.length}
               onClick={() => navigate(path.slice(0, -1))}
             >
-              Back one move
-            </Button>
+              <PreviousIcon />
+            </IconButton>
             <select
               aria-label="Variation"
               disabled={locked}

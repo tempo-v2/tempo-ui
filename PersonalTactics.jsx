@@ -1,6 +1,7 @@
 import React, {useEffect, useEffectEvent, useMemo, useState} from "react";
 import {Chess} from "chess.js";
-import {Board, Button, StatusNotice, Surface} from "@tempo-v2/core-components";
+import {Board, Button, IconButton, StatusNotice, Surface} from "@tempo-v2/core-components";
+import {NextIcon, PreviousIcon} from "./ControlIcons.jsx";
 import {isNewerReportGeneration, motifNames, readPersonalPosition, readPersonalTactics, tacticalNotation, tacticalScore} from "./tactical_history.js";
 import {sourceNames} from "./game_commands.js";
 
@@ -101,9 +102,11 @@ function Finding({row, detail, dataset, onOpen, onSimilar}) {
     <div className="tactical-position">
       <Board fen={board.fen()} positionIdentity={`${dataset}:${row.id}:${line?.id ?? "start"}`} positionRevision={ply} check={board.inCheck()}
         mode="legal" orientation={side} turn={turn} readOnly maxSize={340} coordinates="edges" ariaLabel="Tactical opportunity position"/>
-      {line && <div className="tactical-pages" aria-label="Tactical line controls">
-        <Button size="compact" variant="quiet" disabled={ply === 0} onClick={() => setPly(ply - 1)}>Previous move</Button>
-        <Button size="compact" variant="quiet" disabled={ply >= line.moves.length} onClick={() => setPly(ply + 1)}>Next move</Button>
+      {line && <div className="tactical-pages" role="group" aria-label="Tactical line controls">
+        <IconButton label="Previous move" variant="quiet" disabled={ply === 0}
+          onClick={() => setPly(ply - 1)}><PreviousIcon /></IconButton>
+        <IconButton label="Next move" variant="quiet" disabled={ply >= line.moves.length}
+          onClick={() => setPly(ply + 1)}><NextIcon /></IconButton>
         <Button size="compact" variant="quiet" onClick={() => {setLine(null); setPly(0);}}>Reset board</Button>
       </div>}
     </div>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, Dialog, IconButton, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import { CARD_DISCLOSURE_RECHECK_MS } from "./card_details.js";
 import { SavedReviewCardDetails } from "./StudyCardDetails.jsx";
@@ -224,10 +225,12 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
               </ul>
             ) : <p>No cards saved on this page.</p>}
             {(cursors.length > 1 || result.page.next !== null) && (
-              <div className="actions">
-                <Button disabled={cursors.length === 1} onClick={() => setCursors(cursors.slice(0, -1))}>Previous page</Button>
-                <Button disabled={result.page.next === null} onClick={() => setCursors([...cursors, result.page.next])}>Next page</Button>
-              </div>
+              <nav className="actions compact-controls" aria-label="Saved review pages">
+                <IconButton label="Previous page" disabled={cursors.length === 1}
+                  onClick={() => setCursors(cursors.slice(0, -1))}><PreviousIcon /></IconButton>
+                <IconButton label="Next page" disabled={result.page.next === null}
+                  onClick={() => setCursors([...cursors, result.page.next])}><NextIcon /></IconButton>
+              </nav>
             )}
           </>
         )}

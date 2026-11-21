@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MainBoard } from "./MainBoard.jsx";
 import { Chess } from "chess.js";
-import { Button, Dialog, StatusNotice } from "@tempo-v2/core-components";
+import { Button, Dialog, IconButton, StatusNotice } from "@tempo-v2/core-components";
+import { CloseIcon } from "./ControlIcons.jsx";
+import { closeDialogShortcut } from "./shortcuts.js";
 import { playBoardMove } from "./board_move.js";
 import { GapLine, useGapLine } from "./GapLine.jsx";
 import { GapAnalysis, GapExplorer } from "./GapAnalysis.jsx";
@@ -219,6 +221,10 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
 
 
   if (suspended) return null;
+  const closeButton = (
+    <IconButton label="Close" shortcut={closeDialogShortcut}
+      disabled={busy || !!pending || !!loadPending} onClick={close}><CloseIcon /></IconButton>
+  );
   return (
     <Dialog open title={`Respond to ${opponentLabel}`} onClose={close}>
       <div className="gap-editor">
@@ -231,14 +237,14 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
         {stale ? (
           <div className="actions">
             <Button onClick={onStale}>Refresh gaps</Button>
-            <Button onClick={close}>Close</Button>
+            <IconButton label="Close" shortcut={closeDialogShortcut} onClick={close}><CloseIcon /></IconButton>
           </div>
         ) : settled ? (
           <div className="actions">
             <Button disabled={busy} onClick={() => void save()}>
               {busy ? "Loading next gap…" : settled.status === "error" ? "Finish recovery" : "Retry loading next gap"}
             </Button>
-            <Button disabled={busy || !!pending || !!loadPending} onClick={close}>Close</Button>
+            {closeButton}
           </div>
         ) : (
           <>
@@ -291,7 +297,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               <Button variant={line?.save_command ? undefined : "primary"} disabled={busy || !selected} onClick={() => void save()}>
                 {busy ? "Saving response…" : pending || loadPending ? "Retry save" : gap.forecast?.report_id ? "Save response only" : "Save response"}
               </Button>
-              <Button disabled={busy || !!pending || !!loadPending} onClick={close}>Close</Button>
+              {closeButton}
             </div>
           </>
         )}

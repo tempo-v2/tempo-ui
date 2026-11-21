@@ -92,6 +92,17 @@ try {
   const previewBoard = page.getByRole("group", { name: "Tactic solver preview" });
   await previewBoard.waitFor();
   assert.equal(await previewBoard.locator(".tempo-board-resize-handle").count(), 0);
+  const replay = page.getByRole("group", { name: "Replay controls" });
+  const nextMove = replay.getByRole("button", { name: "Next move", exact: true });
+  assert.equal(await nextMove.getAttribute("aria-keyshortcuts"), null);
+  await nextMove.hover();
+  const moveHint = page.getByRole("tooltip").filter({ hasText: "Next move" });
+  await moveHint.waitFor();
+  assert.equal(await moveHint.innerText(), "Next move");
+  await nextMove.click();
+  assert.equal(await button("1. Ra2").getAttribute("aria-pressed"), "true");
+  await replay.getByRole("button", { name: "Beginning" }).click();
+  assert.equal(await button("1. Ra2").getAttribute("aria-pressed"), "false");
   await button("Select all valid").click();
 
   await button("Build a tactic").click();
@@ -157,7 +168,27 @@ try {
   const detail = await response.json();
   assert.equal(detail.fen, fen.replace("0 23", "0 1"));
   assert.deepEqual(detail.solution.moves.map(move => move.notation), ["1... O-O", "2. Ra2"]);
+  const cursors = [];
+  const readPages = async route => {
+    const { command, after } = route.request().postDataJSON();
+    if (command !== "list") return route.continue();
+    cursors.push(after);
+    const json = after === null ? { ...collection, next: "test-next-page" }
+      : { ...collection, rows: [], next: null };
+    return route.fulfill({ json });
+  };
+  await page.route("**/api/tactics-collection", readPages);
   await page.getByRole("main").getByRole("button", { name: "Tactics", exact: true }).click();
+  const pages = page.getByRole("navigation", { name: "Tactic pages" });
+  await pages.getByRole("button", { name: "Next page" }).click();
+  await pages.getByText("Page 2", { exact: true }).waitFor();
+  await page.getByText("No tactics match this search.", { exact: true }).waitFor();
+  assert.equal(await pages.getByRole("button", { name: "Next page" }).isDisabled(), true);
+  await pages.getByRole("button", { name: "Previous page" }).click();
+  await pages.getByText("Page 1", { exact: true }).waitFor();
+  await button(detail.label).waitFor();
+  assert.deepEqual(cursors, [null, "test-next-page", null]);
+  await page.unroute("**/api/tactics-collection", readPages);
   await button(detail.label).click();
   await page.getByRole("group", { name: "Tactic position" }).waitFor();
   await checkDesktopBoardResize(page, "Tactic position");

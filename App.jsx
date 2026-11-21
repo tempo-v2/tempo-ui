@@ -15,6 +15,7 @@ import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
 import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
 import { PageExitGuardContext } from "./page_exit_guard.js";
+import { studyShortcuts } from "./shortcuts.js";
 
 const REPLY_DELAY_MS = 200;
 const NEXT_EXERCISE_DELAY_MS = 500;
@@ -248,32 +249,38 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
     board.current?.clearInput();
     setFlipped(value => !value);
   };
+  function primaryStudyAction(current) {
+    if (current.view !== view || current.busy || current.canRetry || current.refreshRequired ||
+        current.storageUnavailable || stopped || autoAdvance || inspecting) return;
+    if (view?.status === "ready" && view.activity === "teach" && guided?.view === view && guided.uci)
+      return actions.acknowledge;
+    if (["complete", "abandoned"].includes(view?.status)) return actions.next;
+  }
   useEffect(() => {
     if (!studying) return;
     function shortcut(event) {
+      const key = event.key.length === 1 ? event.key.toUpperCase() : event.key;
       if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey ||
-          event.ctrlKey || event.metaKey || (event.shiftKey && event.key !== "?") ||
+          event.ctrlKey || event.metaKey || (event.shiftKey && key !== studyShortcuts.help.key) ||
           event.target?.closest?.("input, textarea, select, [contenteditable], a, nav") ||
           choiceRef.current || dialog) return;
       const current = controller.current.getState();
-      if (event.key === "?") openDialog("help");
-      else if (event.key.toLowerCase() === "f" && view?.attempt_id && !stopped) onFlip();
+      const { beginning, previous, next, end: last, returnToPosition } = studyShortcuts.replay;
+      if (key === studyShortcuts.help.key) openDialog("help");
+      else if (key === studyShortcuts.flip.key && view?.attempt_id && !stopped) onFlip();
       else if (historyLine && !stopped && !current.busy && !current.canRetry &&
-          ["ArrowLeft", "ArrowRight", "Home", "End", "r", "R"].includes(event.key)) {
+          [previous.key, next.key, beginning.key, last.key, returnToPosition.key].includes(key)) {
         const end = historyLine.moves.length;
         const index = inspecting ? history.index : end - Number(!!gameContext);
-        if (event.key.toLowerCase() === "r") inspect(null);
-        else if (event.key === "Home") inspect(0);
-        else if (event.key === "End") inspect(end);
-        else if (event.key === "ArrowLeft") inspect(Math.max(0, index - 1));
+        if (key === returnToPosition.key) inspect(null);
+        else if (key === beginning.key) inspect(0);
+        else if (key === last.key) inspect(end);
+        else if (key === previous.key) inspect(Math.max(0, index - 1));
         else inspect(Math.min(end, index + 1));
-      }
-      else if (event.key === "Enter" && !event.target?.closest?.("button") && current.view === view && !current.busy &&
-          !current.canRetry && !current.refreshRequired && !current.storageUnavailable && !stopped && !autoAdvance && !inspecting) {
-        if (view?.status === "ready" && view.activity === "teach" && guided?.view === view && guided.uci)
-          actions.acknowledge();
-        else if (["complete", "abandoned"].includes(view?.status)) actions.next();
-        else return;
+      } else if (key === studyShortcuts.primary.key && !event.target?.closest?.("button")) {
+        const activate = primaryStudyAction(current);
+        if (!activate) return;
+        activate();
       } else return;
       event.preventDefault();
     }
@@ -444,6 +451,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
         showSuccess={autoAdvance && view.activity === "test"}
         advancing={state.busy && advanced.current === view}
         actions={actions}
+        primaryShortcut={!choice && !dialog && primaryStudyAction({ ...state, view }) ? studyShortcuts.primary : undefined}
         guided={guided?.view === view ? guided : null}
         stopped={stopped}
         boardContinuation={boardContinuation}

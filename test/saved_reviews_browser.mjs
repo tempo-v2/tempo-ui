@@ -88,6 +88,20 @@ try {
   const markButton = button("Review later");
   await markButton.waitFor();
   assert.equal(await button("Card details").count(), 0);
+  const flip = button("Flip board");
+  const orientation = page.locator(".study-board .orientation-white");
+  await orientation.waitFor();
+  await flip.hover();
+  const flipHint = page.getByRole("tooltip");
+  await flipHint.waitFor();
+  assert.equal(await flipHint.innerText(), "Flip board F");
+  assert.equal(await flip.getAttribute("aria-keyshortcuts"), "F");
+  await page.keyboard.press("f");
+  await page.locator(".study-board .orientation-black").waitFor();
+  await page.keyboard.press("f");
+  await orientation.waitFor();
+  assert.deepEqual(studyCommands, ["next"]);
+  assert.equal(firstMark, undefined);
   const cardAddress = view => ({
     dataset_id: view.dataset_id, attempt_id: view.attempt_id,
     content_version: view.content_version, revision: view.revision,
@@ -435,7 +449,7 @@ try {
   await page.getByText("Removed from Study", { exact: true }).waitFor();
   await button("Open analysis").click();
   await page.getByText(/Issued Study move · e4/).waitFor();
-  await page.getByText("Card details", { exact: true }).click();
+  await button("Card details").click();
   await page.getByText("Captured from a game", { exact: true }).waitFor();
   await button("Return").click();
   assert.deepEqual(sent, [sent[0], sent[0]]);

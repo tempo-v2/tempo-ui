@@ -2,7 +2,9 @@ import { replaceDesktopEntry } from "./desktop_history.js";
 import { useNotify } from "./Notifications.jsx";
 import { MainBoard } from "./MainBoard.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button, PageHeader, SectionHeader, Surface } from "@tempo-v2/core-components";
+import { Button, IconButton, PageHeader, SectionHeader, Surface } from "@tempo-v2/core-components";
+import { FirstIcon, NextIcon, PreviousIcon } from "./ControlIcons.jsx";
+import { moveStepShortcuts } from "./shortcuts.js";
 import { Chess } from "chess.js";
 import { readGameReview } from "./game_commands.js";
 import { deliverDurableRepertoireCommand, previewMarkedLines, recoveryCleanupNotice, sendRepertoireCommand } from "./repertoire_commands.js";
@@ -259,11 +261,14 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
     navigate(next.ply,next.branch,next.start);
   }
   function stepBack() { inBranch ? navigate(ply, branch.slice(0, -1)) : navigate(Math.max(0, ply - 1)); }
+  function stepOnKey(e) {
+    if (locked || choice || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === moveStepShortcuts.previous.key) { e.preventDefault(); stepBack(); }
+    if (e.key === moveStepShortcuts.next.key && !inBranch && ply < sheet.length) { e.preventDefault(); navigate(ply + 1); }
+  }
   useEffect(() => {
     function keydown(e) {
-      if (locked || choice || e.altKey || e.ctrlKey || e.metaKey || e.target.closest?.("input,select,textarea,button,nav")) return;
-      if (e.key === "ArrowLeft") { e.preventDefault(); stepBack(); }
-      if (e.key === "ArrowRight" && !inBranch && ply < sheet.length) { e.preventDefault(); navigate(ply + 1); }
+      if (!e.target.closest?.("input,select,textarea,button,nav")) stepOnKey(e);
     }
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
@@ -351,9 +356,14 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
         }}/>
     </div>
     <div className="board-caption"><strong>{colorName(board.turn())} to move</strong><span>{inBranch ? "Exploring from " + (sheet[ply - 1] || "the start") : endpoint}</span></div>
-    <div className="review-nav"><Button disabled={locked || (!ply && !inBranch)} onClick={stepBack}>← Previous</Button>
+    <div className="review-nav" role="group" aria-label="Game replay controls">
+      <IconButton label="Previous move" shortcut={choice ? undefined : moveStepShortcuts.previous}
+        disabled={locked || (!ply && !inBranch)} onKeyDown={stepOnKey} onClick={stepBack}><PreviousIcon /></IconButton>
       {inBranch ? <Button disabled={locked} onClick={() => navigate(ply)}>Return to played line</Button>
-        : <Button disabled={locked || ply === sheet.length} onClick={() => navigate(ply + 1)}>Next move →</Button>}</div>
+        : <IconButton label="Next move" shortcut={choice ? undefined : moveStepShortcuts.next}
+            disabled={locked || ply === sheet.length} onKeyDown={stepOnKey}
+            onClick={() => navigate(ply + 1)}><NextIcon /></IconButton>}
+    </div>
     <div className="review-board-tools"><label><input type="checkbox" checked={arrows} onChange={e=>setArrows(e.target.checked)}/> {stale ? "Earlier comparison arrows" : "Prepared and played arrows"}</label>
       <details><summary>Enter a move</summary><form onSubmit={e=>{
         e.preventDefault();
@@ -432,7 +442,10 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
         <Button disabled={flight.current} onClick={()=>command(true)}>Retry same save</Button></div>}
       {issue && <div role="alert"><p>{issue}</p>{!locked && !stale && <Button onClick={onReload}>Reload comparison</Button>}</div>}
     </Surface>
-    <Surface className="review-card"><SectionHeader title="Played moves"><button className="inline-link" disabled={locked} onClick={() => navigate(0)}>Starting position</button></SectionHeader>
+    <Surface className="review-card">
+      <SectionHeader title="Played moves">
+        <IconButton label="Starting position" variant="quiet" disabled={locked} onClick={() => navigate(0)}><FirstIcon /></IconButton>
+      </SectionHeader>
       <div className="move-sheet">{sheet.map((label,i) => <button key={i} disabled={locked} aria-current={!inBranch && ply === i + 1 ? "step" : undefined}
         className={dep?.ply === i + 1 ? "has-decision" : ""} onClick={() => navigate(i+1)}>{label}</button>)}</div>
     </Surface>

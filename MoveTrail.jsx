@@ -1,9 +1,11 @@
 import React from "react";
-import { Button } from "@tempo-v2/core-components";
+import { Button, IconButton } from "@tempo-v2/core-components";
+import { FirstIcon, LastIcon, NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 
-export function MoveTrail({ line, index, onInspect, onReturn, disabled, gameReplay = false }) {
+export function MoveTrail({ line, index, onInspect, onReturn, disabled, shortcuts, gameReplay = false }) {
   const end = line.moves.length;
   const current = index ?? end;
+  const returnLabel = gameReplay ? "Return to exercise" : "Return to current position";
   return (
     <section className="move-trail" aria-label={gameReplay ? "Game moves" : "Revealed moves"}>
       <h3>{gameReplay ? "Game moves" : "Moves"}</h3>
@@ -13,12 +15,20 @@ export function MoveTrail({ line, index, onInspect, onReturn, disabled, gameRepl
             onClick={() => onInspect(i + 1)}>{notation}</Button>
         ))}
       </div>
-      <div className="actions">
-        <Button disabled={disabled || index === 0} onClick={() => onInspect(0)}>Beginning</Button>
-        <Button disabled={disabled || !current} onClick={() => onInspect(current - 1)}>Previous</Button>
-        <Button disabled={disabled || current === end} onClick={() => onInspect(current + 1)}>Next move</Button>
-        <Button disabled={disabled || index === end} onClick={() => onInspect(end)}>End</Button>
-        {onReturn && index !== null && <Button disabled={disabled} onClick={onReturn}>{gameReplay ? "Return to exercise" : "Return to current position"}</Button>}
+      <div className="actions move-trail-actions">
+        <div className="compact-controls" role="group" aria-label="Replay controls">
+          <IconButton label="Beginning" tooltip="Go to the starting position" shortcut={shortcuts?.beginning}
+            disabled={disabled || index === 0} onClick={() => onInspect(0)}><FirstIcon /></IconButton>
+          <IconButton label="Previous" tooltip="Previous move" shortcut={shortcuts?.previous}
+            disabled={disabled || !current} onClick={() => onInspect(current - 1)}><PreviousIcon /></IconButton>
+          <IconButton label="Next move" shortcut={shortcuts?.next}
+            disabled={disabled || current === end} onClick={() => onInspect(current + 1)}><NextIcon /></IconButton>
+          <IconButton label="End" tooltip="Go to the last revealed move" shortcut={shortcuts?.end}
+            disabled={disabled || index === end} onClick={() => onInspect(end)}><LastIcon /></IconButton>
+        </div>
+        {onReturn && index !== null &&
+          <Button disabled={disabled} onClick={onReturn} tooltip={shortcuts ? returnLabel : undefined}
+            shortcut={shortcuts?.returnToPosition}>{returnLabel}</Button>}
       </div>
     </section>
   );
