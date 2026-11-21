@@ -262,7 +262,39 @@ export async function startModel(payload, signal) {
     throw new Error("The Maia acknowledgement belongs to a different dataset.");
   return reply;
 }
-export const readGaps = (signal, offset = 0) => read("/gaps", signal, offset ? { offset } : undefined);
+export async function readGaps(signal, offset = 0, forecastRepertoire = null) {
+  const reply = await read("/gaps", signal, offset || forecastRepertoire
+    ? { offset, ...(forecastRepertoire ? { forecast_repertoire: forecastRepertoire } : {}) }
+    : undefined);
+  if (!Array.isArray(reply.gaps) || reply.gaps.some(gap => !gap || typeof gap !== "object"))
+    throw new Error("Invalid opponent gaps response.");
+  // Older replies omitted the kind and can still use the historical editor.
+  if (reply.gaps.some(gap => Object.hasOwn(gap, "gap_kind") && !["observed", "forecast"].includes(gap.gap_kind)))
+    throw new Error("Unsupported opponent gap kind.");
+  return reply;
+}
+
+function coverageReply(reply, address) {
+  if (reply.dataset_id !== address.dataset_id || reply.repertoire_id !== address.repertoire_id)
+    throw new Error("Coverage status belongs to a different repertoire.");
+  if (!["idle", "running", "complete", "failed"].includes(reply.status) || typeof reply.busy !== "boolean")
+    throw new Error("Invalid coverage status.");
+  const report = reply.report;
+  if (report && (!Number.isFinite(report.covered) || !Number.isFinite(report.unresolved) ||
+      report.covered < 0 || report.unresolved < 0 || report.covered + report.unresolved > 1.000000001))
+    throw new Error("Invalid coverage estimate.");
+  return reply;
+}
+
+export async function readCoverage(address, signal) {
+  return coverageReply(await read("/coverage/status", signal, address), address);
+}
+
+export async function startCoverage(payload, signal) {
+  const { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id } = payload;
+  const command = { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id };
+  return coverageReply(await request("/coverage", command, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS }), command);
+}
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
 export const startGapAnalysis = (payload, signal) => request("/gap-analysis", payload, signal);
 export const readGapAnalysis = signal => request("/gap-analysis", undefined, signal);

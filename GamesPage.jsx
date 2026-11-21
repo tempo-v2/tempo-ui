@@ -11,6 +11,7 @@ import {
   readGaps, retryHistorical, startHistorical, startModel,
 } from "./game_commands.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
+import { RepertoireCoverage, coveragePercent } from "./RepertoireCoverage.jsx";
 import { GapEditor } from "./GapEditor.jsx";
 import { GameDetectionPanel } from "./GameDetectionPanel.jsx";
 import { commandTacticalAnalysis } from "./tactical_history.js";
@@ -307,6 +308,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [analysis,setAnalysis] = useState(null);
   const [workingGap, setWorkingGap] = useState(false);
   const [recovery] = useState(readGapContinuation);
+  const [forecastBook, setForecastBook] = useState(() => recovery?.gap.forecastBook ?? null);
   const [gapOffset, setGapOffset] = useState(() => recovery?.gap.offset ?? 0);
   const [activeGap, setActiveGap] = useState(() => recovery?.gap ?? null);
   const [gapNotice, setGapNotice] = useState("");
@@ -340,7 +342,8 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const refreshFailed = !importReport && job?.status === "failed";
   const backfillRead = evidenceFor(evidence.backfill, dataset);
   const modelRead = evidenceFor(evidence.model, dataset);
-  const gapRead = evidenceFor(evidence.gaps, dataset, gapOffset);
+  const gapRead = evidence.gaps?.forecastBook === forecastBook
+    ? evidenceFor(evidence.gaps, dataset, gapOffset) : undefined;
   const backfill = backfillRead?.value;
   const model = modelRead?.value;
   const projection = modelRead?.projection;
@@ -354,7 +357,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
   function updateEvidence(name, changes, offset) {
     setEvidence(current => ({
       ...current,
-      [name]: { ...evidenceFor(current[name], dataset, offset), dataset, offset, ...changes },
+      [name]: {
+        ...evidenceFor(current[name]?.forecastBook === forecastBook ? current[name] : undefined, dataset, offset),
+        dataset, offset, forecastBook, ...changes,
+      },
     }));
   }
 
@@ -519,11 +525,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
         offset: gapOffset,
         read(signal) {
           refreshGaps = false;
-          return readGaps(signal, gapOffset);
+          return readGaps(signal, gapOffset, forecastBook);
         },
         apply(value) {
           if (value.dataset_id !== dataset) throw new Error("Opponent gaps belong to a different dataset.");
-          if (!Array.isArray(value.gaps)) throw new Error("Invalid opponent gaps response.");
           updateEvidence("gaps", { value, error: "" }, gapOffset);
         },
       },
@@ -571,7 +576,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       owner.abort();
       for (const resource of resources) clearTimeout(resource.timer);
     };
-  }, [dataset, evidenceRevision, gapOffset]);
+  }, [dataset, evidenceRevision, gapOffset, forecastBook]);
 
   function beginBackfill(event) {
     event.preventDefault();
@@ -618,9 +623,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
     const address = {
       dataset_id: datasetId, repertoire_id: gap.repertoire_id, position: gap.position,
       actual_move: gap.actual_move, document_revision: gap.document_revision,
+      ...(Object.hasOwn(gap, "gap_kind") ? { gap_kind: gap.gap_kind } : {}),
     };
     const details = await gapDraft(address, AbortSignal.any([signal, AbortSignal.timeout(gapDraftTimeoutMs)]));
-    if (!signal.aborted) setActiveGap({ address, details, passed, offset });
+    if (!signal.aborted) setActiveGap({ address, details, passed, offset, forecastBook });
   }
 
   async function openGap(gap, index) {
@@ -642,9 +648,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   async function advanceGap(san) {
     const signal = lifecycle.current.signal;
-    const { address, passed, offset } = activeGap;
+    const { address, passed, offset, forecastBook: scope } = activeGap;
     async function freshPage(pageOffset) {
-      const page = await readGaps(signal, pageOffset);
+      const page = await readGaps(signal, pageOffset, scope);
       if (page.dataset_id !== address.dataset_id) throw new Error("The active dataset changed.");
       if (page.gaps.some(gap => gapKey(gap) === gapKey(address)))
         throw new Error("Tempo could not confirm the refreshed gap list. Try loading it again.");
@@ -978,6 +984,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
         } }))} />
       <Surface>
         <h2>Opponent coverage gaps</h2>
+        <RepertoireCoverage key={dataset} dataset={dataset} repertoires={repertoires ?? []}
+          forecastBook={forecastBook} onFilter={book => { setForecastBook(book); setGapOffset(0); }}
+          refresh={evidenceRevision} onReport={refreshEvidenceReads} />
         <div className="actions">
           <Button disabled={!dataset || modelActionDataset === dataset || model?.status === "running"}
             onClick={() => void analyze()}>
@@ -1004,12 +1013,15 @@ export function GamesPage({ onStudy, onRepertoires }) {
           <Button disabled={!gapPage?.more || workingGap} onClick={() => setGapOffset(offset => offset + 100)}>Next gaps</Button>
         </div>}
         {!gapPage && !gapRead?.error && <p role="status">Loading opponent gaps…</p>}
-        {gapPage?.gaps.length === 0 && <p>No confirmed opponent gaps in the current documents.</p>}
+        {gapPage?.gaps.length === 0 && <p>{forecastBook ? "No open suggestions from this scan." : "No confirmed opponent gaps in the current documents."}</p>}
         {gapPage?.gaps.length > 0 && (
           <ul className="game-results">{gapPage.gaps.map((gap, index) => (
             <li key={gapKey(gap)}>
               <strong>{repertoires?.find(book => book.id === gap.repertoire_id)?.name ?? gap.repertoire_id}</strong>
-              <p>{gap.actual_san ?? "Opponent move"} · {gap.games} {gap.games === 1 ? "game" : "games"}</p>
+              <p>{gap.actual_san ?? "Opponent move"}
+                {gap.games > 0 && ` · ${gap.games} ${gap.games === 1 ? "game" : "games"}`}
+                {gap.forecast && ` · ${coveragePercent(gap.forecast.probability)} estimated first-gap chance${gap.forecast.stale ? " (earlier scan)" : ""}`}
+              </p>
               <Button disabled={workingGap || !dataset} onClick={() => void openGap(gap, index)}>Fix response</Button>
             </li>
           ))}</ul>
