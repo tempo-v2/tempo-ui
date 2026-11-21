@@ -18,7 +18,7 @@ const colors = {
   masters: "red",
   maia: "maia",
 };
-export function AnalysisPage({ origin, onClose, interruption, renderRootLineAction }) {
+export function AnalysisPage({ origin, onClose, interruption, renderRootLineAction, cardDetails }) {
   const root = origin.fen || start;
   const [path, setPath] = useState([]);
   const [paths, setPaths] = useState([[]]);
@@ -199,6 +199,7 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
               ))}
             </select>
           </div>
+          {cardDetails}
           {authoring && (
             <MarkedLinesForm draft={draft} path={path} lineLabel={lineLabel} />
           )}

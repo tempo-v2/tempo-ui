@@ -8,7 +8,7 @@ let sequence = 0;
 const routes = new Set([
   "/api/study", "/api/study/presence", "/api/study-progress", "/api/study/relevance", "/api/study/game-context",
   "/api/study/analysis-context", "/api/study/analysis-line", "/api/study/review-mark",
-  "/api/study/saved-reviews", "/api/repertoires", "/api/tactics", "/api/tactic-settings",
+  "/api/study/card-details", "/api/study/saved-reviews", "/api/repertoires", "/api/tactics", "/api/tactic-settings",
   "/api/tactics-collection", "/api/games", "/api/games/library", "/api/games/review",
   "/api/games/job", "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
   "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry", "/api/games/model",

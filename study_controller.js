@@ -78,6 +78,7 @@ export function createStudyController({
           "stale_revision",
           "stale_content",
           "stale_dataset",
+          "stale_activity",
           "suspended_repertoire",
           "unknown_attempt",
         ].includes(response.code);

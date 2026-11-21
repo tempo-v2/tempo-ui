@@ -66,7 +66,8 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
     preview = useRef(null),
     replyTimer = useRef(null),
     advanced = useRef(null),
-    pausedAdvance = useRef(null);
+    pausedAdvance = useRef(null),
+    reviewExclusion = useRef(false);
   if (!controller.current)
     controller.current = createStudyController({
       transport,
@@ -360,6 +361,12 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
       // The list is a read. Preserve the Study visit and any reproduced lesson.
       pausedAdvance.current = view;
       setPage(nextPage);
+      if (nextPage === "study" && reviewExclusion.current) {
+        reviewExclusion.current = false;
+        if (view?.status === "empty" || (view?.status === "ready" && view.activity !== "teach")) {
+          controller.current.start().catch(() => {});
+        }
+      }
       return;
     }
     pausedAdvance.current = view;
@@ -380,7 +387,9 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
     setPage(nextPage);
     if (nextPage === "study") controller.current.start().catch(() => {});
   }), [cancelLichessLaunch, page, subscribeNavigation]);
-  if (page !== "study") return renderSection(page, goTo, view?.dataset_id);
+  if (page !== "study") return renderSection(page, goTo, view?.dataset_id, () => {
+    reviewExclusion.current = true;
+  });
   if (state.analysis && renderAnalysis)
     return renderAnalysis(state.analysis, state.issue, () => {
       cancelLichessLaunch();
@@ -398,6 +407,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
       stopped={stopped}
       boardContinuation={boardContinuation}
       reviewMark={reviewMark}
+      onOpenCardDetails={() => { pausedAdvance.current = view; }}
       reviewAddresses={reviewAddresses}
       onNavigate={renderSection ? goTo : undefined}
       boardRef={board}

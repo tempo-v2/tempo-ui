@@ -8,6 +8,7 @@ const reviewMarkPath = "/api/study/review-mark";
 export const savedReviewsPath = "/api/study/saved-reviews";
 
 export const reviewMarkRecovery = commandRecovery("tempo-pending-review-mark");
+export const reviewExcludeRecovery = commandRecovery("tempo-pending-review-exclude");
 export const reviewRemoveRecovery = commandRecovery("tempo-pending-review-remove");
 
 class ReviewRejection extends Error {}
@@ -57,7 +58,11 @@ export function useReviewWrite(path, recovery, expectedStatus, onAccepted) {
       await recovery.save(null);
       setPending(false);
       onAccepted?.(reply);
-      notify(expectedStatus === "saved" ? "Saved for review." : "Removed from saved reviews.");
+      notify({
+        saved: "Saved for review.",
+        removed: "Removed from saved reviews.",
+        excluded: "Tactic removed from Study.",
+      }[expectedStatus]);
     } catch (error) {
       if (error instanceof ReviewRejection) {
         try {

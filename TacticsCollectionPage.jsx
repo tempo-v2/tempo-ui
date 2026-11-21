@@ -119,7 +119,8 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
                 {detail.provenance.length
                   ? <ul>{detail.provenance.map((text, i) => <li key={i}><Source text={text} /></li>)}</ul>
                   : <p>No source recorded.</p>}
-                {detail.availability !== "active" && <p>Unavailable in Study.</p>}
+                {detail.removed_from_study ? <p>Removed from Study.</p>
+                  : detail.availability !== "active" && <p>Unavailable in Study.</p>}
                 {detail.solution_blocked ? (
                   <>
                     <p>This tactic is open in Study. Return there to continue or use the available move help.</p>
@@ -155,7 +156,8 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
             <ul className="tactic-results">
               {page.rows.map(row => <li key={row.target}>
                 <Button onClick={() => changeTarget(row.target)}>{row.label}</Button>
-                <span>{row.due ? "Due" : row.introduced ? "Introduced" : "Unintroduced"}</span>
+                <span>{row.removed_from_study ? "Removed from Study"
+                  : row.due ? "Due" : row.introduced ? "Introduced" : "Unintroduced"}</span>
               </li>)}
             </ul>
           ) : <p role="status">{page ? "No tactics match this search." : issue ? "" : "Loading tactics…"}</p>}
