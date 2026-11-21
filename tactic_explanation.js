@@ -38,6 +38,9 @@ export function readTacticExplanation(value) {
       case "hanging_piece":
         object(value, ["kind", "captured"], "hanging piece");
         return { kind, captured: subject(value.captured) };
+      case "mating_line":
+        object(value, ["kind"], "mating line");
+        return { kind };
       case "mate_in_one":
         object(value, ["kind", "king", "checkers"], "mate in one");
         if (!Array.isArray(value.checkers) || value.checkers.length === 0) return null;
@@ -89,9 +92,13 @@ export function presentTacticExplanation(feedback) {
       };
     case "fork": {
       const [first, second] = hint.targets;
+      const king = hint.targets.find(target => target.role === "king");
+      const other = first === king ? second : first;
       return {
-        label: "Fork",
-        text: `${after} ${piece(attacker)} forks ${piece(first)} and ${piece(second)}, attacking both at once.`,
+        label: attacker.role === "queen" ? "Queen fork" : "Fork",
+        text: king
+          ? `${move} checks ${piece(king)} and attacks ${piece(other)}. ${king.color === "black" ? "Black" : "White"} must answer the check.`
+          : `${after} ${piece(attacker)} forks ${piece(first)} and ${piece(second)}, attacking both at once.`,
         shapes: [arrow(attacker, first), arrow(attacker, second), ring(first), ring(second)],
       };
     }
@@ -104,10 +111,12 @@ export function presentTacticExplanation(feedback) {
       };
     case "hanging_piece":
       return {
-        label: "Hanging piece",
+        label: hint.captured.role === "pawn" ? "Pawn capture" : "Hanging piece",
         text: `${move} takes ${piece(hint.captured)}. The opponent has no immediate legal recapture.`,
         shapes: [ring(hint.captured)],
       };
+    case "mating_line":
+      return { label: "Mating sequence", text: `${move} starts a sequence that ends in checkmate.`, shapes: [] };
     case "mate_in_one":
       return {
         label: "Mate in one",
