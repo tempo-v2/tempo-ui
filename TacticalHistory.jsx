@@ -177,6 +177,7 @@ function HistorySession({ dataset, onOpen }) {
       {incomplete > 0 && <p>{incomplete.toLocaleString()} {incomplete === 1 ? "game could" : "games could"} not be fully analyzed. Unfinished analysis is not counted as a missed capture.</p>}
       {view.last_error && <StatusNotice kind="error">{view.last_error}</StatusNotice>}
       {personal ? <PersonalTactics dataset={dataset} onOpen={onOpen}
+        analysisGeneration={view.report_generation}
         analysisProgress={`${stats.completed_games}:${stats.decisions_scanned}`}/> : current ? <>
         <div className="tactical-history-layout">
           <div className="tactical-list"><h3>{before === undefined ? "Recent opportunities" : "Earlier opportunities"}</h3>

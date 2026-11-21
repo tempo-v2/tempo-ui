@@ -40,9 +40,10 @@ async function mounted(t, handler) {
   window.clearTimeout = id => id < 0 ? timers.delete(id) : nativeClear(id);
   const calls = [];
   window.fetch = async (url, options) => {
-    const call = { url, payload: JSON.parse(options.body), signal: options.signal };
+    const call = { url, payload: JSON.parse(options.body), headers: options.headers, signal: options.signal };
     calls.push(call);
-    assert.ok(["/api/games/tactics", "/api/games/tactics/command", "/api/games/tactics/report"].includes(url));
+    assert.ok(["/api/games/tactics", "/api/games/tactics/command", "/api/games/tactics/report",
+      "/api/games/tactics/position"].includes(url));
     assert.equal(options.method, "POST");
     return handler(call, calls.length);
   };
@@ -335,4 +336,51 @@ test("personal report fences old filter, cursor and dataset results and exposes 
   await finish(4, 6);
   assert.match(page.text(), /5 of 10 matching games fully analyzed/);
   assert.doesNotMatch(page.text(), /6 of 10 matching games fully analyzed/);
+});
+
+
+test("same-count generation changes mark the snapshot stale and fence its page and detail requests", async t => {
+  let generation = "personal:v2:7";
+  let available = "personal:v2:6";
+  const stale = {
+    ok: false, status: 409, json: async () => ({status: "error", code: "report_changed"}),
+  };
+  const page = await mounted(t, ({url, payload, headers}) => {
+    if (url === "/api/games/tactics") {
+      assert.equal(headers["X-Tempo-Tactics-Report-Generation"], "1");
+      return response({...personalStatus(payload.dataset_id, 10), report_generation: available});
+    }
+    if (payload.report_generation !== undefined && payload.report_generation !== generation) return stale;
+    assert.equal(url, "/api/games/tactics/report");
+    return response({...personalSnapshot(payload.dataset_id, 10, payload.before ? null : 50),
+      report_generation: generation});
+  });
+  await page.advance(120);
+  assert.match(page.text(), /10 of 10 matching games fully analyzed/);
+  assert.doesNotMatch(page.text(), /Newer analysis may be available/);
+  generation = available = "personal:v2:8";
+  await page.advance(3000);
+  assert.match(page.text(), /Newer analysis may be available/);
+  assert.equal(page.calls.filter(call => call.url.endsWith("/report")).length, 1);
+
+  await page.click("Fork / double attack · win");
+  assert.deepEqual(page.calls.at(-1).payload, {
+    dataset_id: "tactics-fixture", id: 50, report_generation: "personal:v2:7",
+  });
+  assert.match(page.text(), /Refresh the report to read the selected position/);
+  assert.match(page.text(), /10 of 10 matching games fully analyzed/);
+
+  await page.click("Older");
+  await page.advance(120);
+  assert.deepEqual(page.calls.at(-1).payload, {
+    dataset_id: "tactics-fixture", filters: {}, before: 50, report_generation: "personal:v2:7",
+  });
+  assert.match(page.text(), /Refresh the report to continue/);
+  assert.doesNotMatch(page.text(), /matching games fully analyzed/);
+
+  await page.click("Refresh report");
+  await page.advance(120);
+  assert.deepEqual(page.calls.at(-1).payload, {dataset_id: "tactics-fixture", filters: {}, before: 50});
+  assert.match(page.text(), /10 of 10 matching games fully analyzed/);
+  assert.doesNotMatch(page.text(), /Newer analysis may be available|Refresh the report to continue/);
 });
