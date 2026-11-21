@@ -12,6 +12,10 @@ export function StudyOutcome({ view }) {
   if (view.activity === "teach")
     return <p role="status">Lesson saved. Your first review was scheduled for the next study day.</p>;
   if (view.activity === "practice") {
+    if (view.repertoire_context === "warmup")
+      return <p role="status">{view.assessment === "again"
+        ? "Warm-up completed after correction."
+        : "Warm-up complete."}</p>;
     return <p role="status">{view.assessment === "again"
       ? "Practice completed after correction. Schedule unchanged."
       : "Practice complete. Schedule unchanged."}</p>;

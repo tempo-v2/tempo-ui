@@ -46,6 +46,7 @@ export interface AttemptViewBase {
   readonly exercise_name?: string;
   readonly history?: RevealedLine;
   readonly opponent_move?: { readonly uci: string; readonly before_fen?: string };
+  readonly repertoire_context?: "warmup";
 }
 /** Use the prompt to render the current decision and accept a user move. */
 export interface ReadyView extends AttemptViewBase {
