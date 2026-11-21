@@ -14,9 +14,10 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
   const [depth, setDepth] = useState("8");
   const [attempt, setAttempt] = useState(null);
   const sent = useRef(null);
+  const deliveryCount = useRef(0);
   const [state, setState] = useState(null);
   const [issue, setIssue] = useState("");
-  const [starting, setStarting] = useState(null);
+  const [readIssue, setReadIssue] = useState("");
   const seen = useRef(null);
   const reportChanged = useRef(onReport);
   reportChanged.current = onReport;
@@ -24,56 +25,90 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
   const repertoire = active.find(item => item.id === selected);
   const current = state?.dataset_id === dataset && state?.repertoire_id === repertoire?.id ? state : null;
 
+  const request = attempt?.request;
+  const delivery = attempt?.delivery;
   useEffect(() => {
     if (!dataset || !repertoire) return;
     const controller = new AbortController();
     let timer;
     let keepReading = false;
+    let pending = request;
     const address = { dataset_id: dataset, repertoire_id: repertoire.id };
-    const request = attempt?.dataset_id === dataset && attempt.repertoire_id === repertoire.id ? attempt : null;
+    const matches = next => pending && (
+      next.request_id === pending.request_id || next.report?.request_id === pending.request_id
+    );
+    function settle() {
+      pending = null;
+      setAttempt(null);
+    }
+    function retryAvailable() {
+      setAttempt(previous => previous?.request === pending
+        ? { ...previous, canRetry: true } : previous);
+    }
 
-    async function observe(start, preserveIssue = false) {
+    async function observe(start) {
       try {
-        const next = await (start ? startCoverage(request, controller.signal) : readCoverage(address, controller.signal));
+        const next = await (start ? startCoverage(pending, controller.signal) : readCoverage(address, controller.signal));
         if (controller.signal.aborted) return;
         setState(next);
-        if (!preserveIssue) setIssue("");
-        setStarting(null);
+        setReadIssue("");
+        if (matches(next)) {
+          settle();
+          setIssue("");
+        }
+        if (pending) {
+          setIssue("Tempo has not confirmed this scan.");
+          if (!next.busy) retryAvailable();
+        }
         if (next.report && next.report.request_id !== seen.current) {
           seen.current = next.report.request_id;
           reportChanged.current();
         }
         keepReading = next.busy;
-        if (keepReading) timer = setTimeout(() => void observe(false, preserveIssue), 900);
+        if (keepReading || (start && pending))
+          timer = setTimeout(() => void observe(false), 900);
       } catch (error) {
         if (controller.signal.aborted) return;
-        setIssue(error.message || "Could not check repertoire coverage.");
-        if (start && ["coverage_busy", "stale_coverage"].includes(error.code)) {
-          timer = setTimeout(() => void observe(false, true), 900);
-        } else if ((start && !error.status) || keepReading) {
-          timer = setTimeout(() => void observe(false), 900);
+        if (start && ["coverage_busy", "stale_coverage", "invalid_scan", "stale_dataset", "invalid_game"].includes(error.code)) {
+          settle();
+          setIssue(error.message);
+        } else if (pending) {
+          setIssue("Tempo has not confirmed this scan.");
+          if (start || keepReading) timer = setTimeout(() => void observe(false), 900);
+          else retryAvailable();
+        } else {
+          setReadIssue(error.message || "Could not check repertoire coverage.");
+          if (keepReading) timer = setTimeout(() => void observe(false), 900);
         }
-      } finally {
-        if (start && !controller.signal.aborted) setStarting(null);
       }
     }
-    // Send once for the explicit form submission. Refreshes and reloads read current status.
-    const start = Boolean(request && sent.current !== request.request_id);
-    if (start) sent.current = request.request_id;
+    // A transport retry resends the same request. Normal refresh reads status.
+    const start = Boolean(pending && sent.current !== delivery);
+    if (start) sent.current = delivery;
     void observe(start);
     return () => {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [dataset, repertoire?.id, refresh, attempt]);
+  }, [dataset, repertoire?.id, refresh, request, delivery]);
 
   function submit(event) {
     event.preventDefault();
+    if (!repertoire || !current || current.busy || attempt) return;
     setIssue("");
-    setStarting(repertoire.id);
-    setAttempt({ request_id: crypto.randomUUID(), dataset_id: dataset, repertoire_id: repertoire.id,
-      target_percent: Number(target), through_move: Number(depth),
-      prior_report_id: current?.report?.request_id ?? null });
+    setAttempt({
+      request: {
+        request_id: crypto.randomUUID(), dataset_id: dataset, repertoire_id: repertoire.id,
+        target_percent: Number(target), through_move: Number(depth),
+        prior_report_id: current.report?.request_id ?? null,
+      },
+      delivery: ++deliveryCount.current, canRetry: false,
+    });
+  }
+
+  function retry() {
+    const next = ++deliveryCount.current;
+    setAttempt(previous => previous?.canRetry ? { ...previous, delivery: next, canRetry: false } : previous);
   }
 
   const report = current?.report;
@@ -83,12 +118,18 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
   const achievement = report && (report.covered + 1e-9 >= goal ? "Target met"
     : report.covered + report.unresolved + 1e-9 < goal ? "Below target" : "Target uncertain");
 
+  const earlier = current?.stale || attempt || (
+    current?.request_id && current.request_id !== report?.request_id
+  );
+
   return <div className="repertoire-form">
     <form onSubmit={submit}>
       <h3>Scan repertoire coverage</h3>
       <div className="repertoire-fields">
         <label>Repertoire
-          <select value={repertoire?.id ?? ""} onChange={event => { setSelected(event.target.value); setIssue(""); setStarting(null); }}>
+          <select value={repertoire?.id ?? ""} disabled={!!attempt && !!repertoire} onChange={event => {
+            setSelected(event.target.value); setAttempt(null); setIssue(""); setReadIssue("");
+          }}>
             <option value="">Choose a repertoire</option>
             {active.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
@@ -101,16 +142,17 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
         </label>
       </div>
       <div className="actions">
-        <Button type="submit" disabled={!dataset || !repertoire || !current || current.busy || starting === repertoire.id}>Scan repertoire</Button>
+        <Button type="submit" disabled={!dataset || !repertoire || !current || current.busy || !!attempt}>Scan repertoire</Button>
+        {attempt?.canRetry && <Button type="button" onClick={retry}>Retry same scan</Button>}
         {report && forecastBook !== repertoire?.id && <Button type="button" onClick={() => onFilter(repertoire.id)}>This scan</Button>}
         {forecastBook && <Button type="button" onClick={() => onFilter(null)}>All gaps</Button>}
       </div>
     </form>
     {current?.status === "running" && <p role="status">Scanning · {current.positions ?? 0} opponent positions checked</p>}
     {current?.busy && current.status !== "running" && <p role="status">Another repertoire scan is running.</p>}
-    {(current?.error || issue) && <StatusNotice kind="error">{issue || current.error}</StatusNotice>}
+    {(current?.error || issue || readIssue) && <StatusNotice kind="error">{issue || readIssue || current.error}</StatusNotice>}
     {report && <div role="status">
-      <p><strong>{current.stale ? "Earlier estimate" : achievement}</strong> · {minimum}
+      <p><strong>{earlier ? "Earlier estimate" : achievement}</strong> · {minimum}
         {report.unresolved > 1e-9 && ` to ${maximum}`} estimated coverage through your move {report.through_move}
         { ` · ${report.target_percent}% target`}</p>
       <p>Rapid around 1500 · Explorer at {report.explorer_positions} of {report.positions} positions

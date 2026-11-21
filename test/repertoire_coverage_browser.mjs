@@ -154,8 +154,42 @@ try {
   });
   assert.equal((await retry.json()).code, "stale_coverage");
   assert.equal((await post("games/coverage/status", address)).report.request_id, last.report.request_id);
+  const starts = [];
+  let dropStart = "before";
+  await page.route("**/api/games/coverage", async route => {
+    starts.push(route.request().postData());
+    if (dropStart === "before") {
+      dropStart = null;
+      return route.abort();
+    }
+    if (dropStart === "after") {
+      dropStart = null;
+      assert.equal((await route.fetch()).status(), 202);
+      return route.abort();
+    }
+    return route.continue();
+  });
+  const target = panel.getByLabel("Target probability (%)", { exact: true });
+  await panel.getByLabel("Through your move").fill("2");
+  await target.fill("75");
+  await button("Scan repertoire").click();
+  await button("Retry same scan").waitFor();
+  await page.getByText("Tempo has not confirmed this scan.", { exact: true }).waitFor();
+  await page.getByText("Earlier estimate", { exact: true }).waitFor();
+  assert.equal((await post("games/coverage/status", address)).report.request_id, last.report.request_id);
+  await target.fill("80");
+  await button("Retry same scan").click();
+  await page.getByText(/85% estimated coverage.*75% target/).waitFor();
+  assert.equal(starts.length, 2);
+  assert.equal(starts[0], starts[1]);
+
+  dropStart = "after";
+  await button("Scan repertoire").click();
+  await page.getByText(/85% estimated coverage.*80% target/).waitFor();
+  assert.equal(starts.length, 3);
+  assert.equal(await button("Retry same scan").count(), 0);
   assert.deepEqual(errors, []);
-  console.log("Coverage scan, merged backlog, signed response, rescan, restart and delayed retry passed.");
+  console.log("Coverage scan, merged backlog, signed response, rescan, restart and exact scan recovery passed.");
 } finally {
   await browser?.close();
   await stop();
