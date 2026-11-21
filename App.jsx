@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import { createStudyController } from "./study_controller.js";
 import { Notifications } from "./Notifications.jsx";
 import { StudyPage } from "./StudyPage.jsx";
@@ -371,10 +371,20 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
       (nextPage === "saved-reviews" && (!view?.dataset_id || reviewMark.busy));
   }
 
+  function confirmPageExit() {
+    return !exitGuards.some(guard => guard.locked) &&
+      !exitGuards.some(guard => guard.confirmExit?.() === false);
+  }
+
   function goTo(nextPage, href) {
     if (page === nextPage && page !== "games") return true;
-    if (navigationLocked(nextPage) || exitGuards.some(guard => guard.confirmExit?.() === false)) return false;
+    if (navigationLocked(nextPage) || !confirmPageExit()) return false;
     navigateSection?.(nextPage, page, href);
+    changePage(nextPage);
+    return true;
+  }
+
+  function changePage(nextPage) {
     if (page === nextPage) return true;
 
     cancelLichessLaunch();
@@ -408,15 +418,13 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
     }
     return true;
   }
-  useEffect(() => subscribeNavigation?.(page, nextPage => {
-    if (nextPage === "games") cancelLichessLaunch();
-    savedReviewsFromStudy.current = false;
-    setPage(nextPage);
-    if (nextPage === "study") {
-      reviewExclusion.current = false;
-      controller.current.start().catch(() => {});
-    }
-  }), [cancelLichessLaunch, page, subscribeNavigation]);
+  const acceptHistory = useEffectEvent(nextPage => {
+    // Browser traversal can leave Study during delivery. Its immutable
+    // pending command and analysis visit remain with the existing controller.
+    if (!confirmPageExit()) return false;
+    return changePage(nextPage);
+  });
+  useLayoutEffect(() => subscribeNavigation?.(page, nextPage => acceptHistory(nextPage)), [page, subscribeNavigation]);
 
   let content;
   if (page !== "study") {

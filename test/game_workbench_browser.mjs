@@ -102,11 +102,22 @@ try {
   await button("Edit White repertoire").click();
   const edit = page.getByRole("textbox", { name: "Repertoire PGN" });
   await edit.fill("1. d4 d5 *");
+  let refusedHistoryExit = false;
+  page.once("dialog", async dialog => {
+    refusedHistoryExit = true;
+    await dialog.dismiss();
+  });
+  await page.goForward();
+  await page.waitForURL(origin + "/");
+  assert.equal(refusedHistoryExit, true);
+  assert.equal(await edit.inputValue(), "1. d4 d5 *");
   page.once("dialog", dialog => dialog.dismiss());
   await navLink("Games").click();
   assert.equal(await edit.inputValue(), "1. d4 d5 *");
   assert.equal(new URL(page.url()).hash, "");
   page.once("dialog", dialog => dialog.accept());
+  await page.goForward();
+  await activeTab("Import").waitFor();
   await navLink("Games").click();
   await activeTab("Library").waitFor();
   assert.equal(await page.getByRole("tabpanel").count(), 1);

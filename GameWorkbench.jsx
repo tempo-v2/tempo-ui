@@ -1,3 +1,4 @@
+import { replaceDesktopEntry } from "./desktop_history.js";
 import { useNotify } from "./Notifications.jsx";
 import { MainBoard } from "./MainBoard.jsx";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -243,7 +244,7 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
     setStart(nextStart); setPly(next); setBranch(variation); setChoice(null); if (!draft) setPreview(null); setIssue("");
     setCircle(null);
     const location = { ...address, ply: next, branch: variation, start:nextStart };
-    window.history.replaceState(window.history.state, "", reviewUrl(location));
+    replaceDesktopEntry(window.history.state, reviewUrl(location));
     rememberVisit(location);
   }
   function play(move) {
@@ -318,7 +319,7 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
         let draftNotice = "";
         try {settleReviewDraftSave(cmd,true); refreshDraft();}
         catch {draftNotice = "The browser could not clear the retained draft.";}
-        window.history.replaceState(window.history.state, "", reviewUrl({ ...address, ply, branch, start }));
+        replaceDesktopEntry(window.history.state, reviewUrl({ ...address, ply, branch, start }));
         onSaved({
           label: "Saved through " + savedEndpoint + " to " + cmd.name + ".",
           selection: binding?.selection ?? selection,

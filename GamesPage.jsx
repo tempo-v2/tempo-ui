@@ -1,3 +1,4 @@
+import { pushDesktopEntry, replaceDesktopEntry, subscribeGamesHistory } from "./desktop_history.js";
 import { hasReviewDraft } from "./review_draft.js";
 import { GameLibrary, recordedFinding } from "./GameLibrary.jsx";
 import { GameWorkbench, readReviewMark } from "./GameWorkbench.jsx";
@@ -301,7 +302,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   useEffect(() => {
     if (recovery) {
-      window.history.replaceState({ gamesTab: "coverage" }, "", "#games");
+      replaceDesktopEntry({ gamesTab: "coverage" }, "#games");
       setReview(null);
     }
   }, [recovery]);
@@ -310,7 +311,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     function sync() {
       const selected = historyTab();
       if (requestedGamesTab()) {
-        window.history.replaceState({ gamesTab: selected }, "", "#games");
+        replaceDesktopEntry({ gamesTab: selected }, "#games");
         window.scrollTo?.(0, 0);
         if (analysis) {
           setAnalysis(null);
@@ -325,9 +326,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       if (selected === "analysis") setAnalysisVisited(true);
     }
     if (requestedGamesTab()) sync();
-    window.addEventListener("popstate", sync);
-    window.addEventListener("hashchange", sync);
-    return () => { window.removeEventListener("popstate", sync); window.removeEventListener("hashchange", sync); };
+    return subscribeGamesHistory(sync);
   }, [analysis]);
 
   function cancelGapOpening() {
@@ -340,7 +339,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   function selectTab(next, { learner = false } = {}) {
     if (next !== "coverage") cancelGapOpening();
-    window.history.replaceState({ ...window.history.state, gamesTab: next }, "", "#games");
+    replaceDesktopEntry({ ...window.history.state, gamesTab: next }, "#games");
     setTab(next);
     if (next === "analysis") setAnalysisVisited(true);
     if (next !== tab || learner) window.scrollTo?.(0, 0);
@@ -364,14 +363,14 @@ export function GamesPage({ onStudy, onRepertoires }) {
     const previous = window.history.state?.reviewLibrary;
     const comparisons = recordedComparisons ?? (previous?.dataset_id === next.dataset_id && sameGame(previous,next) ? previous.comparisons : []);
     const reviewLibrary = {dataset_id:next.dataset_id, source:next.source, game_id:next.game_id, learner:next.learner, comparisons};
-    window.history.pushState({ reviewLibrary, gamesTab: tab }, "", reviewUrl(next));
+    pushDesktopEntry({ reviewLibrary, gamesTab: tab }, reviewUrl(next));
     setReview(next);
     window.scrollTo?.(0, 0);
   }
 
   function closeReview() {
     const selected = historyTab();
-    window.history.pushState({ gamesTab: selected }, "", "#games");
+    pushDesktopEntry({ gamesTab: selected }, "#games");
     setReview(null);
     selectTab(selected);
     refreshHistory(); refreshEvidenceReads();
