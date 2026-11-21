@@ -947,7 +947,7 @@ for (const stall of ["fetch", "body"]) {
     let succeed = false;
     let successorSignal;
     const nextGaps = ({ signal, payload }) => {
-      assert.deepEqual(payload, { offset: 100 });
+      assert.equal(payload, undefined);
       if (succeed) return response(gapPage());
       // The initial independent Games gap read can succeed. Hold the editor's read.
       if (successorSignal === undefined) {
@@ -956,11 +956,10 @@ for (const stall of ["fetch", "body"]) {
       }
       return response(gapPage());
     };
-    // The editor schedules recovery immediately. Keep the independent initial read
-    // successful at this offset so only the editor's continuation can time out.
-    let gapReads = 0;
+    // The recovered editor starts the newly ranked list from the top.
     const page = await openGames(t, {
-      "POST /api/games/gaps": request => ++gapReads === 1 ? response(gapPage()) : nextGaps(request),
+      "POST /api/games/gaps": () => response(gapPage()),
+      "GET /api/games/gaps": nextGaps,
     }, { gapContinuation });
     await page.advance(0);
     assert.ok(successorSignal);
@@ -976,7 +975,7 @@ for (const stall of ["fetch", "body"]) {
     assert.equal(page.button("Retry loading next gap"), undefined);
     assert.doesNotMatch(page.text(), /Tempo did not respond before the wait ended/);
     assert.match(page.text(), /Saved e4/);
-    assert.ok(page.calls.slice(retryStart).some(call => call.endpoint === "POST /api/games/gaps"));
+    assert.ok(page.calls.slice(retryStart).some(call => call.endpoint === "GET /api/games/gaps"));
     assert.equal(page.calls.filter(call => call.endpoint === "POST /api/repertoires" &&
       call.payload.command === "save").length, 0);
   });

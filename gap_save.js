@@ -37,7 +37,7 @@ export function readGapContinuation() {
     const pending = entry?.command;
     if (!saved?.token || !saved.gap?.address?.dataset_id || !saved.gap.address.repertoire_id ||
         !saved.gap.details?.draft?.legal_moves?.includes(saved.response) ||
-        !Array.isArray(saved.gap.passed) || !Number.isSafeInteger(saved.gap.offset)) return null;
+        !Number.isSafeInteger(saved.gap.offset)) return null;
     if (pending) return pending.command === "save" && pending.token === saved.token &&
       pending.dataset_id === saved.gap.address.dataset_id && pending.repertoire_id === saved.gap.address.repertoire_id
       ? { ...saved, loadPending: entry.load } : null;
