@@ -157,6 +157,7 @@ export function StudyPage({
         </div>
       )}
       <aside className="study-panel" aria-label="Study information">
+        {tacticClue && <MoveFeedback view={view} tacticClue={tacticClue} />}
         <PageHeader title={title} />
         <Surface>
           {stopped ? (
@@ -224,7 +225,7 @@ export function StudyPage({
                   )}
                 </StatusNotice>
               )}
-              <MoveFeedback view={view} tacticClue={tacticClue} />
+              {!tacticClue && <MoveFeedback view={view} />}
               {historyLine && (!gameContext || inGameReplay) &&
                 <MoveTrail line={historyLine} index={historyIndex} gameReplay={inGameReplay}
                   onInspect={onInspect} disabled={replayBlocked} onReturn={() => onInspect(null)}

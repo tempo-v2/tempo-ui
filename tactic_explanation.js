@@ -35,6 +35,9 @@ export function readTacticExplanation(value) {
       case "discovered_check":
         object(value, ["kind", "attacker", "target"], "discovered attack");
         return { kind, attacker: subject(value.attacker), target: subject(value.target) };
+      case "hanging_piece":
+        object(value, ["kind", "captured"], "hanging piece");
+        return { kind, captured: subject(value.captured) };
       case "mate_in_one":
         object(value, ["kind", "king", "checkers"], "mate in one");
         if (!Array.isArray(value.checkers) || value.checkers.length === 0) return null;
@@ -68,22 +71,26 @@ export function presentTacticExplanation(feedback) {
   switch (hint.kind) {
     case "pin":
       return {
+        label: "Pin",
         text: `${after} ${piece(attacker)} pins ${piece(front)}. Leaving the line would expose ${piece(rear)}.`,
         shapes: [arrow(attacker, rear), ring(front), ring(rear)],
       };
     case "pin_capture":
       return {
+        label: "Pin",
         text: `${move} captures ${piece(hint.captured)}. The ${front.role} on ${front.square} is pinned by ${piece(attacker)} and cannot recapture without exposing ${piece(rear)}.`,
         shapes: [arrow(attacker, rear), ring(front), ring(rear)],
       };
     case "skewer":
       return {
+        label: "Skewer",
         text: `${after} ${piece(attacker)} skewers ${piece(front)} and ${piece(rear)}. Moving the front piece off the line exposes the piece behind it.`,
         shapes: [arrow(attacker, rear), ring(front), ring(rear)],
       };
     case "fork": {
       const [first, second] = hint.targets;
       return {
+        label: "Fork",
         text: `${after} ${piece(attacker)} forks ${piece(first)} and ${piece(second)}, attacking both at once.`,
         shapes: [arrow(attacker, first), arrow(attacker, second), ring(first), ring(second)],
       };
@@ -91,11 +98,19 @@ export function presentTacticExplanation(feedback) {
     case "discovered_attack":
     case "discovered_check":
       return {
+        label: hint.kind === "discovered_check" ? "Discovered check" : "Discovered attack",
         text: `${after} the line opens for ${piece(attacker)} to ${hint.kind === "discovered_check" ? "check" : "attack"} ${piece(hint.target)}.`,
         shapes: [arrow(attacker, hint.target), ring(hint.target)],
       };
+    case "hanging_piece":
+      return {
+        label: "Hanging piece",
+        text: `${move} takes ${piece(hint.captured)}. The opponent has no immediate legal recapture.`,
+        shapes: [ring(hint.captured)],
+      };
     case "mate_in_one":
       return {
+        label: "Mate in one",
         text: `${after} ${piece(hint.king)} is checkmated by ${hint.checkers.map(piece).join(" and ")}.`,
         shapes: [...hint.checkers.map(checker => arrow(checker, hint.king)), ring(hint.king)],
       };
