@@ -26,13 +26,21 @@ function navigateSection(page) {
 }
 
 function subscribeNavigation(page, changePage) {
+  let currentPage = page;
   function syncPage() {
     if (hasPendingRepertoireCommand() || hasPendingTacticCommand()) return;
-    if (/^#games(?:\?|$)/.test(location.hash)) changePage("games");
-    else if (page === "games") changePage("study");
+    const nextPage = /^#games(?:\?|$)/.test(location.hash) ? "games"
+      : currentPage === "games" ? "study" : currentPage;
+    if (nextPage === currentPage) return;
+    currentPage = nextPage;
+    changePage(nextPage);
   }
   window.addEventListener("popstate", syncPage);
-  return () => window.removeEventListener("popstate", syncPage);
+  window.addEventListener("hashchange", syncPage);
+  return () => {
+    window.removeEventListener("popstate", syncPage);
+    window.removeEventListener("hashchange", syncPage);
+  };
 }
 
 function renderSection(page, goTo, datasetId) {

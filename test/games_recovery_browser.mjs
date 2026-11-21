@@ -132,6 +132,13 @@ async function verifyUpgrade(acceptedUsesExternal) {
     await entry.or(title).waitFor();
     if (await entry.isVisible()) await entry.click();
     await page.getByRole("heading", { name: "Games", exact: true }).waitFor();
+    const tab = page.getByRole("tab", { name: "Import" });
+    if (await tab.isVisible()) {
+      await tab.click();
+    } else {
+      const oldImport = page.getByText("Import or refresh games", { exact: true });
+      if (await oldImport.isVisible() && !await page.getByLabel("Account name").isVisible()) await oldImport.click();
+    }
   }
 
   async function fillRefresh(page) {
@@ -249,6 +256,8 @@ async function verifyUpgrade(acceptedUsesExternal) {
     await accepted.unroute(commandRoute);
     await accepted.reload();
     await showGames(accepted);
+    await accepted.getByRole("tab", { name: "Library" }).click();
+    await button(accepted, "Review Games request").click();
     const retryA = accepted.waitForRequest(request => request.url().endsWith("/api/games/refresh"));
     await button(accepted, "Retry same request").click();
     assert.equal((await retryA).postData(), oldAccepted);
@@ -257,8 +266,11 @@ async function verifyUpgrade(acceptedUsesExternal) {
     await accepted.getByText("Refreshing games. You can return to Study while this runs.").waitFor();
     assert.deepEqual(await job(base, laterId, "running"), running);
     assert.deepEqual(receipts(), acceptedRows);
+    await accepted.getByRole("tab", { name: "Library" }).click();
     releaseB();
     await job(base, laterId, "complete");
+    await accepted.getByRole("tab", { name: "Import" }).click();
+    await accepted.getByText("Latest refresh", { exact: true }).first().waitFor();
     assert.equal(providerCalls.length, 2);
 
     await unaccepted.unroute(commandRoute);
