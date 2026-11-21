@@ -1,5 +1,6 @@
 /** Validate version 5 replies without making grading or scheduling decisions. */
 import { boolean, freeze, object, string, validateErrorView } from "./wire_values.js";
+import { readTacticExplanation } from "./tactic_explanation.js";
 
 const ASSESSMENTS = new Set([null, "good", "again"]);
 const ATTEMPT_STATUSES = new Set(["ready", "complete", "abandoned"]);
@@ -192,6 +193,7 @@ export function validateStudyView(value) {
   if (value.feedback !== null) {
     const correct = value.feedback?.correct;
     const keys = ["correct", "message", "autoplay"];
+    if (Object.hasOwn(value.feedback, "tactic_explanation")) keys.push("tactic_explanation");
     if (correct === false) {
       keys.push("correction_uci");
       if (Object.hasOwn(value.feedback, "correction_san")) keys.push("correction_san");
@@ -216,6 +218,10 @@ export function validateStudyView(value) {
       feedback.correction_uci = correction;
       if (Object.hasOwn(value.feedback, "correction_san"))
         feedback.correction_san = string(value.feedback.correction_san, "correction SAN", true);
+      if (value.activity === "test" || value.activity === "practice") {
+        const explanation = readTacticExplanation(value.feedback.tactic_explanation);
+        if (explanation) feedback.tactic_explanation = explanation;
+      }
     }
   }
   if (!["white", "black"].includes(value.learner_color))

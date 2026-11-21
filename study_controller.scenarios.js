@@ -339,6 +339,32 @@ test("guided analysis resumes its original attempt and practice accepts assistan
   }
 });
 
+test("an accepted Practice correction stores its response without the transient Study clue", async () => {
+  let envelope;
+  const feedback = {
+    correct: false, message: "Incorrect", autoplay: [], correction_uci: "e2e4",
+    tactic_explanation: {
+      kind: "pin",
+      attacker: { square: "e4", role: "bishop", color: "white" },
+      front: { square: "d5", role: "knight", color: "black" },
+      rear: { square: "c6", role: "king", color: "black" },
+    },
+  };
+  const view = ready({ activity: "practice" });
+  const controller = createStudyController({
+    storage: { load: () => null, save: value => { envelope = value; } },
+    transport: { send: async command => command.command === "next"
+      ? view : ready({ ...view, feedback, revision: 1, assessment: "again" }) },
+    render() {}, makeSubmissionId: () => "practice-miss",
+  });
+  await controller.next();
+  await controller.answer("d2d4");
+  assert.deepEqual(controller.getState().view.feedback.tactic_explanation, feedback.tactic_explanation);
+  await controller.openAnalysis({ ...view, revision: 1 });
+  assert.equal(envelope.analysis.savedResult.feedback.correction_uci, "e2e4");
+  assert.equal(envelope.analysis.savedResult.feedback.tactic_explanation, undefined);
+});
+
 test("a failed Next after analysis preserves the confirmed grade and reload retries only Next", async () => {
   let saved, failNext = false;
   const commands = [];

@@ -58,7 +58,8 @@ try {
   await writeFile(transfer, JSON.stringify({
     schema_version: 1,
     puzzles: tactics.map(tactic => ({
-      ...tactic, namespace: "phone-test", label: tactic.source_id, provenance: ["phone fixture"],
+      ...tactic, namespace: "phone-test", label: tactic.source_id,
+      provenance: [`tempo1:capture:${tactic.source_id}`, "tempo1:source_kind:game"],
     })),
   }));
   execFileSync(binary, ["init", database]);
@@ -198,6 +199,7 @@ try {
   assert.equal(await page.getByRole("navigation", { name: "Tempo sections" }).count(), 0);
   assert.equal(await button("Analyze").count(), 0);
   assert.equal(await button("Card details").count(), 0);
+  assert.equal(await page.locator("#study-tactic-clue").count(), 0);
   await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
   const solution = view => tactics.find(tactic => tactic.solver_fen.split(" ")[0] === view.display_fen.split(" ")[0]).solution[0];
   const baseline = rows("assessments");
@@ -273,6 +275,12 @@ try {
   await tapMove(page, answer.slice(0, 3) + "5");
   await button("Show move").waitFor({ state: "visible" });
   await page.locator(".study-panel .status-notice.error").waitFor();
+  const clue = page.locator("#study-tactic-clue");
+  await clue.waitFor();
+  assert.match(await clue.innerText(), /is checkmated by the queen/);
+  await page.waitForFunction(from =>
+    [...document.querySelectorAll(".study-board svg.cg-shapes g[cgHash]")].some(shape =>
+      shape.getAttribute("cgHash").includes(`,${from},${from === "g7" ? "h8" : "a8"},green`)), answer.slice(2));
   await button("Card details").tap();
   await page.getByText(/Tactic · /).waitFor();
   assert.equal(await page.getByText(/recorded reason/).count(), 0);
@@ -280,6 +288,7 @@ try {
   await page.evaluate(() => window.scrollTo(0, 0));
   await tapMove(page, answer);
   await button("Continue").waitFor();
+  assert.equal(await clue.count(), 0);
   await button("Card details").tap();
   await page.getByText(/Tempo has no recorded reason/).waitFor();
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
@@ -335,8 +344,23 @@ try {
   assert.deepEqual(commands.slice(beforeContinuation).map(command => command.command), ["acknowledge", "next"]);
   assert.equal(rows("assessments"), baseline + 2);
   assert.equal(rows("receipts"), beforeAcknowledgement + 1);
+  const learningBeforePractice = sql.prepare("SELECT * FROM learning ORDER BY target_id").all();
+  const practiceReply = page.waitForResponse(reply =>
+    reply.url().endsWith("/api/study") && reply.request().postDataJSON().command === "practice_tactics");
+  await button("Practice tactics").tap();
+  const practice = await (await practiceReply).json();
+  assert.equal(practice.activity, "practice");
+  const practiceMove = solution(practice);
+  await tapMove(page, practiceMove.slice(0, 3) + "5");
+  await clue.waitFor();
+  assert.match(await clue.innerText(), /is checkmated by the queen/);
+  await tapMove(page, practiceMove);
+  await button("Continue").waitFor();
+  assert.equal(await clue.count(), 0);
+  assert.equal(rows("assessments"), baseline + 2);
+  assert.deepEqual(sql.prepare("SELECT * FROM learning ORDER BY target_id").all(), learningBeforePractice);
   assert.deepEqual(errors, []);
-  console.log("Phone WebKit verified touch Study, stable continuation and retry overlays, inline repair, and restricted shared-dataset ingress.");
+  console.log("Phone WebKit verified touch Study, tactical feedback in review and Practice, retry, inline repair, and restricted ingress.");
 } finally {
   sql?.close();
   await browser?.close();

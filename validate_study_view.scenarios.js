@@ -114,6 +114,32 @@ test("a correction belongs only to a legal wrong-answer reply", () => {
   }
 });
 
+test("an optional tactical explanation cannot invalidate the accepted move", () => {
+  const explanation = {
+    kind: "pin",
+    attacker: { square: "b5", role: "bishop", color: "white" },
+    front: { square: "c6", role: "knight", color: "black" },
+    rear: { square: "e8", role: "king", color: "black" },
+  };
+  const correction = { correct: false, message: "Incorrect", autoplay: [], correction_uci: "e2b5" };
+  const wire = ready({
+    activity: "practice", legal_moves: ["e2b5"],
+    feedback: { ...correction, tactic_explanation: explanation },
+  });
+  assert.deepEqual(validateStudyView(wire).feedback.tactic_explanation, explanation);
+  for (const tactic_explanation of [
+    null, { kind: "unknown" }, { ...explanation, front: { ...explanation.front, square: "z6" } },
+  ]) {
+    assert.deepEqual(validateStudyView({
+      ...wire, feedback: { ...correction, tactic_explanation },
+    }).feedback, correction);
+  }
+  const correct = { correct: true, message: "Correct", autoplay: [] };
+  assert.deepEqual(validateStudyView({
+    ...wire, feedback: { ...correct, tactic_explanation: explanation },
+  }).feedback, correct);
+});
+
 test("an optional opponent lead-in belongs only to an unplayed first decision", () => {
   const opponent_move = { before_fen: "8/8/8/8/8/8/8/8 b - - 0 1", uci: "e7e5" };
   assert.deepEqual(validateStudyView(ready({ opponent_move })).opponent_move, opponent_move);

@@ -1,6 +1,12 @@
 import { validateStudyView } from "./validate_study_view.js";
 import { freeze, string } from "./wire_values.js";
 
+function recoveryResult(view) {
+  if (!view.feedback?.tactic_explanation) return view;
+  const { tactic_explanation, ...feedback } = view.feedback;
+  return { ...view, feedback };
+}
+
 // One atomic tab-scoped envelope. Storage throws if the write cannot be made.
 export function createStudyController({
   transport,
@@ -57,7 +63,7 @@ export function createStudyController({
               response.attempt_id !== analysisVisit.attempt_id || response.dataset_id !== analysisVisit.dataset_id ||
               response.content_version !== analysisVisit.content_version || response.revision !== command.expected_revision + 1)
             throw new Error("The Study reply does not confirm this analysis request.");
-          nextVisit = { ...analysisVisit, revision: response.revision, phase: "open", savedResult: response };
+          nextVisit = { ...analysisVisit, revision: response.revision, phase: "open", savedResult: recoveryResult(response) };
         }
       }
       if (analysisVisit?.phase === "return") {
@@ -167,7 +173,7 @@ export function createStudyController({
         pending = command;
         return await deliver(command);
       }
-      const open = { ...visit, phase: "open", savedResult: view };
+      const open = { ...visit, phase: "open", savedResult: recoveryResult(view) };
       storage.save(envelope(null, open));
       analysisVisit = open;
       notify();
