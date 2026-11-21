@@ -10,7 +10,14 @@ function checkedPreview(reply, request, depth) {
     throw new Error("The preview belongs to a different gap. Try again.");
   }
   if (reply.status === "running") return reply;
-  const board = new Chess(reply.anchor_fen);
+  const board = new Chess();
+  if (!Array.isArray(reply.anchor_route) || reply.anchor_route.length > depth * 2) {
+    throw new Error("The preview contains an invalid opening route.");
+  }
+  for (const uci of reply.anchor_route) playBoardMove(board, uci);
+  if (board.fen() !== new Chess(reply.anchor_fen).fen()) {
+    throw new Error("The preview contains an invalid opening route.");
+  }
   const steps = reply.steps;
   if (!Array.isArray(steps) || !steps.length || steps.length > depth * 2 || steps[0].uci !== request.gap.response) {
     throw new Error("The preview contains an invalid line.");

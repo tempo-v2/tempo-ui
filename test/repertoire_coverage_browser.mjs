@@ -215,6 +215,26 @@ try {
     assert.deepEqual(combined.gaps.map(gap => gap.actual_move), ["b8c6", "d7d6", "d7d5"]);
     assert.deepEqual(combined.gaps.map(gap => gap.games), [0, 0, 1]);
 
+    // An authored opponent endpoint still needs a response. The scan owns
+    // its live eligibility while the matching recorded game remains evidence.
+    const current = await post("repertoires", { command: "read_document", ...address });
+    const withEndpoint = {
+      ...address, name: current.name, learner_color: current.learner_color,
+      pgn: current.document.pgn.trimEnd() + "\n\n1.e4 d5 *\n",
+    };
+    const edited = await post("repertoires", {
+      command: "edit_preview", base_revision: current.revision, ...withEndpoint,
+    });
+    await post("repertoires", { command: "save", token: edited.token, ...withEndpoint });
+    const updated = await post("games/gaps", { offset: 0, forecast_repertoire: repertoire_id });
+    const stillOpen = updated.gaps.filter(gap => gap.actual_move === "d7d5");
+    assert.equal(stillOpen.length, 1);
+    assert.equal(stillOpen[0].gap_kind, "forecast");
+    assert.equal(stillOpen[0].games, 1);
+    assert.equal(stillOpen[0].forecast.stale, true);
+    await openCoverage();
+    await page.getByText("Earlier estimate", { exact: true }).waitFor();
+
     const beforeLine = facts();
     await symlink(resolve(process.env.TEMPO_MAIA), join(root, "maia"), "dir");
     const scandinavian = page.getByText(/d5 · 1 game · 15% estimated/).locator("..");
@@ -231,6 +251,8 @@ try {
     await button("Save line").waitFor({ timeout: 30_000 });
     const variation = page.getByRole("region", { name: "Likely line" });
     await variation.getByText("2…Qxd5", { exact: true }).click();
+    const link = new URL(await page.getByRole("link", { name: "Analyze line in Lichess" }).getAttribute("href"));
+    assert.match(decodeURIComponent(link.pathname), /1\. e4 d5 2\. exd5 Qxd5 \*/);
     await variation.getByText("2 new replies in this line", { exact: true }).waitFor();
     assert.deepEqual(facts(), beforeLine);
     const saves = [];

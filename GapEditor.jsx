@@ -67,7 +67,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   const fen = viewedFen ?? (!compare && stagedBoard ? stagedBoard.fen() : draft.fen);
   const exportLine = useMemo(() => {
     if (viewedFen) {
-      const previewBoard = new Chess(line.anchor_fen);
+      const previewBoard = boardWithLeadIn(line.anchor_fen, line.anchor_route);
       for (const step of line.steps.slice(0, viewing + 1)) playBoardMove(previewBoard, step.uci);
       return lineFromBoard(previewBoard);
     }
