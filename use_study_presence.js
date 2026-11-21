@@ -1,14 +1,25 @@
 import { useEffect, useRef } from "react";
+import { observeRequest } from "./diagnostics.js";
 
 const HEARTBEAT_MS = 10_000;
 
 function reportPresence(report) {
-  return fetch("/api/study/presence", {
+  const path = "/api/study/presence";
+  const observation = observeRequest(path, "POST");
+  observation.start();
+  return fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Tempo-Request-Id": observation.requestId },
     body: JSON.stringify(report),
     keepalive: true,
-  }).catch(() => {}); // The next heartbeat renews presence after a reconnect.
+  }).then(response => {
+    observation.headers(response);
+    observation.finish();
+    return response;
+  }, error => {
+    // The next heartbeat renews presence after a reconnect.
+    observation.finish(error, undefined, true);
+  });
 }
 
 function presenceIdentity() {

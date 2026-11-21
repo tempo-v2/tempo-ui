@@ -6,7 +6,7 @@ let discarded = 0;
 let sequence = 0;
 
 const routes = new Set([
-  "/api/study", "/api/study-progress", "/api/study/relevance", "/api/study/game-context",
+  "/api/study", "/api/study/presence", "/api/study-progress", "/api/study/relevance", "/api/study/game-context",
   "/api/study/analysis-context", "/api/study/analysis-line", "/api/study/review-mark",
   "/api/study/saved-reviews", "/api/repertoires", "/api/tactics", "/api/tactic-settings",
   "/api/tactics-collection", "/api/games", "/api/games/library", "/api/games/review",
@@ -14,7 +14,8 @@ const routes = new Set([
   "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry", "/api/games/model",
   "/api/games/gaps", "/api/games/gap-draft", "/api/games/gap-analysis",
   "/api/games/gap-explorer", "/api/games/detectors", "/api/games/detection",
-  "/api/games/detection-result", "/api/analysis/evidence", "/api/analysis/result",
+  "/api/games/detection-result", "/api/games/tactics", "/api/games/tactics/command",
+  "/api/games/tactics/report", "/api/games/tactics/position", "/api/analysis/evidence", "/api/analysis/result",
 ]);
 const choices = {
   event: new Set(["request_start", "response_headers", "request_end", "late_response", "late_body"]),
