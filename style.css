@@ -912,3 +912,36 @@ body {
   .review-header>.ui-button {align-self:flex-start}
   .review-header .training-header {align-items:flex-start;flex-wrap:wrap}
 }
+
+.games-page[hidden], .games-tabpanel[hidden] { display: none; }
+.games-tabpanel { display: grid; gap: 1rem; min-width: 0; }
+.games-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--ui-surface);
+  border-bottom: 1px solid var(--ui-border);
+}
+.games-tabs button {
+  min-height: var(--ui-control-height-touch, 44px);
+  padding: 0 .25rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: .9rem;
+  cursor: pointer;
+}
+.games-tabs button[aria-selected="true"] {
+  background: var(--sage);
+  border-bottom-color: var(--green-dark);
+  color: var(--green-dark);
+  font-weight: 700;
+}
+.games-tabs button:focus-visible, .games-tabpanel:focus-visible {
+  outline: 3px solid var(--ui-focus);
+  outline-offset: -3px;
+}

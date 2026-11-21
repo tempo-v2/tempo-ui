@@ -72,7 +72,7 @@ function Observation({ row, dataset, analysisVersion, onOpen }) {
   </article>;
 }
 
-function HistorySession({ dataset, onOpen }) {
+function HistorySession({ dataset, onOpen, visible }) {
   const [before, setBefore] = useState(undefined);
   const [revision, setRevision] = useState(0);
   const [snapshot, setSnapshot] = useState(null);
@@ -97,6 +97,7 @@ function HistorySession({ dataset, onOpen }) {
   const view = snapshot && snapshot.before === before ? snapshot.value : null;
 
   useEffect(() => {
+    if (!visible) return;
     const owner = new AbortController();
     let timer;
     async function read() {
@@ -124,7 +125,7 @@ function HistorySession({ dataset, onOpen }) {
     }
     void read();
     return () => { clearTimeout(timer); owner.abort(); };
-  }, [dataset, before, revision]);
+  }, [dataset, before, revision, visible]);
 
   function page(cursor) { setSelected(null); setAvailability(null); setError(false); setBefore(cursor); }
   const stats = view?.statistics;
@@ -200,6 +201,6 @@ function HistorySession({ dataset, onOpen }) {
   </Surface></section>;
 }
 
-export function TacticalHistory({ dataset, onOpen }) {
-  return dataset ? <HistorySession key={dataset} dataset={dataset} onOpen={onOpen} /> : null;
+export function TacticalHistory({ dataset, onOpen, visible = true }) {
+  return dataset ? <HistorySession key={dataset} dataset={dataset} onOpen={onOpen} visible={visible} /> : null;
 }

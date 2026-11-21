@@ -130,7 +130,7 @@ try {
   await page.getByText("Compare the game again to refresh these corrective choices.").waitFor({state: "attached"});
   assert.equal(await page.getByText("Corrective target for half-move 1").count(), 0);
 
-  await page.getByText("Provider history and opponent coverage gaps", { exact: true }).click();
+  await page.getByRole("tab", { name: "Coverage" }).click();
   await button("Fix response").click();
   await page.route("**/api/analysis/evidence", route =>
     route.request().postDataJSON().source === "repertoire" ? route.continue() : route.abort());
