@@ -97,12 +97,12 @@ try {
   const button = name => page.getByRole("button", { name, exact: true });
   const panel = page.locator("#games-panel-coverage").getByRole("heading", { name: "Scan repertoire coverage" }).locator("..");
 
-  async function openCoverage() {
+  async function openCoverage(book = repertoire_id) {
     const url = origin + "/#games";
     if (page.url() === url) await page.reload();
     else await page.goto(url);
     await page.getByRole("tab", { name: "Coverage" }).click();
-    await panel.locator("select").selectOption(repertoire_id);
+    await panel.locator("select").selectOption(book);
   }
 
   await openCoverage();
@@ -194,23 +194,26 @@ try {
   assert.equal(starts.length, 3);
   assert.equal(await button("Retry same scan").count(), 0);
   if (process.env.TEMPO_MAIA) {
-    const seed = new DatabaseSync(database);
-    try {
-      for (const [moves, chance] of [
-        [["e4", "e5", "Nf3"], { b8c6: 1 }],
-        [["e4", "c5", "Nf3"], { d7d6: 1 }],
-        [["e4", "d5", "exd5"], { d8d5: 0.8, g8f6: 0.2 }],
-      ]) {
-        const position = new Chess();
-        moves.forEach(move => position.move(move));
-        const distribution = Object.fromEntries(position.moves({ verbose: true })
-          .map(({ from, to }) => [from + to, chance[from + to] ?? 0]));
-        seed.prepare("INSERT OR REPLACE INTO game_move_models VALUES (?, ?, ?)").run(
-          "maia2-0.11.0:65aae8465eed5e65df66a24ea7370715579f9e5435098d06fe18bdb1e267e997:rapid:1500:1500:cpu",
-          position.fen().split(" ").slice(0, 4).join(" "), JSON.stringify(distribution),
-        );
-      }
-    } finally { seed.close(); }
+    function seedForecastMoves(positions) {
+      const seed = new DatabaseSync(database);
+      try {
+        for (const [moves, chance] of positions) {
+          const position = new Chess();
+          moves.forEach(move => position.move(move));
+          const distribution = Object.fromEntries(position.moves({ verbose: true })
+            .map(({ from, to }) => [from + to, chance[from + to] ?? 0]));
+          seed.prepare("INSERT OR REPLACE INTO game_move_models VALUES (?, ?, ?)").run(
+            "maia2-0.11.0:65aae8465eed5e65df66a24ea7370715579f9e5435098d06fe18bdb1e267e997:rapid:1500:1500:cpu",
+            position.fen().split(" ").slice(0, 4).join(" "), JSON.stringify(distribution),
+          );
+        }
+      } finally { seed.close(); }
+    }
+    seedForecastMoves([
+      [["e4", "e5", "Nf3"], { b8c6: 1 }],
+      [["e4", "c5", "Nf3"], { d7d6: 1 }],
+      [["e4", "d5", "exd5"], { d8d5: 0.8, g8f6: 0.2 }],
+    ]);
     await button("All gaps").click();
     await panel.getByLabel("Through your move").fill("3");
     await target.fill("100");
@@ -292,6 +295,40 @@ try {
     assert.equal(afterLine[3].length, beforeLine[3].length + 1);
     const { document } = await post("repertoires", { command: "read_document", ...address });
     assert.match(document.pgn, /e4 d5 exd5 Qxd5 [^ ]+ \*/);
+
+    // The move-3 forecast follows a legal transposition to the saved g3.
+    // Its first authored occurrence is a move later in the imported PGN.
+    const transposeInput = {
+      dataset_id, name: "Transposed coverage book", learner_color: "white",
+      pgn: "1.Nf3 Nf6 2.Nd4 d5 3.Nf3 Ng8 4.g3 *",
+    };
+    const draftTranspose = await post("repertoires", { command: "preview", ...transposeInput });
+    const transposed = await post("repertoires", { command: "save", token: draftTranspose.token, ...transposeInput });
+    const transposedId = transposed.repertoires.find(book => book.name === transposeInput.name).id;
+    seedForecastMoves([
+      [["Nf3"], { d7d5: 1 }],
+      [["Nf3", "d5", "g3"], { e7e5: 1 }],
+    ]);
+    await openCoverage(transposedId);
+    await panel.getByLabel("Through your move").fill("3");
+    await target.fill("100");
+    await button("Scan repertoire").click();
+    await page.getByText(/estimated coverage through your move 3/).waitFor();
+    await button("This scan").click();
+    await page.getByText(/e5 · 100% estimated/).locator("..").getByRole("button", { name: "Fix response" }).click();
+    const transposedBoard = page.getByLabel("Repertoire response board", { exact: true });
+    await transposedBoard.scrollIntoViewIfNeeded();
+    const bb = await transposedBoard.locator("cg-board").boundingBox();
+    const centerOf = (file, rank) => [bb.x + bb.width * (file + 0.5) / 8,
+      bb.y + bb.height * (8.5 - rank) / 8];
+    await page.mouse.move(...centerOf(5, 1));
+    await page.mouse.down();
+    await page.mouse.move(...centerOf(6, 2), { steps: 8 });
+    await page.mouse.up();
+    await page.getByRole("button", { name: "3.Bg2 · New reply", exact: true }).click();
+    const transposeLink = new URL(await page.getByRole("link", { name: "Analyze line in Lichess" }).getAttribute("href"));
+    assert.match(decodeURIComponent(transposeLink.pathname), /1\. Nf3 d5 2\. g3 e5 3\. Bg2 \*/);
+
   }
   assert.deepEqual(errors, []);
   console.log("Coverage scan, merged backlog, signed response, rescan, restart and exact scan recovery passed.");
