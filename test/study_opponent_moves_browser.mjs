@@ -115,6 +115,7 @@ try {
   await interrupted.goto(origin);
   await interrupted.getByText("Opponent to move", { exact: true }).waitFor();
   assert.equal(await interrupted.locator(boardLabel).getAttribute("data-fen"), beforeFen);
+  await interrupted.getByRole("button", { name: "Study shortcuts", exact: true }).click();
   await interrupted.getByRole("button", { name: "Saved for review", exact: true }).click();
   await interrupted.getByRole("button", { name: "Back to Study", exact: true }).click();
   await interrupted.waitForFunction(([label, fen]) =>

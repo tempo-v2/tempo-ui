@@ -17,7 +17,7 @@ body {
   min-width: 0;
   width: min(
     calc(100% - var(--coordinate-gutter)),
-    calc(100dvh - 2 * var(--page-padding) - var(--coordinate-gutter))
+    calc(var(--tempo-viewport-height, 100dvh) - 2 * var(--page-padding) - var(--coordinate-gutter))
   );
   padding-left: var(--coordinate-gutter);
   padding-bottom: var(--coordinate-gutter);
@@ -170,7 +170,7 @@ body {
     display: grid;
     grid-template-columns: minmax(0, 1fr) clamp(15rem, 27vw, 23rem);
     gap: var(--page-padding);
-    height: 100dvh;
+    height: var(--tempo-viewport-height, 100dvh);
     overflow: hidden;
   }
 
@@ -185,7 +185,7 @@ body {
   .study-board {
     width: min(
       calc(100% - var(--coordinate-gutter)),
-      max(12rem, calc(100dvh - 2 * var(--page-padding) - 5rem))
+      max(12rem, calc(var(--tempo-viewport-height, 100dvh) - 2 * var(--page-padding) - 5rem))
     );
   }
 
@@ -750,7 +750,7 @@ body {
 
 .desktop-board-resize .desktop-board-frame {
   /* Allow room for the surrounding page controls on a short desktop. */
-  --board-frame-height: max(12rem, calc(100dvh - var(--board-frame-overhead, 12rem)));
+  --board-frame-height: max(12rem, calc(var(--tempo-viewport-height, 100dvh) - var(--board-frame-overhead, 12rem)));
   display: grid;
   grid-template-columns: minmax(0, min(100%, var(--board-frame-height)));
   align-items: center;
@@ -783,7 +783,7 @@ body {
 }
 
 .desktop-board-resize :is(.tactic-builder-layout, .tactic-detail-layout) .desktop-board-frame {
-  --board-frame-overhead: min(16rem, 43dvh);
+  --board-frame-overhead: min(16rem, calc(0.43 * var(--tempo-viewport-height, 100dvh)));
 }
 
 .desktop-board-resize :is(.capture-edit-position, .capture-setup-form, .tactic-detail-heading) {
@@ -844,7 +844,7 @@ body {
 .review-header label,.explore-move {display:grid;gap:.35rem;font-size:.82rem;font-weight:650;}
 .review-header select,.explore-move select {font:inherit;font-size:1rem;padding:.55rem .7rem;border:1px solid var(--ui-border);border-radius:var(--ui-radius-control);background:var(--ui-surface);max-width:100%;}
 .review-grid {display:grid;grid-template-columns:minmax(0,1.18fr) minmax(0,1fr);align-items:start;gap:clamp(1rem,3vw,2.4rem);}
-.board-column {min-width:0;position:sticky;top:.8rem;}
+.board-column {min-width:0;position:sticky;top:calc(var(--tempo-nav-height, 0px) + .8rem);}
 .review-board {padding:0 .1rem 1.05rem 1.15rem;}
 .board-caption,.review-nav {padding:.5rem .15rem;}
 .board-caption span,.card-heading span,.review-footer {color:var(--muted);font-size:.86rem;}
@@ -917,7 +917,7 @@ body {
 .games-tabpanel { display: grid; gap: 1rem; min-width: 0; }
 .games-tabs {
   position: sticky;
-  top: 0;
+  top: var(--tempo-nav-height, 0px);
   z-index: 2;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

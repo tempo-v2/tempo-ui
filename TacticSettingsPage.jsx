@@ -3,12 +3,14 @@ import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-compon
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { useNotify } from "./Notifications.jsx";
 import { postCommand } from "./content_transport.js";
+import { usePageExitGuard } from "./page_exit_guard.js";
 
 export function TacticSettingsPage({ onStudy }) {
   const [loaded, setLoaded] = useState(null);
   const [limit, setLimit] = useState("");
   const [selection, setSelection] = useState({ mode: "any" });
   const [busy, setBusy] = useState(false);
+  usePageExitGuard(busy);
   const notify = useNotify();
   const [error, setError] = useState(null);
   const requestInFlight = useRef(false);

@@ -4,6 +4,8 @@ import { AnalysisPage } from "./AnalysisPage.jsx";
 import { CARD_DISCLOSURE_RECHECK_MS } from "./card_details.js";
 import { SavedReviewCardDetails } from "./StudyCardDetails.jsx";
 import { validateAnalysisOrigin } from "./analysis_origin.js";
+import { readRepertoireCatalog } from "./repertoire_commands.js";
+import { usePageExitGuard } from "./page_exit_guard.js";
 import {
   readReviewCommand,
   reviewExcludeRecovery,
@@ -46,29 +48,36 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
     setCursors([null]);
     setRefresh(number => number + 1);
   });
+  usePageExitGuard(exclude.busy);
 
   useEffect(() => {
     const owner = new AbortController();
     setResult(null);
-    readReviewCommand(savedReviewsPath, {
-      command: "list", dataset_id: datasetId, before: cursors.at(-1),
-    }, owner.signal).then(reviewPage).then(page => {
-      if (!owner.signal.aborted) setResult({ page });
-    }).catch(error => {
+    async function list() {
+      // A direct Games visit need not have started Study to open the saved list.
+      const addressedDataset = datasetId ?? (await readRepertoireCatalog(owner.signal)).dataset_id;
+      if (owner.signal.aborted) return;
+      const reply = await readReviewCommand(savedReviewsPath, {
+        command: "list", dataset_id: addressedDataset, before: cursors.at(-1),
+      }, owner.signal);
+      if (!owner.signal.aborted) setResult({ page: reviewPage(reply), datasetId: addressedDataset });
+    }
+    void list().catch(error => {
       if (!owner.signal.aborted) setResult({ error: error.message });
     });
     return () => owner.abort();
   }, [datasetId, cursors, refresh]);
 
+  const reviewDataset = result?.datasetId ?? datasetId;
   useEffect(() => {
-    if (!selection) return;
+    if (!selection || !reviewDataset) return;
     let request;
     let timer;
     let invalidated = false;
     function present(value) {
       setOpened(previous => ({
-        selection, datasetId,
-        origin: previous?.selection === selection && previous.datasetId === datasetId
+        selection, datasetId: reviewDataset,
+        origin: previous?.selection === selection && previous.datasetId === reviewDataset
           ? previous.origin : null,
         ...value,
       }));
@@ -88,7 +97,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
       const stamp = studyChangeStamp();
       try {
         const reply = await readReviewCommand(savedReviewsPath, {
-          command, dataset_id: datasetId, id: selection.id,
+          command, dataset_id: reviewDataset, id: selection.id,
         }, owner.signal);
         if (owner.signal.aborted) return;
         if (studyChangeStamp() !== stamp) {
@@ -101,7 +110,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
           return;
         }
         if (command === "open" && reply.status === "review_context") {
-          const origin = validateAnalysisOrigin(reply.origin, { dataset_id: datasetId });
+          const origin = validateAnalysisOrigin(reply.origin, { dataset_id: reviewDataset });
           present({ state: "open", origin });
         } else if (command !== "check" || reply.status !== "review_available") {
           throw new Error("Tempo could not verify the saved position.");
@@ -140,7 +149,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
       window.removeEventListener("focus", recheck);
       document.removeEventListener("visibilitychange", recheck);
     };
-  }, [datasetId, selection, openRetry]);
+  }, [reviewDataset, selection, openRetry]);
 
   function closePosition() {
     setSelection(null);
@@ -148,7 +157,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
     setRefresh(number => number + 1);
   }
 
-  const current = opened?.selection === selection && opened.datasetId === datasetId ? opened : null;
+  const current = opened?.selection === selection && opened.datasetId === reviewDataset ? opened : null;
   const retryOpening = useCallback(() => setOpenRetry(number => number + 1), []);
   const interruption = current?.state === "waiting" ? (
     <><StatusNotice>Finish in Study to open analysis.</StatusNotice>
@@ -162,7 +171,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
   if (current?.origin)
     return <AnalysisPage origin={current.origin} onClose={closePosition}
       interruption={current.state === "open" ? null : interruption}
-      cardDetails={<SavedReviewCardDetails datasetId={datasetId} id={selection.id}
+      cardDetails={<SavedReviewCardDetails datasetId={reviewDataset} id={selection.id}
         onDisclosureChanged={retryOpening} />} />;
   return (
     <main className="tempo-core repertoire-page">
@@ -177,7 +186,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
             <Button variant="primary" onClick={() => {
               const id = confirmation;
               setConfirmation(null);
-              void exclude.send({ command: "exclude_tactic", dataset_id: datasetId, id });
+              void exclude.send({ command: "exclude_tactic", dataset_id: reviewDataset, id });
             }}>Remove from Study</Button>
           </div>
         </Dialog>
@@ -206,7 +215,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
                       {row.can_remove_from_study && <Button disabled={exclude.pending || exclude.busy || remove.pending || remove.busy}
                         onClick={() => setConfirmation(row.id)}>Remove from Study</Button>}
                       <Button disabled={remove.pending || remove.busy || exclude.pending || exclude.busy}
-                        onClick={() => void remove.send({ command: "remove", dataset_id: datasetId, id: row.id })}>
+                        onClick={() => void remove.send({ command: "remove", dataset_id: reviewDataset, id: row.id })}>
                         Remove saved mark
                       </Button>
                     </div>

@@ -81,7 +81,7 @@ async function games() {
     }
   });
   await page.goto(base);
-  await page.getByRole("button", { name: "Games", exact: true }).click();
+  await page.getByRole("link", { name: "Games", exact: true }).click();
   return page;
 }
 

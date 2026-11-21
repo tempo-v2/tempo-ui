@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MainBoard } from "./MainBoard.jsx";
 import { Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
@@ -9,6 +9,7 @@ import { playBoardMove } from "./board_move.js";
 import { MarkedLinesForm, MarkedLinesSaveButton, useMarkedLines } from "./MarkedLinesForm.jsx";
 import { LichessControl } from "./LichessControl.jsx";
 import { boardWithLeadIn, lineFromBoard } from "./lichess_analysis.js";
+import { usePageExitGuard } from "./page_exit_guard.js";
 
 const start = new Chess().fen();
 const colors = {
@@ -37,6 +38,11 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
     }
   }, [interrupted]);
   const { color, locked, destination } = draft;
+  const hasMarkedLines = draft.marked.length > 0;
+  const discardMarkedLines = useCallback(() => {
+    return !hasMarkedLines || window.confirm("Discard marked lines and leave analysis?");
+  }, [hasMarkedLines]);
+  usePageExitGuard(locked, discardMarkedLines);
   const authoring = !!destination || !!origin.newBook;
   const board = useMemo(() => {
     const b = new Chess(root);
@@ -75,12 +81,7 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
     navigate(next);
   }
   function close() {
-    if (
-      !locked &&
-      (!draft.marked.length ||
-        window.confirm("Discard marked lines and leave analysis?"))
-    )
-      onClose(draft.saved);
+    if (!locked && discardMarkedLines()) onClose(draft.saved);
   }
   const arrows = new Map();
   for (const { move, source } of overlay)

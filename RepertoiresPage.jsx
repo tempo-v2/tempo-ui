@@ -1,7 +1,8 @@
 import { settleReviewDraftSave } from "./review_draft.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import { useNotify } from "./Notifications.jsx";
-import React, { useEffect, useRef, useState } from "react";
+import { usePageExitGuard } from "./page_exit_guard.js";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import {
   deliverDurableRepertoireCommand,
@@ -88,9 +89,10 @@ export function RepertoiresPage({ onStudy }) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  function discardDraft() {
+  const discardDraft = useCallback(() => {
     return !dirty || window.confirm("Discard your unsaved repertoire edits?");
-  }
+  }, [dirty]);
+  usePageExitGuard(locked, discardDraft);
 
   function closeEditor() {
     ++documentRead.current;
@@ -347,9 +349,7 @@ export function RepertoiresPage({ onStudy }) {
   return (
     <main className="tempo-core repertoire-page">
       <PageHeader title="Repertoires" actions={
-        <Button disabled={locked} onClick={() => {
-          if (discardDraft()) onStudy();
-        }}>Study</Button>
+        <Button disabled={locked} onClick={onStudy}>Study</Button>
       } />
       {notice && <StatusNotice>{notice}</StatusNotice>}
       {issue && <StatusNotice kind="error">{issue}</StatusNotice>}

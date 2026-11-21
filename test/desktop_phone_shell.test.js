@@ -116,6 +116,27 @@ test("desktop opens a game link and browser Back returns to Study through the sh
   assert(window.document.querySelector('nav[aria-label="Tempo sections"]'));
 });
 
+test("desktop opens Saved for review from Games without issuing a Study command", async t => {
+  const { window, calls } = await shell(t, false, { responses: {
+    "/api/study/saved-reviews": { status: "saved_reviews", rows: [], next: null },
+    "/api/study/presence": { status: "accepted" },
+  } });
+  const navigation = window.document.querySelector(".tempo-nav-sections");
+  await window.runShell(() => navigation.querySelector('[aria-label="Study shortcuts"]').click());
+  const saved = [...navigation.querySelectorAll("button")].find(button => button.textContent === "Saved for review");
+  assert.equal(saved.closest("ul").hidden, false);
+  await window.runShell(() => saved.click());
+  assert.equal(window.document.querySelector("h1").textContent, "Saved for review");
+  assert.equal(window.location.hash, "");
+  assert.deepEqual(calls.filter(call => call.path === "/api/study/saved-reviews").map(call => call.command), [
+    { command: "list", dataset_id: "shell-fixture", before: null },
+  ]);
+  assert.equal(calls.some(call => call.path === "/api/study"), false);
+  await window.runShell(() => navigation.querySelector('a[href="#"]').click());
+  assert.equal(window.document.querySelector("h1").textContent, "Study");
+  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
+});
+
 const position = new Chess();
 const practice = ready({
   activity: "practice", assessment: "again", dataset_id: "shell-fixture",
@@ -128,6 +149,7 @@ test("desktop forwards an explicit Lichess launch through the analysis shell", a
   lineBoard.move("e4");
   const { window, calls } = await shell(t, false, { hash: "", responses: {
     "/api/study": practice,
+    "/api/analysis/evidence": { status: "error", message: "Fixture evidence unavailable" },
     "/api/study/analysis-context": {
       datasetId: practice.dataset_id, attemptId: practice.attempt_id,
       contentVersion: practice.content_version, revision: practice.revision,
