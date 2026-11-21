@@ -201,9 +201,11 @@ try {
   assert.equal(first.origin.prescribedUci, "e2e4");
   const second = await reviews({ command: "open", id: list.rows[0].id });
   assert.equal(second.origin.prescribedUci, "g1f3");
-  assert.equal(second.origin.cardDetails.kind, "tactic");
-  assert.deepEqual(second.origin.cardDetails.sources, ["Personal capture"]);
-  assert.deepEqual(second.origin.cardDetails.explanation.capture_method, ["Captured from a game"]);
+  assert.equal(second.origin.cardDetails, undefined);
+  const savedDetails = await reviews({ command: "card_details", id: list.rows[0].id });
+  assert.equal(savedDetails.details.kind, "tactic");
+  assert.deepEqual(savedDetails.details.sources, ["Personal capture"]);
+  assert.deepEqual(savedDetails.details.explanation.capture_method, ["Captured from a game"]);
   const studyBeforeReview = studyData();
   await button("Saved for review").click();
   await button("Open analysis").first().click();
@@ -273,6 +275,40 @@ try {
   await post("/api/study", {
     command: "abandon", dataset_id: otherDevice.dataset_id, attempt_id: otherDevice.attempt_id,
     expected_revision: otherDevice.revision, submission_id: "leave-other-device",
+  });
+  await button("Check again").click();
+  await page.getByText(/Issued Study move · Nf3/).waitFor();
+  const checks = "**/api/study/saved-reviews";
+  const checkDelay = Promise.withResolvers();
+  const holdPeriodicChecks = async route => {
+    if (route.request().postDataJSON().command === "check") await checkDelay.promise;
+    await route.continue().catch(() => {});
+  };
+  await page.route(checks, holdPeriodicChecks);
+  const beforeDetails = await post("/api/study", { command: "practice_tactics" });
+  assert.equal(beforeDetails.target_id, issued.target_id);
+  const detailReply = page.waitForResponse(reply =>
+    reply.url().endsWith("/api/study/saved-reviews") && reply.request().postDataJSON().command === "card_details");
+  await button("Card details").click();
+  assert.equal((await (await detailReply).json()).status, "study_required");
+  await page.getByText("Finish in Study to open analysis.", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Captured from a game", { exact: true }).count(), 0);
+  checkDelay.resolve();
+  await page.unroute(checks, holdPeriodicChecks);
+  await post("/api/study", {
+    command: "abandon", dataset_id: beforeDetails.dataset_id, attempt_id: beforeDetails.attempt_id,
+    expected_revision: beforeDetails.revision, submission_id: "leave-before-details",
+  });
+
+  await button("Check again").click();
+  await page.getByText(/Issued Study move · Nf3/).waitFor();
+  const whileVisible = await post("/api/study", { command: "practice_tactics" });
+  assert.equal(whileVisible.target_id, issued.target_id);
+  await page.getByText("Finish in Study to open analysis.", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("Analysis board", { exact: true }).count(), 0);
+  await post("/api/study", {
+    command: "abandon", dataset_id: whileVisible.dataset_id, attempt_id: whileVisible.attempt_id,
+    expected_revision: whileVisible.revision, submission_id: "leave-while-visible",
   });
   await button("Return").click();
   await studyTab.close();

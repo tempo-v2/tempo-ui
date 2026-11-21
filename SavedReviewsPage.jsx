@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Button, Dialog, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { AnalysisPage } from "./AnalysisPage.jsx";
+import { CARD_DISCLOSURE_RECHECK_MS } from "./card_details.js";
+import { SavedReviewCardDetails } from "./StudyCardDetails.jsx";
 import { validateAnalysisOrigin } from "./analysis_origin.js";
 import {
   readReviewCommand,
@@ -61,6 +63,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
   useEffect(() => {
     if (!selection) return;
     let request;
+    let timer;
     let invalidated = false;
     function present(value) {
       setOpened(previous => ({
@@ -72,19 +75,20 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
     }
     function hidePosition() {
       if (invalidated) return;
+      clearTimeout(timer);
       request?.abort();
       present({ state: "checking" });
     }
-    async function recheck() {
+    async function verify(command) {
       if (invalidated) return;
-      hidePosition();
+      if (command === "open") hidePosition();
       if (document.hidden || !document.hasFocus()) return;
       const owner = new AbortController();
       request = owner;
       const stamp = studyChangeStamp();
       try {
         const reply = await readReviewCommand(savedReviewsPath, {
-          command: "open", dataset_id: datasetId, id: selection.id,
+          command, dataset_id: datasetId, id: selection.id,
         }, owner.signal);
         if (owner.signal.aborted) return;
         if (studyChangeStamp() !== stamp) {
@@ -92,17 +96,27 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
           return;
         }
         if (reply?.id !== selection.id) throw new Error("Tempo could not verify the saved mark.");
-        if (reply.status === "study_required") present({ state: "waiting" });
-        else if (reply.status === "review_context") {
+        if (reply.status === "study_required") {
+          present({ state: "waiting" });
+          return;
+        }
+        if (command === "open" && reply.status === "review_context") {
           const origin = validateAnalysisOrigin(reply.origin, { dataset_id: datasetId });
           present({ state: "open", origin });
-        } else throw new Error("Tempo could not open the saved position.");
+        } else if (command !== "check" || reply.status !== "review_available") {
+          throw new Error("Tempo could not verify the saved position.");
+        }
+        timer = setTimeout(() => void verify("check"), CARD_DISCLOSURE_RECHECK_MS);
       } catch (error) {
         if (!owner.signal.aborted) present({ state: "error", error: error.message });
       }
     }
+    function recheck() {
+      void verify("open");
+    }
     function invalidate() {
       invalidated = true;
+      clearTimeout(timer);
       request?.abort();
       // A cross-tab request can still be in flight or may have lost its reply.
       // End this disclosure visit. A new, explicit Open gets current authority.
@@ -111,13 +125,14 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
     function onStudyChange(event) {
       if (event.key === studyChangeKey) invalidate();
     }
-    void recheck();
+    recheck();
     window.addEventListener("storage", onStudyChange);
     window.addEventListener("pageshow", recheck);
     window.addEventListener("blur", hidePosition);
     window.addEventListener("focus", recheck);
     document.addEventListener("visibilitychange", recheck);
     return () => {
+      clearTimeout(timer);
       request?.abort();
       window.removeEventListener("storage", onStudyChange);
       window.removeEventListener("pageshow", recheck);
@@ -134,7 +149,7 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
   }
 
   const current = opened?.selection === selection && opened.datasetId === datasetId ? opened : null;
-  const retryOpening = () => setOpenRetry(number => number + 1);
+  const retryOpening = useCallback(() => setOpenRetry(number => number + 1), []);
   const interruption = current?.state === "waiting" ? (
     <><StatusNotice>Finish in Study to open analysis.</StatusNotice>
       <Button onClick={retryOpening}>Check again</Button></>
@@ -146,7 +161,9 @@ export function SavedReviewsPage({ datasetId, onStudy, onTacticExcluded }) {
   ) : <p role="status">{current?.origin ? "Checking Study…" : "Opening position…"}</p>;
   if (current?.origin)
     return <AnalysisPage origin={current.origin} onClose={closePosition}
-      interruption={current.state === "open" ? null : interruption} />;
+      interruption={current.state === "open" ? null : interruption}
+      cardDetails={<SavedReviewCardDetails datasetId={datasetId} id={selection.id}
+        onDisclosureChanged={retryOpening} />} />;
   return (
     <main className="tempo-core repertoire-page">
       <PageHeader title="Saved for review" actions={<Button disabled={exclude.busy} onClick={onStudy}>Back to Study</Button>} />

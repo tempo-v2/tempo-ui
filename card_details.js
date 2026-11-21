@@ -1,3 +1,5 @@
+export const CARD_DISCLOSURE_RECHECK_MS = 1500;
+
 const strings = value => Array.isArray(value) && value.every(item => typeof item === "string");
 
 export function validateCardDetails(details) {

@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { CardDetailsContent } from "./StudyCardDetails.jsx";
 import { MainBoard } from "./MainBoard.jsx";
 import { Button, PageHeader, StatusNotice } from "@tempo-v2/core-components";
 import { Chess } from "chess.js";
@@ -19,7 +18,7 @@ const colors = {
   masters: "red",
   maia: "maia",
 };
-export function AnalysisPage({ origin, onClose, interruption, renderRootLineAction }) {
+export function AnalysisPage({ origin, onClose, interruption, renderRootLineAction, cardDetails }) {
   const root = origin.fen || start;
   const [path, setPath] = useState([]);
   const [paths, setPaths] = useState([[]]);
@@ -200,9 +199,7 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
               ))}
             </select>
           </div>
-          {origin.cardDetails && <details><summary>Card details</summary>
-            <CardDetailsContent details={origin.cardDetails} />
-          </details>}
+          {cardDetails}
           {authoring && (
             <MarkedLinesForm draft={draft} path={path} lineLabel={lineLabel} />
           )}

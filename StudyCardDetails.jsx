@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Button, StatusNotice } from "@tempo-v2/core-components";
-import { validateCardDetails } from "./card_details.js";
+import { CARD_DISCLOSURE_RECHECK_MS, validateCardDetails } from "./card_details.js";
 import { studyChangeKey, studyChangeStamp } from "./study_presence.js";
-import { readReviewCommand } from "./saved_review_commands.js";
+import { readReviewCommand, savedReviewsPath } from "./saved_review_commands.js";
 
 function webLink(value) {
   try {
@@ -12,7 +12,7 @@ function webLink(value) {
   return null;
 }
 
-export function CardDetailsContent({ details }) {
+function CardDetailsContent({ details }) {
   const full = details.explanation;
   const game = full?.game;
   const gameUrl = webLink(game?.url);
@@ -37,57 +37,91 @@ export function CardDetailsContent({ details }) {
 }
 
 export function StudyCardDetails({ view, onOpen }) {
+  const { dataset_id, attempt_id, revision, content_version } = view;
+  const load = useCallback(async signal => {
+    const address = { dataset_id, attempt_id, revision, content_version };
+    const reply = await readReviewCommand("/api/study/card-details", address, signal);
+    if (reply?.status !== "card_details" ||
+        !Object.entries(address).every(([field, value]) => reply[field] === value)) {
+      throw new Error("Tempo could not verify the card details.");
+    }
+    return validateCardDetails(reply.details);
+  }, [dataset_id, attempt_id, revision, content_version]);
+  return <CardDetailsPanel load={load} onOpen={onOpen} recheckExplanation />;
+}
+
+export function SavedReviewCardDetails({ datasetId, id, onDisclosureChanged }) {
+  const load = useCallback(async signal => {
+    const reply = await readReviewCommand(savedReviewsPath, {
+      command: "card_details", dataset_id: datasetId, id,
+    }, signal);
+    if (reply?.id === id && reply.status === "study_required") {
+      if (!signal.aborted) onDisclosureChanged();
+      throw new Error("Finish in Study to open card details.");
+    }
+    if (reply?.id !== id || reply.status !== "card_details") {
+      throw new Error("Tempo could not verify the card details.");
+    }
+    return validateCardDetails(reply.details);
+  }, [datasetId, id, onDisclosureChanged]);
+  return <CardDetailsPanel load={load} />;
+}
+
+function CardDetailsPanel({ load, onOpen, recheckExplanation }) {
   const [open, setOpen] = useState(false);
   const [read, setRead] = useState(null);
   const [retry, setRetry] = useState(0);
-  const { dataset_id, attempt_id, revision, content_version } = view;
   useEffect(() => {
     if (!open) return;
     const owner = new AbortController();
-    const address = { dataset_id, attempt_id, revision, content_version };
     const stamp = studyChangeStamp();
+    let timer;
     function closeDetails() {
       owner.abort();
+      clearTimeout(timer);
       setRead(null);
       setOpen(false);
     }
     function closeOnStudyChange(event) {
       if (event.key === studyChangeKey) closeDetails();
     }
+    async function readDetails() {
+      try {
+        const details = await load(owner.signal);
+        if (owner.signal.aborted) return;
+        if (studyChangeStamp() !== stamp) {
+          closeDetails();
+          return;
+        }
+        setRead({ details });
+        if (recheckExplanation && details.explanation) {
+          timer = setTimeout(readDetails, CARD_DISCLOSURE_RECHECK_MS);
+        }
+      } catch (error) {
+        if (!owner.signal.aborted) setRead({ error: error.message });
+      }
+    }
     window.addEventListener("storage", closeOnStudyChange);
     window.addEventListener("pageshow", closeDetails);
     window.addEventListener("blur", closeDetails);
     window.addEventListener("focus", closeDetails);
     document.addEventListener("visibilitychange", closeDetails);
-    readReviewCommand("/api/study/card-details", address, owner.signal).then(reply => {
-      if (reply?.status !== "card_details" || !reply.details ||
-          !Object.entries(address).every(([field, value]) => reply[field] === value)) {
-        throw new Error("Tempo could not verify the card details.");
-      }
-      const details = validateCardDetails(reply.details);
-      if (owner.signal.aborted) return;
-      if (studyChangeStamp() !== stamp) {
-        setOpen(false);
-        return;
-      }
-      setRead({ details });
-    }).catch(error => {
-      if (!owner.signal.aborted) setRead({ error: error.message });
-    });
+    void readDetails();
     return () => {
       owner.abort();
+      clearTimeout(timer);
       window.removeEventListener("storage", closeOnStudyChange);
       window.removeEventListener("pageshow", closeDetails);
       window.removeEventListener("blur", closeDetails);
       window.removeEventListener("focus", closeDetails);
       document.removeEventListener("visibilitychange", closeDetails);
     };
-  }, [dataset_id, attempt_id, revision, content_version, open, retry]);
+  }, [load, open, recheckExplanation, retry]);
   return <>
     <Button size="compact" aria-expanded={open} onClick={() => {
       if (!open) {
         setRead(null);
-        onOpen();
+        onOpen?.();
       }
       setOpen(!open);
     }}>Card details</Button>
