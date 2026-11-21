@@ -98,7 +98,9 @@ try {
   const panel = page.locator(".advanced-games").getByRole("heading", { name: "Scan repertoire coverage" }).locator("..");
 
   async function openCoverage() {
-    await page.goto(origin + "/#games");
+    const url = origin + "/#games";
+    if (page.url() === url) await page.reload();
+    else await page.goto(url);
     await page.getByText("Provider history and opponent coverage gaps", { exact: true }).click();
     await panel.locator("select").selectOption(repertoire_id);
   }
