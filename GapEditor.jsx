@@ -3,6 +3,7 @@ import { MainBoard } from "./MainBoard.jsx";
 import { Chess } from "chess.js";
 import { Button, Dialog, StatusNotice } from "@tempo-v2/core-components";
 import { playBoardMove } from "./board_move.js";
+import { GapLine, useGapLine } from "./GapLine.jsx";
 import { GapAnalysis, GapExplorer } from "./GapAnalysis.jsx";
 import { previewGapResponse, repertoireError, staleGapCodes, writeGapContinuation } from "./gap_save.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
@@ -13,9 +14,14 @@ import { hasPendingRepertoireCommand, savePendingRepertoireCommand, sendRepertoi
 const percent = value => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
 const shape = (uci, brush) => ({ orig: uci.slice(0, 2), dest: uci.slice(2, 4), brush });
 
-export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyze, suspended }) {
+export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyze, suspended, previousSave }) {
   const { draft, learner_color: color, actual_san, response_move_labels: labels } = gap.details;
   const [selected, setSelected] = useState(recovery?.response ?? "");
+  const [line, retryLine] = useGapLine(gap, recovery ? "" : selected);
+  const [view, setView] = useState(null);
+  const viewing = view?.line === line ? view?.index : null;
+  const viewedFen = viewing != null ? line?.positions?.[viewing] : null;
+  const savedLabel = useRef(recovery?.savedLabel);
   const [suggestion, setSuggestion] = useState(null);
   const recommendationSettled = useRef(!!recovery);
   const [hover, setHover] = useState("");
@@ -55,17 +61,22 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     return current;
   }, [draft.fen, selected, suggestion]);
   const compare = preview && preview !== selected;
-  const fen = !compare && stagedBoard ? stagedBoard.fen() : draft.fen;
+  const fen = viewedFen ?? (!compare && stagedBoard ? stagedBoard.fen() : draft.fen);
   const exportLine = useMemo(() => {
+    if (viewedFen) {
+      const previewBoard = new Chess(line.anchor_fen);
+      for (const step of line.steps.slice(0, viewing + 1)) playBoardMove(previewBoard, step.uci);
+      return lineFromBoard(previewBoard);
+    }
     const anchored = boardWithLeadIn(draft.fen, gap.details.anchor_route);
     if (!compare && stagedBoard) playBoardMove(anchored, selected);
     return lineFromBoard(anchored);
-  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, compare]);
+  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, compare, viewedFen, line, viewing]);
   const turn = fen.split(" ")[1] === "w" ? "white" : "black";
   const check = useMemo(() => new Chess(fen).isCheck() ? turn : false, [fen, turn]);
   const shapes = [
-    ...(selected ? [shape(selected, "green")] : []),
-    ...(compare ? [shape(preview, "blue")] : []),
+    ...(selected && !viewedFen ? [shape(selected, "green")] : []),
+    ...(compare && !viewedFen ? [shape(preview, "blue")] : []),
   ];
   const locked = busy || !!pending || !!loadPending || !!settled || stale;
   const moveNumber = Number(draft.fen.split(" ")[5]) - (color === "white" ? 1 : 0);
@@ -89,6 +100,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   function select(move) {
     recommendationSettled.current = true;
     setSuggestion(null);
+    setView(null);
     setHover("");
     setFocus("");
     setPromotion(null);
@@ -117,7 +129,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   }
 
   function remember(token, accepted = false) {
-    writeGapContinuation({ token, gap, response: selected, accepted });
+    writeGapContinuation({ token, gap, response: selected, accepted, savedLabel: savedLabel.current });
   }
 
   async function finish(reply, clearRecovery) {
@@ -135,18 +147,18 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
       setStale(staleGapCodes.has(reply.code));
       throw repertoireError(reply);
     }
-    await onAdvance(selectedLabel);
+    await onAdvance(savedLabel.current ?? selectedLabel);
     writeGapContinuation(null);
   }
 
   function close() {
     if (!inFlight.current && !pending && !loadPending) {
       if (settled) writeGapContinuation(null);
-      onClose(settled?.status === "repertoires" ? selectedLabel : undefined);
+      onClose(settled?.status === "repertoires" ? savedLabel.current ?? selectedLabel : undefined);
     }
   }
 
-  async function save() {
+  async function save(useLine = false) {
     if (inFlight.current || stale || !selected) return;
     inFlight.current = true;
     setBusy(true);
@@ -167,7 +179,15 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
       if (!command) {
         if (hasPendingRepertoireCommand()) throw new Error("A repertoire save is still pending. Reload Tempo to recover it.");
         try {
-          command = await previewGapResponse(gap, selected, AbortSignal.timeout(10_000));
+          if (useLine) {
+            command = line?.save_command;
+            if (!command) return;
+            const lastReply = line.steps.findLast(step => step.learner);
+            savedLabel.current = `line through your move ${lastReply.move_number}`;
+          } else {
+            command = await previewGapResponse(gap, selected, AbortSignal.timeout(10_000));
+            savedLabel.current = selectedLabel;
+          }
         } catch (error) {
           setStale(staleGapCodes.has(error.code));
           throw error;
@@ -199,9 +219,10 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   return (
     <Dialog open title={`Respond to ${opponentLabel}`} onClose={close}>
       <div className="gap-editor">
+        {previousSave && !settled && <StatusNotice>{previousSave}</StatusNotice>}
         <p className="gap-repertoire">{gap.details.repertoire_name}</p>
         {settled && settled.status !== "error" && (
-          <p role="status">Saved {selectedLabel}.</p>
+          <p role="status">Saved {savedLabel.current ?? selectedLabel}.</p>
         )}
         {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
         {stale ? (
@@ -226,8 +247,10 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
                     if (!locked) recommendationSettled.current = true;
                   }}
                   positionIdentity={position} positionRevision={revision}
-                  locked={locked || !!stagedManually || !!promotion}
-                  lastMove={[gap.address.actual_move.slice(0, 2), gap.address.actual_move.slice(2, 4)]}
+                  locked={locked || !!stagedManually || !!promotion || !!viewedFen}
+                  lastMove={viewedFen
+                    ? [line.steps[viewing].uci.slice(0, 2), line.steps[viewing].uci.slice(2, 4)]
+                    : [gap.address.actual_move.slice(0, 2), gap.address.actual_move.slice(2, 4)]}
                   coordinates="edges" onMove={onMove} shapes={shapes} ariaLabel="Repertoire response board" />
               </div>
               <div className="gap-statistics">
@@ -245,6 +268,8 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
                 </details>
               </div>
             </div>
+            {line && <GapLine line={line} depth={gap.forecast.through_move} locked={locked}
+              viewing={viewing} onView={index => setView({ line, index })} onRetry={retryLine} />}
             <div className="actions gap-editor-actions">
               <div className="gap-selection" role="status">
                 <span>{selected ? `${suggestion ? "Suggested" : "Selected"} ${selectedLabel}` : "Play a move on the board."}</span>
@@ -257,8 +282,11 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               })}>Analyze lines</Button>
               <LichessControl fen={fen} line={exportLine} orientation={color} />
               {selected && <Button disabled={locked} onClick={() => select("")}>Clear response</Button>}
-              <Button variant="primary" disabled={busy || !selected} onClick={() => void save()}>
-                {busy ? "Saving response…" : pending || loadPending ? "Retry save" : "Save response"}
+              {line?.save_command && !pending && !loadPending && (
+                <Button variant="primary" disabled={locked} onClick={() => void save(true)}>Save line</Button>
+              )}
+              <Button variant={line?.save_command ? undefined : "primary"} disabled={busy || !selected} onClick={() => void save()}>
+                {busy ? "Saving response…" : pending || loadPending ? "Retry save" : gap.forecast?.report_id ? "Save response only" : "Save response"}
               </Button>
               <Button disabled={busy || !!pending || !!loadPending} onClick={close}>Close</Button>
             </div>

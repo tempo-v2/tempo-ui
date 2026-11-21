@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -127,7 +127,7 @@ try {
   await page.mouse.move(...center(5, 3), { steps: 8 });
   await page.mouse.up();
   await page.getByText("Selected Nf3", { exact: true }).waitFor();
-  await button("Save response").click();
+  await button("Save response only").click();
   await page.getByRole("heading", { name: "Respond to 1…d5" }).waitFor();
   await button("Close").click();
   await page.getByText(/Repertoire changed. Rerun the scan/).waitFor();
@@ -188,6 +188,84 @@ try {
   await page.getByText(/85% estimated coverage.*80% target/).waitFor();
   assert.equal(starts.length, 3);
   assert.equal(await button("Retry same scan").count(), 0);
+  if (process.env.TEMPO_MAIA) {
+    const seed = new DatabaseSync(database);
+    try {
+      for (const [moves, chance] of [
+        [["e4", "e5", "Nf3"], { b8c6: 1 }],
+        [["e4", "c5", "Nf3"], { d7d6: 1 }],
+        [["e4", "d5", "exd5"], { d8d5: 0.8, g8f6: 0.2 }],
+      ]) {
+        const position = new Chess();
+        moves.forEach(move => position.move(move));
+        const distribution = Object.fromEntries(position.moves({ verbose: true })
+          .map(({ from, to }) => [from + to, chance[from + to] ?? 0]));
+        seed.prepare("INSERT OR REPLACE INTO game_move_models VALUES (?, ?, ?)").run(
+          "maia2-0.11.0:65aae8465eed5e65df66a24ea7370715579f9e5435098d06fe18bdb1e267e997:rapid:1500:1500:cpu",
+          position.fen().split(" ").slice(0, 4).join(" "), JSON.stringify(distribution),
+        );
+      }
+    } finally { seed.close(); }
+    await button("All gaps").click();
+    await panel.getByLabel("Through your move").fill("3");
+    await target.fill("100");
+    await button("Scan repertoire").click();
+    await page.getByText(/estimated coverage through your move 3/).waitFor();
+    const combined = await (await fetch(origin + "/api/games/gaps")).json();
+    assert.deepEqual(combined.gaps.map(gap => gap.actual_move), ["b8c6", "d7d6", "d7d5"]);
+    assert.deepEqual(combined.gaps.map(gap => gap.games), [0, 0, 1]);
+
+    const beforeLine = facts();
+    await symlink(resolve(process.env.TEMPO_MAIA), join(root, "maia"), "dir");
+    const scandinavian = page.getByText(/d5 · 1 game · 15% estimated/).locator("..");
+    await scandinavian.getByRole("button", { name: "Fix response" }).click();
+    const lineBoard = page.getByLabel("Repertoire response board", { exact: true });
+    await lineBoard.scrollIntoViewIfNeeded();
+    const bounds = await lineBoard.locator("cg-board").boundingBox();
+    const square = (file, rank) => [bounds.x + bounds.width * (file + 0.5) / 8,
+      bounds.y + bounds.height * (8.5 - rank) / 8];
+    await page.mouse.move(...square(4, 4));
+    await page.mouse.down();
+    await page.mouse.move(...square(3, 5), { steps: 8 });
+    await page.mouse.up();
+    await button("Save line").waitFor({ timeout: 30_000 });
+    const variation = page.getByRole("region", { name: "Likely line" });
+    await variation.getByText("2…Qxd5", { exact: true }).click();
+    await variation.getByText("2 new replies in this line", { exact: true }).waitFor();
+    assert.deepEqual(facts(), beforeLine);
+    const saves = [];
+    let dropSave = true;
+    let failNext = true;
+    await page.route("**/api/repertoires", async route => {
+      if (route.request().postDataJSON().command !== "save") return route.continue();
+      saves.push(route.request().postData());
+      if (!dropSave) return route.continue();
+      dropSave = false;
+      assert.equal((await route.fetch()).status(), 200);
+      return route.abort();
+    });
+    await page.route("**/api/games/gaps", async route => {
+      if (saves.length === 2 && failNext) {
+        failNext = false;
+        return route.abort();
+      }
+      return route.continue();
+    });
+    await button("Save line").click();
+    await button("Retry save").click();
+    await button("Retry loading next gap").waitFor();
+    await page.getByText("Saved line through your move 3.", { exact: true }).waitFor();
+    await button("Retry loading next gap").click();
+    await page.getByRole("heading", { name: "Respond to 2…Nc6" }).waitFor();
+    assert.equal(saves.length, 2);
+    assert.equal(saves[0], saves[1]);
+    const afterLine = facts();
+    assert.deepEqual(afterLine[0].filter(row => beforeLine[0].some(old => old.target_id === row.target_id)), beforeLine[0]);
+    assert.deepEqual(afterLine.slice(1, 3), beforeLine.slice(1, 3));
+    assert.equal(afterLine[3].length, beforeLine[3].length + 1);
+    const { document } = await post("repertoires", { command: "read_document", ...address });
+    assert.match(document.pgn, /e4 d5 exd5 Qxd5 [^ ]+ \*/);
+  }
   assert.deepEqual(errors, []);
   console.log("Coverage scan, merged backlog, signed response, rescan, restart and exact scan recovery passed.");
 } finally {

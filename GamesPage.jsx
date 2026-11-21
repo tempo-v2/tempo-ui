@@ -619,23 +619,23 @@ export function GamesPage({ onStudy, onRepertoires }) {
     }
   }
 
-  async function loadGap(gap, passed, offset, signal, datasetId = dataset) {
+  async function loadGap(gap, offset, signal, datasetId = dataset) {
     const address = {
       dataset_id: datasetId, repertoire_id: gap.repertoire_id, position: gap.position,
       actual_move: gap.actual_move, document_revision: gap.document_revision,
       ...(Object.hasOwn(gap, "gap_kind") ? { gap_kind: gap.gap_kind } : {}),
     };
     const details = await gapDraft(address, AbortSignal.any([signal, AbortSignal.timeout(gapDraftTimeoutMs)]));
-    if (!signal.aborted) setActiveGap({ address, details, passed, offset, forecastBook });
+    if (!signal.aborted) setActiveGap({ address, details, offset, forecastBook, forecast: gap.forecast });
   }
 
-  async function openGap(gap, index) {
+  async function openGap(gap) {
     const signal = lifecycle.current.signal;
     setGapActionError("");
     setGapNotice("");
     setWorkingGap(true);
     try {
-      await loadGap(gap, gapPage.gaps.slice(0, index + 1).map(gapKey), gapOffset, signal);
+      await loadGap(gap, gapOffset, signal);
     } catch (error) {
       if (!signal.aborted) {
         setGapActionError(error.message);
@@ -646,35 +646,19 @@ export function GamesPage({ onStudy, onRepertoires }) {
     }
   }
 
-  async function advanceGap(san) {
+  async function advanceGap(label) {
     const signal = lifecycle.current.signal;
-    const { address, passed, offset, forecastBook: scope } = activeGap;
-    async function freshPage(pageOffset) {
-      const page = await readGaps(signal, pageOffset, scope);
-      if (page.dataset_id !== address.dataset_id) throw new Error("The active dataset changed.");
-      if (page.gaps.some(gap => gapKey(gap) === gapKey(address)))
-        throw new Error("Tempo could not confirm the refreshed gap list. Try loading it again.");
-      return page;
-    }
-    let nextOffset = offset;
-    let page = await freshPage(nextOffset);
-    // Stable gap identity keeps earlier rows from becoming the next task when ranks shift.
-    let index = page.gaps.findIndex(gap => !passed.includes(gapKey(gap)));
-    if (index < 0 && page.more) {
-      nextOffset += 100;
-      page = await freshPage(nextOffset);
-      index = page.gaps.findIndex(gap => !passed.includes(gapKey(gap)));
-    }
+    const { address, forecastBook: scope } = activeGap;
+    const page = await readGaps(signal, 0, scope);
+    if (page.dataset_id !== address.dataset_id) throw new Error("The active dataset changed.");
     if (signal.aborted) return;
-    if (!page.gaps.length && nextOffset > 0) nextOffset -= 100;
+    const next = page.gaps.find(gap => gapKey(gap) !== gapKey(address));
     refreshEvidenceReads();
-    if (page.gaps.length || nextOffset === 0) updateEvidence("gaps", { value: page, error: "" }, nextOffset);
-    setGapOffset(nextOffset);
-    if (index >= 0) await loadGap(page.gaps[index], page.gaps.slice(0, index + 1).map(gapKey), nextOffset, signal, address.dataset_id);
-    else {
-      setActiveGap(null);
-      setGapNotice(`Saved ${san}.`);
-    }
+    updateEvidence("gaps", { value: page, error: "" }, 0);
+    setGapOffset(0);
+    if (next) await loadGap(next, 0, signal, address.dataset_id);
+    else setActiveGap(null);
+    if (!signal.aborted) setGapNotice(`Saved ${label}.`);
   }
 
   useEffect(() => {
@@ -1002,7 +986,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
             {" · "}{projection.unavailable} unavailable · {projection.pending} pending</p>
         )}
         {modelActionError && <StatusNotice kind="error">{modelActionError}</StatusNotice>}
-        {gapNotice && <StatusNotice>{gapNotice}</StatusNotice>}
+        {gapNotice && !activeGap && <StatusNotice>{gapNotice}</StatusNotice>}
         {gapActionError && <StatusNotice kind="error">{gapActionError}</StatusNotice>}
         {evidenceErrors.map(([label, message]) => (
           <StatusNotice key={label} kind="error">{label} · {message}</StatusNotice>
@@ -1015,14 +999,14 @@ export function GamesPage({ onStudy, onRepertoires }) {
         {!gapPage && !gapRead?.error && <p role="status">Loading opponent gaps…</p>}
         {gapPage?.gaps.length === 0 && <p>{forecastBook ? "No open suggestions from this scan." : "No confirmed opponent gaps in the current documents."}</p>}
         {gapPage?.gaps.length > 0 && (
-          <ul className="game-results">{gapPage.gaps.map((gap, index) => (
+          <ul className="game-results">{gapPage.gaps.map(gap => (
             <li key={gapKey(gap)}>
               <strong>{repertoires?.find(book => book.id === gap.repertoire_id)?.name ?? gap.repertoire_id}</strong>
               <p>{gap.actual_san ?? "Opponent move"}
                 {gap.games > 0 && ` · ${gap.games} ${gap.games === 1 ? "game" : "games"}`}
                 {gap.forecast && ` · ${coveragePercent(gap.forecast.probability)} estimated first-gap chance${gap.forecast.stale ? " (earlier scan)" : ""}`}
               </p>
-              <Button disabled={workingGap || !dataset} onClick={() => void openGap(gap, index)}>Fix response</Button>
+              <Button disabled={workingGap || !dataset} onClick={() => void openGap(gap)}>Fix response</Button>
             </li>
           ))}</ul>
         )}
@@ -1031,7 +1015,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     </main>)}
       {activeGap && (
         <GapEditor key={gapKey(activeGap.address)} gap={activeGap} suspended={!!analysis} onAnalyze={setAnalysis}
-          recovery={activeGap === recovery?.gap ? recovery : null} onAdvance={advanceGap}
+          recovery={activeGap === recovery?.gap ? recovery : null} onAdvance={advanceGap} previousSave={gapNotice}
           onClose={san => {
             setActiveGap(null);
             if (san) setGapNotice(`Saved ${san}.`);

@@ -9,3 +9,15 @@
 .game-row .game-opening-moves {font-family:ui-monospace,monospace;margin:.15rem 0;overflow-wrap:anywhere}
 @media(max-width:800px){.library-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:440px){.library-controls{grid-template-columns:minmax(0,1fr)}}
+
+.gap-line-moves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  list-style: none;
+  padding: 0;
+}
+
+.gap-line-moves button[aria-pressed="true"] {
+  text-decoration: underline;
+}
