@@ -448,6 +448,24 @@ test("a hung Maia read leaves other resources live and times out at five seconds
   assert.equal(page.button(retryLabel), undefined);
 });
 
+test("Games rejects an explicit unknown gap kind and accepts a legacy row without one", async t => {
+  let legacy = false;
+  const page = await openGames(t, {
+    "GET /api/games/gaps": () => {
+      const reply = gapPage("a7a6");
+      if (!legacy) reply.gaps[0].gap_kind = "future_kind";
+      return response(reply);
+    },
+  });
+  assert.match(page.text(), /Unsupported opponent gap kind/);
+  assert.equal(page.button("Fix response"), undefined);
+  assert.equal(page.count("POST /api/games/gap-draft"), 0);
+  legacy = true;
+  await page.click(retryLabel);
+  assert.ok(page.button("Fix response"));
+  assert.doesNotMatch(page.text(), /Unsupported opponent gap kind/);
+});
+
 test("initial gaps failure stays unknown and manual read retry preserves pending command bytes", async t => {
   let failGaps = true;
   let failModel = true;

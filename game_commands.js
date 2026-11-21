@@ -262,8 +262,17 @@ export async function startModel(payload, signal) {
     throw new Error("The Maia acknowledgement belongs to a different dataset.");
   return reply;
 }
-export const readGaps = (signal, offset = 0, forecastRepertoire = null) =>
-  read("/gaps", signal, offset || forecastRepertoire ? { offset, ...(forecastRepertoire ? { forecast_repertoire: forecastRepertoire } : {}) } : undefined);
+export async function readGaps(signal, offset = 0, forecastRepertoire = null) {
+  const reply = await read("/gaps", signal, offset || forecastRepertoire
+    ? { offset, ...(forecastRepertoire ? { forecast_repertoire: forecastRepertoire } : {}) }
+    : undefined);
+  if (!Array.isArray(reply.gaps) || reply.gaps.some(gap => !gap || typeof gap !== "object"))
+    throw new Error("Invalid opponent gaps response.");
+  // Older replies omitted the kind and can still use the historical editor.
+  if (reply.gaps.some(gap => Object.hasOwn(gap, "gap_kind") && !["observed", "forecast"].includes(gap.gap_kind)))
+    throw new Error("Unsupported opponent gap kind.");
+  return reply;
+}
 
 function coverageReply(reply, address) {
   if (reply.dataset_id !== address.dataset_id || reply.repertoire_id !== address.repertoire_id)

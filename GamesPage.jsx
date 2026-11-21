@@ -529,7 +529,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
         },
         apply(value) {
           if (value.dataset_id !== dataset) throw new Error("Opponent gaps belong to a different dataset.");
-          if (!Array.isArray(value.gaps)) throw new Error("Invalid opponent gaps response.");
           updateEvidence("gaps", { value, error: "" }, gapOffset);
         },
       },
@@ -624,7 +623,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     const address = {
       dataset_id: datasetId, repertoire_id: gap.repertoire_id, position: gap.position,
       actual_move: gap.actual_move, document_revision: gap.document_revision,
-      ...(gap.gap_kind === "forecast" ? { gap_kind: "forecast" } : {}),
+      ...(Object.hasOwn(gap, "gap_kind") ? { gap_kind: gap.gap_kind } : {}),
     };
     const details = await gapDraft(address, AbortSignal.any([signal, AbortSignal.timeout(gapDraftTimeoutMs)]));
     if (!signal.aborted) setActiveGap({ address, details, passed, offset, forecastBook });
