@@ -418,13 +418,13 @@ try {
   assert.deepEqual(due.rows, []);
   const capture = {
     ...removedDataset,
-    pgn: '[Event "Repeat excluded capture"]\n[TempoSetupPlies "0"]\n\n1. e4 e5 2. Nf3 Nc6 *',
+    pgn: `[Event "Repeat excluded capture"]\n[SetUp "1"]\n[FEN "${solver_fen}"]\n[TempoSetupPlies "0"]\n\n1. e4 e5 2. Nf3 Nc6 *`,
   };
   const capturePreview = await post("/api/tactics", { command: "preview", ...capture });
   const savedAgain = await post("/api/tactics", {
     command: "save", ...capture, token: capturePreview.token, selected: [0],
   });
-  assert.equal(savedAgain.status, "tactics_saved");
+  assert.equal(savedAgain.status, "tactics_saved", JSON.stringify(savedAgain));
   assert.equal(savedAgain.ready_for_review, 0);
   assert.equal((await post("/api/study", { command: "next" })).can_practice_tactics, false);
   await stop();
