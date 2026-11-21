@@ -6,6 +6,7 @@ import { sendRepertoireCommand } from "./repertoire_commands.js";
 import { sendTacticCommand, tacticRecovery } from "./tactic_commands.js";
 import { LichessControl } from "./LichessControl.jsx";
 import { TacticBuilder } from "./TacticBuilder.jsx";
+import { usePageExitGuard } from "./page_exit_guard.js";
 
 function PreviewBoard({ fen, orientation, record }) {
   const side = turnFromFen(fen);
@@ -143,6 +144,7 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
   const fileRead = useRef(0);
   const inFlight = useRef(false);
   const locked = busy || recovering || !!pending;
+  usePageExitGuard(locked);
   const validRows = preview?.rows.filter(row => row.status === "valid" && !dirtyRows.includes(row.record)) ?? [];
 
   async function loadDataset() {

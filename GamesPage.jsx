@@ -282,6 +282,7 @@ function GamesPanel({ id, tab, children }) {
 
 export function GamesPage({ onStudy, onRepertoires }) {
   const [review, setReview] = useState(reviewAddress);
+  const [analysis, setAnalysis] = useState(null);
   const [recovery] = useState(readGapContinuation);
   const [tab, setTab] = useState(() => recovery ? "coverage" : historyTab());
   const [analysisVisited, setAnalysisVisited] = useState(tab === "analysis");
@@ -303,11 +304,19 @@ export function GamesPage({ onStudy, onRepertoires }) {
       window.history.replaceState({ gamesTab: "coverage" }, "", "#games");
       setReview(null);
     }
+  }, [recovery]);
+
+  useEffect(() => {
     function sync() {
       const selected = historyTab();
       if (requestedGamesTab()) {
         window.history.replaceState({ gamesTab: selected }, "", "#games");
         window.scrollTo?.(0, 0);
+        if (analysis) {
+          setAnalysis(null);
+          setActiveGap(null);
+          refreshEvidenceReads();
+        }
       }
       const next = reviewAddress();
       if (next || selected !== "coverage") cancelGapOpening();
@@ -315,11 +324,11 @@ export function GamesPage({ onStudy, onRepertoires }) {
       setTab(selected);
       if (selected === "analysis") setAnalysisVisited(true);
     }
-    if (!recovery && requestedGamesTab()) sync();
+    if (requestedGamesTab()) sync();
     window.addEventListener("popstate", sync);
     window.addEventListener("hashchange", sync);
     return () => { window.removeEventListener("popstate", sync); window.removeEventListener("hashchange", sync); };
-  }, [recovery]);
+  }, [analysis]);
 
   function cancelGapOpening() {
     if (gapOpening.current) {
@@ -382,7 +391,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [modelActionError, setModelActionError] = useState("");
   const [modelActionDataset, setModelActionDataset] = useState(null);
   const [gapActionError, setGapActionError] = useState("");
-  const [analysis,setAnalysis] = useState(null);
   const [workingGap, setWorkingGap] = useState(false);
   const [forecastBook, setForecastBook] = useState(() => recovery?.gap.forecastBook ?? null);
   const [gapOffset, setGapOffset] = useState(() => recovery?.gap.offset ?? 0);

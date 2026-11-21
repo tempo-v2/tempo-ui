@@ -13,6 +13,7 @@ import { ReviewMoveTable } from "./ReviewMoveTable.jsx";
 import { loadBoardPreferences } from "./BoardPreferences.jsx";
 import { createBoardSounds, learnerCue } from "./board_sounds.js";
 import { promotionRoles } from "./promotion_roles.js";
+import { usePageExitGuard } from "./page_exit_guard.js";
 import { draftSaveBinding, settleReviewDraftSave, useReviewDraft } from "./review_draft.js";
 import { rememberVisit, reviewAddress, reviewUrl } from "./review_route.js";
 
@@ -72,6 +73,7 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
   const [recoveryWarning, setRecoveryWarning] = useState("");
   const [savedSelection,setSavedSelection] = useState(null);
   const [locked, setLocked] = useState(false);
+  usePageExitGuard(locked);
   const selectedBook = books.find(item => item.id === address.repertoire_id);
   const suspended = selectedBook?.activity === "suspended";
   const book = suspended ? undefined : selectedBook;
@@ -258,7 +260,7 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
   function stepBack() { inBranch ? navigate(ply, branch.slice(0, -1)) : navigate(Math.max(0, ply - 1)); }
   useEffect(() => {
     function keydown(e) {
-      if (locked || choice || e.altKey || e.ctrlKey || e.metaKey || e.target.closest?.("input,select,textarea,button")) return;
+      if (locked || choice || e.altKey || e.ctrlKey || e.metaKey || e.target.closest?.("input,select,textarea,button,nav")) return;
       if (e.key === "ArrowLeft") { e.preventDefault(); stepBack(); }
       if (e.key === "ArrowRight" && !inBranch && ply < sheet.length) { e.preventDefault(); navigate(ply + 1); }
     }

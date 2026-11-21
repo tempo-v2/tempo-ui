@@ -173,7 +173,7 @@ try {
   const studyStatus = await post("study", { command: "study_status" });
   await page.route("**/api/study", route => route.fulfill({ json: studyStatus }));
   await page.goto(origin);
-  await button("Games").click();
+  await page.getByRole("link", { name: "Games", exact: true }).click();
   const before = durable();
   async function open() {
     await page.getByRole("tab", { name: "Coverage" }).click();
@@ -246,6 +246,16 @@ try {
   await dragEnd(["d", 5]);
   await page.getByText("Selected exd5", { exact: true }).waitFor();
   await button("Close").click();
+
+  await open();
+  await button("Analyze lines").click();
+  await heading("Analysis board").waitFor();
+  const navigation = page.getByRole("navigation", { name: "Tempo sections" });
+  await navigation.getByRole("link", { name: "Games", exact: true }).hover();
+  await navigation.getByRole("link", { name: "Import", exact: true }).click();
+  await page.getByRole("tab", { name: "Import", selected: true }).waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
 
   await page.setViewportSize({ width: 390, height: 800 });
   await open();

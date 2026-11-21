@@ -1,6 +1,7 @@
 import React from "react";
 import { App } from "./App.jsx";
 import { DesktopBoardLayout } from "./MainBoard.jsx";
+import { DesktopNavigation } from "./DesktopNavigation.jsx";
 import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
 import { GamesPage } from "./GamesPage.jsx";
 import { SavedReviewsPage } from "./SavedReviewsPage.jsx";
@@ -19,10 +20,18 @@ function initialPage() {
   return /^#games(?:\?|$)/.test(window.location.hash) ? "games" : "study";
 }
 
-function navigateSection(page) {
-  if (page === "games") window.history.pushState(null, "", "#games");
-  else if (location.hash.startsWith("#games"))
+function navigateSection(page, previous, href = "#games") {
+  if (page === "games") {
+    // A mounted Games page already handles fragment changes, including game-review return.
+    if (previous === "games") {
+      window.location.hash = href;
+      return;
+    }
+    window.history.pushState(null, "", href);
+  } else if (location.hash.startsWith("#games")) {
     window.history.pushState(null, "", location.pathname + location.search);
+  }
+  document.documentElement.scrollTop = 0;
 }
 
 function subscribeNavigation(page, changePage) {
@@ -45,7 +54,8 @@ function subscribeNavigation(page, changePage) {
 
 function renderSection(page, goTo, datasetId, onTacticExcluded) {
   const onStudy = () => goTo("study");
-  if (page === "saved-reviews") return <SavedReviewsPage datasetId={datasetId} onStudy={onStudy} onTacticExcluded={onTacticExcluded} />;
+  if (page === "saved-reviews") return <SavedReviewsPage datasetId={datasetId} onStudy={onStudy}
+    onTacticExcluded={onTacticExcluded} />;
   if (page === "games") return <GamesPage onStudy={onStudy}
     onRepertoires={() => goTo("repertoires")} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={onStudy} />;
@@ -60,9 +70,15 @@ function renderAnalysis(visit, issue, onClose, launch) {
   return <StudyAnalysisEntry visit={visit} issue={issue} onClose={onClose} launch={launch} />;
 }
 
+function renderNavigation(page, onNavigate, navigationLocked) {
+  return <DesktopNavigation page={page} onNavigate={onNavigate} navigationLocked={navigationLocked} />;
+}
+
 export function DesktopApp() {
-  return <DesktopBoardLayout>
-    <App studyPresenceSurface="desktop" initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
-      navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} />
-  </DesktopBoardLayout>;
+  return <div className="tempo-desktop">
+    <DesktopBoardLayout>
+      <App studyPresenceSurface="desktop" initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
+        navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} renderNavigation={renderNavigation} />
+    </DesktopBoardLayout>
+  </div>;
 }
