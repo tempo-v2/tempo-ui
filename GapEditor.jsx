@@ -11,6 +11,9 @@ import { LichessControl } from "./LichessControl.jsx";
 import { boardWithLeadIn, lineFromBoard } from "./lichess_analysis.js";
 import { hasPendingRepertoireCommand, savePendingRepertoireCommand, sendRepertoireCommand } from "./repertoire_commands.js";
 
+// The signed append rewrites the retained catalog. Give acceptance time to
+// settle before asking the user to replay the exact pending command.
+const gapSaveTimeoutMs = 30_000;
 const percent = value => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
 const shape = (uci, brush) => ({ orig: uci.slice(0, 2), dest: uci.slice(2, 4), brush });
 
@@ -197,7 +200,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
         saveToken.current = command.token;
         setPending(command);
       }
-      const reply = await sendRepertoireCommand(command, AbortSignal.timeout(10_000));
+      const reply = await sendRepertoireCommand(command, AbortSignal.timeout(gapSaveTimeoutMs));
       if (reply.status === "error" && reply.retryable) throw repertoireError(reply);
       await finish(reply, true);
     } catch (error) {
