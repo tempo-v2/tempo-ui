@@ -255,7 +255,13 @@ try {
   await navigation.getByRole("link", { name: "Import", exact: true }).click();
   await page.getByRole("tab", { name: "Import", selected: true }).waitFor();
   assert.equal(await page.getByRole("dialog").count(), 0);
-  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
+
+  await open();
+  await button("Analyze lines").click();
+  await heading("Analysis board").waitFor();
+  await page.goBack();
+  await page.getByRole("tab", { name: "Coverage", selected: true }).waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0);
 
   await page.setViewportSize({ width: 390, height: 800 });
   await open();

@@ -313,11 +313,11 @@ export function GamesPage({ onStudy, onRepertoires }) {
       if (requestedGamesTab()) {
         replaceDesktopEntry({ gamesTab: selected }, "#games");
         window.scrollTo?.(0, 0);
-        if (analysis) {
-          setAnalysis(null);
-          setActiveGap(null);
-          refreshEvidenceReads();
-        }
+      }
+      if (analysis) {
+        setAnalysis(null);
+        setActiveGap(null);
+        refreshEvidenceReads();
       }
       const next = reviewAddress();
       if (next || selected !== "coverage") cancelGapOpening();
