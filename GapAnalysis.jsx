@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { Board, Button } from "@tempo-v2/core-components";
 import { LichessControl } from "./LichessControl.jsx";
-import { readGapAnalysis, readGapExplorer, startGapAnalysis, startGapExplorer } from "./game_commands.js";
+import { readGapAnalysis, readGapExplorer, readPhoneGapAnalysis, startGapAnalysis, startGapExplorer } from "./game_commands.js";
 
 import { checkedGapAnalysis, checkedGapExplorer } from "./source_evidence.js";
 
 const localAnalysis = { start: startGapAnalysis, read: readGapAnalysis, busy: "analysis_busy", check: checkedGapAnalysis };
+const phoneAnalysis = { ...localAnalysis, read: readPhoneGapAnalysis };
 const explorer = { start: startGapExplorer, read: readGapExplorer, busy: "explorer_busy", check: checkedGapExplorer };
 
 function useGapRead(gap, service, ratings) {
@@ -39,7 +40,7 @@ function useGapRead(gap, service, ratings) {
 
     async function poll() {
       try {
-        const result = await service.read(signal);
+        const result = await service.read(signal, { request_id: requestId });
         if (owner.signal.aborted) return;
         checkAddress(result);
         publish(service.check(result, legal));
@@ -128,8 +129,8 @@ function SimilarResponses({ state, color, moveButton }) {
   });
 }
 
-export function GapAnalysis({ gap, color, moveButton, onRecommendation }) {
-  const [state, retry] = useGapRead(gap, localAnalysis);
+export function GapAnalysis({ gap, color, moveButton, onRecommendation, phoneBuild }) {
+  const [state, retry] = useGapRead(gap, phoneBuild ? phoneAnalysis : localAnalysis);
   useEffect(() => {
     if (state.status === "complete" && state.recommendation) onRecommendation(state.recommendation);
   }, [state, onRecommendation]);

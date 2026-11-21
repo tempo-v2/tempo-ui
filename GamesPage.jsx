@@ -18,7 +18,7 @@ import { GapEditor } from "./GapEditor.jsx";
 import { GameDetectionPanel } from "./GameDetectionPanel.jsx";
 import { commandTacticalAnalysis } from "./tactical_history.js";
 import { TacticalHistory } from "./TacticalHistory.jsx";
-import { readGapContinuation } from "./gap_save.js";
+import { gapAddress, gapKey, readGapContinuation } from "./gap_save.js";
 import { commandRecovery } from "./content_transport.js";
 import { DiagnosticsButton } from "./DiagnosticsButton.jsx";
 
@@ -264,10 +264,6 @@ function matchesRefresh(job, command) {
 
 function evidenceFor(resource, dataset, offset) {
   return resource?.dataset === dataset && resource.offset === offset ? resource : undefined;
-}
-
-function gapKey(gap) {
-  return JSON.stringify([gap.repertoire_id, gap.position, gap.actual_move]);
 }
 
 function historyTab() {
@@ -708,11 +704,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   }
 
   async function loadGap(gap, offset, signal, datasetId = dataset) {
-    const address = {
-      dataset_id: datasetId, repertoire_id: gap.repertoire_id, position: gap.position,
-      actual_move: gap.actual_move, document_revision: gap.document_revision,
-      ...(Object.hasOwn(gap, "gap_kind") ? { gap_kind: gap.gap_kind } : {}),
-    };
+    const address = gapAddress(datasetId, gap);
     const details = await gapDraft(address, AbortSignal.any([signal, AbortSignal.timeout(gapDraftTimeoutMs)]));
     if (!signal.aborted) setActiveGap({ address, details, offset, forecastBook, forecast: gap.forecast });
   }

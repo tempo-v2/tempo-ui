@@ -12,11 +12,10 @@ const bundle = await build({
       import React, { act } from "react";
       import { createRoot } from "react-dom/client";
       import { DesktopApp } from "./DesktopApp.jsx";
-      import { App } from "./App.jsx";
-      import { phoneStudyTransport } from "./phone_study_transport.js";
+      import { PhoneApp } from "./PhoneApp.jsx";
       const root = createRoot(document.getElementById("root"));
       globalThis.mountShell = phone => act(() => root.render(phone
-        ? <App transport={phoneStudyTransport} boardContinuation /> : <DesktopApp />));
+        ? <PhoneApp /> : <DesktopApp />));
       globalThis.unmountShell = () => act(() => root.unmount());
       globalThis.runShell = callback => act(callback);
     `,
@@ -56,6 +55,7 @@ async function shell(t, phone, { hash = "#games", responses: overrides = {} } = 
     "/api/study": { schema_version: 5, status: "empty", dataset_id: dataset, done: true,
       outstanding: 0, repertoire_remaining: 0, tactics_remaining: 0 },
     "/api/study-progress": { status: "error", message: "No progress fixture" },
+    "/api/study/presence": { status: "accepted" },
     "/api/study/relevance": { reason: "Practice fixture" },
     ...overrides,
   };
@@ -189,15 +189,22 @@ test("phone keeps an active exercise free of desktop analysis and Lichess contro
   assert.equal(window.document.querySelector("h1").textContent, "Practice");
   assert.equal(window.document.querySelector('button[aria-label="Analyze in Lichess"]'), null);
   assert.equal([...window.document.querySelectorAll("button")].some(button => button.textContent === "Analyze"), false);
-  assert(calls.every(call => ["/api/study", "/api/study-progress", "/api/study/relevance"].includes(call.path)));
+  assert(calls.every(call => ["/api/study", "/api/study-progress", "/api/study/presence", "/api/study/relevance"].includes(call.path)));
 });
 
-test("phone ignores desktop game links and exposes only Study navigation", async t => {
+test("phone ignores desktop game links and loads Build without issuing a Study command", async t => {
   const { window, calls } = await shell(t, true);
   assert.equal(window.document.querySelector("h1").textContent, "Study");
   assert.equal(window.document.querySelector('nav[aria-label="Tempo sections"]'), null);
-  assert(calls.every(call => call.path === "/api/study" || call.path === "/api/study-progress"));
+  assert(calls.every(call => ["/api/study", "/api/study-progress", "/api/study/presence"].includes(call.path)));
   await window.runShell(() => window.dispatchEvent(new window.PopStateEvent("popstate")));
   assert.equal(window.document.querySelector("h1").textContent, "Study");
+  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
+  const nav = window.document.querySelector('nav[aria-label="Tempo phone sections"]');
+  const build = [...nav.querySelectorAll("button")].find(button => button.textContent === "Build");
+  await window.runShell(() => build.click());
+  assert.equal(window.document.querySelector("h1").textContent, "Build repertoire");
+  assert.equal(window.location.hash, "#build");
+  assert.deepEqual(calls.filter(call => call.path === "/api/repertoires").map(call => call.command.command), ["list"]);
   assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
 });

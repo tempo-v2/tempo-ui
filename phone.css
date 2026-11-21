@@ -1,0 +1,126 @@
+.phone-nav {
+  display: flex;
+  gap: .25rem;
+  padding-inline: max(.75rem, env(safe-area-inset-left)) max(.75rem, env(safe-area-inset-right));
+  border-bottom: 1px solid #d9d8d0;
+  background: var(--ui-surface, #f8f7f3);
+}
+
+.phone-nav button {
+  min-height: var(--ui-control-height-touch, 44px);
+  padding: 0 1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+.phone-nav button[aria-current] {
+  border-bottom-color: currentColor;
+  font-weight: 700;
+}
+
+.phone-nav button:disabled {
+  opacity: .55;
+}
+
+.phone-build {
+  display: grid;
+  gap: .75rem;
+  max-width: 40rem;
+  margin: auto;
+  padding: .75rem;
+}
+
+.phone-build h2 {
+  margin: 0 0 .65rem;
+  font-size: 1.15rem;
+}
+
+.phone-build .repertoire-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .65rem;
+}
+
+.phone-build .repertoire-fields label:first-child {
+  grid-column: 1 / -1;
+}
+
+.phone-build .repertoire-fields input,
+.phone-build .repertoire-fields select {
+  box-sizing: border-box;
+  min-height: var(--ui-control-height-touch, 44px);
+  width: 100%;
+  font-size: 1rem;
+}
+
+.phone-build .ui-button,
+.gap-editor-phone .ui-button,
+.gap-editor-phone .ui-icon-button,
+.gap-editor-phone .gap-line-moves button {
+  min-height: var(--ui-control-height-touch, 44px);
+}
+
+.phone-build-gaps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.phone-build-gaps li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .5rem;
+  padding-block: .6rem;
+  border-top: 1px solid #d9d8d0;
+}
+
+.phone-build-gaps li div {
+  display: grid;
+  gap: .2rem;
+}
+
+.phone-build-gaps li span {
+  font-size: .875rem;
+}
+
+.ui-dialog:has(.gap-editor-phone) {
+  width: min(100% - .75rem, 34rem);
+  max-height: calc(100dvh - .75rem);
+  padding: .75rem;
+}
+
+.gap-editor-phone .gap-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.gap-editor-phone .gap-line-moves {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: .25rem;
+}
+
+.gap-editor-phone .gap-line-moves li {
+  flex: 0 0 auto;
+}
+
+.gap-phone-evidence summary {
+  min-height: var(--ui-control-height-touch, 44px);
+  align-content: center;
+}
+
+.gap-editor-phone .gap-editor-actions {
+  position: sticky;
+  bottom: -.75rem;
+  gap: .35rem;
+  padding-block: .4rem max(.4rem, env(safe-area-inset-bottom));
+}
+
+.gap-editor-phone .gap-selection {
+  width: 100%;
+}

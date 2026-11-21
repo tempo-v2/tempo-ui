@@ -104,7 +104,7 @@ try {
   const phonePost = (path, command) => phoneFetch(path, {
     method: "POST", headers: { ...jsonHeaders, Origin: phoneOrigin }, body: JSON.stringify(command),
   });
-  for (const path of ["/api/games/import", "/api/games/refresh", "/api/repertoires", "/api/tactics", "/api/study/analysis-context", "/api/study/saved-reviews"]) {
+  for (const path of ["/api/games/import", "/api/games/refresh", "/api/games/model", "/api/tactics", "/api/study/analysis-context", "/api/study/saved-reviews"]) {
     assert.equal((await phonePost(path, {})).status, 404, path);
   }
   assert.equal((await phoneFetch("/api/games")).status, 404);

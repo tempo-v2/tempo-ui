@@ -27,12 +27,22 @@ const storage = {
   save: (e) =>
     sessionStorage.setItem("tempo-study-recovery-v4", JSON.stringify(e)),
 };
+
+export function hasPendingStudyCommand() {
+  try {
+    return !!storage.load()?.pending;
+  } catch {
+    // Open Study so its controller can report the recovery problem.
+    return true;
+  }
+}
+
 export function App(props) {
   return <Notifications><StudyApp {...props} /></Notifications>;
 }
 
 function StudyApp({ initialPage = "study", renderSection, renderAnalysis, renderNavigation, studyPresenceSurface,
-  transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation }) {
+  transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation, showOriginalGameLink = false }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
     [choice, setChoice] = useState(null),
     [page, setPage] = useState(initialPage),
@@ -458,7 +468,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
         reviewMark={reviewMark}
         onOpenCardDetails={() => { pausedAdvance.current = view; }}
         reviewAddresses={reviewAddresses}
-        showOriginalGameLink={!!renderSection}
+        showOriginalGameLink={showOriginalGameLink}
         boardRef={board}
         choice={choice}
         onMove={onMove}

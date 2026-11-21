@@ -12,6 +12,7 @@ import { PromotionChooser } from "./PromotionChooser.jsx";
 import { LichessControl } from "./LichessControl.jsx";
 import { boardWithLeadIn, lineFromBoard } from "./lichess_analysis.js";
 import { hasPendingRepertoireCommand, savePendingRepertoireCommand, sendRepertoireCommand } from "./repertoire_commands.js";
+import { usePageExitGuard } from "./page_exit_guard.js";
 
 // The signed append rewrites the retained catalog. Give acceptance time to
 // settle before asking the user to replay the exact pending command.
@@ -19,7 +20,7 @@ const gapSaveTimeoutMs = 30_000;
 const percent = value => value == null ? "Unknown" : `${(value * 100).toFixed(1)}%`;
 const shape = (uci, brush) => ({ orig: uci.slice(0, 2), dest: uci.slice(2, 4), brush });
 
-export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyze, suspended, previousSave }) {
+export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyze, suspended, previousSave, phoneBuild }) {
   const { draft, learner_color: color, actual_san, response_move_labels: labels } = gap.details;
   const [selected, setSelected] = useState(recovery?.response ?? "");
   const [line, retryLine] = useGapLine(gap, recovery ? "" : selected);
@@ -68,6 +69,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   const compare = preview && preview !== selected;
   const fen = viewedFen ?? (!compare && stagedBoard ? stagedBoard.fen() : draft.fen);
   const exportLine = useMemo(() => {
+    if (phoneBuild) return null;
     if (viewedFen) {
       const previewBoard = boardWithLeadIn(line.anchor_fen, line.anchor_route);
       for (const step of line.steps.slice(0, viewing + 1)) playBoardMove(previewBoard, step.uci);
@@ -76,7 +78,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     const anchored = boardWithLeadIn(draft.fen, gap.details.anchor_route);
     if (!compare && stagedBoard) playBoardMove(anchored, selected);
     return lineFromBoard(anchored);
-  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, compare, viewedFen, line, viewing]);
+  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, compare, viewedFen, line, viewing, phoneBuild]);
   const turn = fen.split(" ")[1] === "w" ? "white" : "black";
   const check = useMemo(() => new Chess(fen).isCheck() ? turn : false, [fen, turn]);
   const shapes = [
@@ -84,6 +86,8 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     ...(compare && !viewedFen ? [shape(preview, "blue")] : []),
   ];
   const locked = busy || !!pending || !!loadPending || !!settled || stale;
+  const staleLine = !locked && line?.status === "error" && staleGapCodes.has(line.code);
+  usePageExitGuard(!!phoneBuild && (busy || !!pending || !!loadPending));
   const moveNumber = Number(draft.fen.split(" ")[5]) - (color === "white" ? 1 : 0);
   const opponentLabel = `${moveNumber}${color === "white" ? "…" : "."}${actual_san}`;
 
@@ -221,20 +225,24 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
 
 
   if (suspended) return null;
+  const linePanel = line && <GapLine line={line} depth={gap.forecast.through_move} locked={locked}
+    viewing={viewing} onView={index => setView({ line, index })} onRetry={retryLine} />;
+  const localAnalysis = <GapAnalysis gap={gap} color={color} moveButton={moveButton}
+    onRecommendation={offerRecommendation} phoneBuild={phoneBuild} />;
   const closeButton = (
     <IconButton label="Close" shortcut={closeDialogShortcut}
       disabled={busy || !!pending || !!loadPending} onClick={close}><CloseIcon /></IconButton>
   );
   return (
     <Dialog open title={`Respond to ${opponentLabel}`} onClose={close}>
-      <div className="gap-editor">
+      <div className={phoneBuild ? "gap-editor gap-editor-phone" : "gap-editor"}>
         {previousSave && !settled && <StatusNotice>{previousSave}</StatusNotice>}
         <p className="gap-repertoire">{gap.details.repertoire_name}</p>
         {settled && settled.status !== "error" && (
           <p role="status">Saved {savedLabel.current ?? selectedLabel}.</p>
         )}
-        {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
-        {stale ? (
+        {(issue || staleLine) && <StatusNotice kind="error">{issue || line.message}</StatusNotice>}
+        {stale || staleLine ? (
           <div className="actions">
             <Button onClick={onStale}>Refresh gaps</Button>
             <IconButton label="Close" shortcut={closeDialogShortcut} onClick={close}><CloseIcon /></IconButton>
@@ -262,10 +270,9 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
                     : [gap.address.actual_move.slice(0, 2), gap.address.actual_move.slice(2, 4)]}
                   coordinates="edges" onMove={onMove} shapes={shapes} ariaLabel="Repertoire response board" />
               </div>
-              <div className="gap-statistics">
+              {!phoneBuild && <div className="gap-statistics">
                 <h3>Your response</h3>
-                <GapAnalysis gap={gap} color={color} moveButton={moveButton}
-                  onRecommendation={offerRecommendation} />
+                {localAnalysis}
                 <GapExplorer gap={gap} color={color} moveButton={moveButton} />
                 <details>
                   <summary>Before the opponent’s move</summary>
@@ -275,21 +282,24 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
                     <li key={move}>{gap.details.opponent_move_labels[move] ?? "Move unavailable"} · {percent(probability)}</li>
                   ))}</ul>}
                 </details>
-              </div>
+              </div>}
             </div>
-            {line && <GapLine line={line} depth={gap.forecast.through_move} locked={locked}
-              viewing={viewing} onView={index => setView({ line, index })} onRetry={retryLine} />}
+            {linePanel}
+            {phoneBuild && <details className="gap-phone-evidence">
+              <summary>Reply evidence</summary>
+              {localAnalysis}
+            </details>}
             <div className="actions gap-editor-actions">
               <div className="gap-selection" role="status">
                 <span>{selected ? `${suggestion ? "Suggested" : "Selected"} ${selectedLabel}` : "Play a move on the board."}</span>
                 {recommendationReason && <small>{recommendationReason}</small>}
               </div>
-              <Button disabled={locked} onClick={() => onAnalyze({
+              {onAnalyze && <Button disabled={locked} onClick={() => onAnalyze({
                 datasetId: gap.address.dataset_id, repertoireId: gap.address.repertoire_id,
                 fen: draft.fen, color, name: gap.details.repertoire_name, anchorRoute: gap.details.anchor_route,
                 repertoireScope: "game",
-              })}>Analyze lines</Button>
-              <LichessControl fen={fen} line={exportLine} orientation={color} />
+              })}>Analyze lines</Button>}
+              {!phoneBuild && <LichessControl fen={fen} line={exportLine} orientation={color} />}
               {selected && <Button disabled={locked} onClick={() => select("")}>Clear response</Button>}
               {line?.save_command && !pending && !loadPending && (
                 <Button variant="primary" disabled={locked} onClick={() => void save(true)}>Save line</Button>
