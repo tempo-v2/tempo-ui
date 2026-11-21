@@ -171,6 +171,16 @@ try {
   sql.exec("PRAGMA busy_timeout=2000");
   const rows = table => sql.prepare(`SELECT count(*) AS total FROM ${table}`).get().total;
   const button = name => page.getByRole("button", { name, exact: true });
+  async function checkToolRow(name, labels) {
+    const group = page.getByRole("group", { name, exact: true });
+    const bounds = await Promise.all(labels.map(label =>
+      group.getByRole("button", { name: label, exact: true }).boundingBox()));
+    for (const [index, box] of bounds.entries()) {
+      assert(box && box.width >= 44 && box.height >= 44, labels[index]);
+      assert.equal(box.y, bounds[0].y, name);
+      if (index > 0) assert.ok(box.x >= bounds[index - 1].x + bounds[index - 1].width);
+    }
+  }
   const board = page.locator(".study-board cg-board");
   const layout = () => page.evaluate(() => {
     const board = document.querySelector(".study-board cg-board").getBoundingClientRect();
@@ -292,6 +302,33 @@ try {
   await tapMove(page, answer);
   await button("Continue").waitFor();
   assert.equal(await clue.count(), 0);
+  for (const width of [320, 375]) {
+    await page.setViewportSize({ width, height: 600 });
+    await checkToolRow("Replay controls", ["Beginning", "Previous", "Next move", "End"]);
+    await checkToolRow("Study actions", ["Card details", "Review later", "Stop"]);
+    await checkToolRow("Board controls", ["Flip board", "Board sounds", "Board preferences", "Keyboard shortcuts"]);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  }
+  const completedCommands = commands.length;
+  assert.equal(await button("Next move").isDisabled(), true);
+  await button("Beginning").tap();
+  assert.equal(await button("Beginning").isDisabled(), true);
+  await button("Next move").tap();
+  await button("Return to current position").tap();
+  await button("Continue").waitFor();
+  assert.equal(commands.length, completedCommands);
+  assert.equal(await page.getByRole("tooltip").count(), 0);
+
+  const sounds = button("Board sounds");
+  const wasPressed = await sounds.getAttribute("aria-pressed");
+  await sounds.tap();
+  assert.equal(await sounds.getAttribute("aria-pressed"), wasPressed === "true" ? "false" : "true");
+  await sounds.tap();
+  await button("Board preferences").tap();
+  const preferences = page.getByRole("dialog", { name: "Board preferences" });
+  await preferences.getByRole("button", { name: "Close", exact: true }).tap();
+  await preferences.waitFor({ state: "hidden" });
+
   await button("Card details").tap();
   await page.getByText(/Tempo has no recorded reason/).waitFor();
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));

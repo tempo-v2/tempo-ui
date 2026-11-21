@@ -179,7 +179,8 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
   setup?.(window);
   window.eval(script);
   await window.mountGames();
-  const button = label => [...window.document.querySelectorAll("button")].find(item => item.textContent === label);
+  const button = label => [...window.document.querySelectorAll("button")]
+    .find(item => (item.getAttribute("aria-label") ?? item.textContent) === label);
   return {
     ...clock,
     button,

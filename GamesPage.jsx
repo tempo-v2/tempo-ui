@@ -5,7 +5,8 @@ import { GameWorkbench, readReviewMark } from "./GameWorkbench.jsx";
 import { gamesTabs, readVisit, requestedGamesTab, reviewAddress, reviewUrl, sameGame } from "./review_route.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Button, PageHeader, SectionHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { Button, IconButton, PageHeader, SectionHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
+import { NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 import {
   chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, readGameJob, refreshGames,
   sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
@@ -1117,10 +1118,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
             <StatusNotice key={label} kind="error">{label} · {message}</StatusNotice>
           ))}
           {evidenceErrors.length > 0 && <Button onClick={refreshEvidenceReads}>Retry evidence reads</Button>}
-          {(gapPage?.more || gapOffset > 0) && <div className="actions">
-            <Button disabled={gapOffset === 0 || workingGap} onClick={() => setGapOffset(offset => offset - 100)}>Previous gaps</Button>
-            <Button disabled={!gapPage?.more || workingGap} onClick={() => setGapOffset(offset => offset + 100)}>Next gaps</Button>
-          </div>}
+          {(gapPage?.more || gapOffset > 0) && <nav className="actions compact-controls" aria-label="Coverage pages">
+            <IconButton label="Previous gaps" disabled={gapOffset === 0 || workingGap}
+              onClick={() => setGapOffset(offset => offset - 100)}><PreviousIcon /></IconButton>
+            <IconButton label="Next gaps" disabled={!gapPage?.more || workingGap}
+              onClick={() => setGapOffset(offset => offset + 100)}><NextIcon /></IconButton>
+          </nav>}
           {!gapPage && !gapRead?.error && <p role="status">Loading opponent gaps…</p>}
           {gapPage?.gaps.length === 0 && <p>{forecastBook ? "No open suggestions from this scan." : "No confirmed opponent gaps in the current documents."}</p>}
           {gapPage?.gaps.length > 0 && (

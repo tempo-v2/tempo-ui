@@ -1,5 +1,7 @@
 import React from "react";
-import { Button, Dialog } from "@tempo-v2/core-components";
+import { Dialog, IconButton } from "@tempo-v2/core-components";
+import { CloseIcon } from "./ControlIcons.jsx";
+import { closeDialogShortcut, studyShortcuts } from "./shortcuts.js";
 
 const storageKey = "tempo-v2-board-preferences";
 
@@ -18,17 +20,18 @@ export function saveBoardPreferences(preferences) {
 }
 
 export function BoardPreferences({ dialog, onClose, prefs, onChange, soundEnabled, onSoundChange }) {
+  const { primary, flip, help, replay } = studyShortcuts;
   return (
     <Dialog open={!!dialog} title={dialog === "help" ? "Keyboard shortcuts" : "Board preferences"} onClose={onClose}>
       {dialog === "help" ? (
         <dl className="shortcut-list">
-          <dt>Enter</dt><dd>Primary study action</dd>
-          <dt>F</dt><dd>Flip the board</dd>
-          <dt>?</dt><dd>Open shortcuts</dd>
-          <dt>← / →</dt><dd>Previous or next revealed position</dd>
-          <dt>Home / End</dt><dd>Beginning or end of revealed moves</dd>
-          <dt>R</dt><dd>Return to the live position</dd>
-          <dt>Escape</dt><dd>Close the dialog</dd>
+          <dt>{primary.label}</dt><dd>Primary study action</dd>
+          <dt>{flip.label}</dt><dd>Flip the board</dd>
+          <dt>{help.label}</dt><dd>Open shortcuts</dd>
+          <dt>{replay.previous.label} / {replay.next.label}</dt><dd>Previous or next revealed position</dd>
+          <dt>{replay.beginning.label} / {replay.end.label}</dt><dd>Beginning or end of revealed moves</dd>
+          <dt>{replay.returnToPosition.label}</dt><dd>Return to the live position</dd>
+          <dt>{closeDialogShortcut.label}</dt><dd>Close the dialog</dd>
         </dl>
       ) : (
         <div className="board-preferences">
@@ -46,7 +49,7 @@ export function BoardPreferences({ dialog, onClose, prefs, onChange, soundEnable
           <label><input type="checkbox" checked={soundEnabled} onChange={e => onSoundChange(e.target.checked)} /> Board sounds</label>
         </div>
       )}
-      <Button onClick={onClose}>Close</Button>
+      <IconButton label="Close" shortcut={closeDialogShortcut} onClick={onClose}><CloseIcon /></IconButton>
     </Dialog>
   );
 }

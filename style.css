@@ -80,6 +80,17 @@ body {
   margin-top: 1rem;
 }
 
+.compact-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.move-trail-actions {
+  margin-top: 0.5rem;
+}
+
 .lichess-controls {
   display: inline-flex;
   align-items: center;

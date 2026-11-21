@@ -1,7 +1,7 @@
 import React from "react";
 import { Button } from "@tempo-v2/core-components";
 
-export function studyActionButtons({ view, state, actions, reproduced, stopped }) {
+export function studyActionButtons({ view, state, actions, reproduced, stopped, primaryShortcut }) {
   const recoveryBlocked = state.storageUnavailable;
   if (!view && (state.busy || recoveryBlocked)) return {};
   const disabled = state.busy || recoveryBlocked;
@@ -20,7 +20,8 @@ export function studyActionButtons({ view, state, actions, reproduced, stopped }
     const teaching = view.activity === "teach";
     return {
       continuation: teaching && (
-        <Button variant="primary" disabled={disabled || !reproduced} onClick={actions.acknowledge}>
+        <Button variant="primary" disabled={disabled || !reproduced} onClick={actions.acknowledge}
+          tooltip={primaryShortcut && "Save this lesson and continue"} shortcut={primaryShortcut}>
           Got it — continue
         </Button>
       ),
@@ -53,7 +54,8 @@ export function studyActionButtons({ view, state, actions, reproduced, stopped }
   }
   return {
     continuation: (
-      <Button variant="primary" disabled={disabled} onClick={actions.next}>
+      <Button variant="primary" disabled={disabled} onClick={actions.next}
+        tooltip={primaryShortcut && "Continue to the next exercise"} shortcut={primaryShortcut}>
         {view ? "Continue" : "Check again"}
       </Button>
     ),

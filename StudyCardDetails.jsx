@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Button, StatusNotice } from "@tempo-v2/core-components";
+import React, { useCallback, useEffect, useId, useState } from "react";
+import { Button, IconButton, StatusNotice } from "@tempo-v2/core-components";
+import { InfoIcon } from "./ControlIcons.jsx";
 import { CARD_DISCLOSURE_RECHECK_MS, validateCardDetails } from "./card_details.js";
 import { studyChangeKey, studyChangeStamp } from "./study_presence.js";
 import { readReviewCommand, savedReviewsPath } from "./saved_review_commands.js";
@@ -36,7 +37,7 @@ function CardDetailsContent({ details }) {
   </div>;
 }
 
-export function StudyCardDetails({ view, onOpen }) {
+export function StudyCardDetails({ view, onOpen, renderActions }) {
   const { dataset_id, attempt_id, revision, content_version } = view;
   const load = useCallback(async signal => {
     const address = { dataset_id, attempt_id, revision, content_version };
@@ -47,7 +48,7 @@ export function StudyCardDetails({ view, onOpen }) {
     }
     return validateCardDetails(reply.details);
   }, [dataset_id, attempt_id, revision, content_version]);
-  return <CardDetailsPanel load={load} onOpen={onOpen} recheckExplanation />;
+  return <CardDetailsPanel load={load} onOpen={onOpen} recheckExplanation renderActions={renderActions} />;
 }
 
 export function SavedReviewCardDetails({ datasetId, id, onDisclosureChanged }) {
@@ -67,7 +68,8 @@ export function SavedReviewCardDetails({ datasetId, id, onDisclosureChanged }) {
   return <CardDetailsPanel load={load} />;
 }
 
-function CardDetailsPanel({ load, onOpen, recheckExplanation }) {
+function CardDetailsPanel({ load, onOpen, recheckExplanation, renderActions }) {
+  const detailsId = useId();
   const [open, setOpen] = useState(false);
   const [read, setRead] = useState(null);
   const [retry, setRetry] = useState(0);
@@ -117,17 +119,22 @@ function CardDetailsPanel({ load, onOpen, recheckExplanation }) {
       document.removeEventListener("visibilitychange", closeDetails);
     };
   }, [load, open, recheckExplanation, retry]);
-  return <>
-    <Button size="compact" aria-expanded={open} onClick={() => {
+  const trigger = (
+    <IconButton label="Card details" aria-controls={detailsId} aria-expanded={open} onClick={() => {
       if (!open) {
         setRead(null);
         onOpen?.();
       }
       setOpen(!open);
-    }}>Card details</Button>
-    {open && (read?.details ? <CardDetailsContent details={read.details} /> : read?.error
-      ? <><StatusNotice kind="error">{read.error}</StatusNotice>
-        <Button size="compact" onClick={() => { setRead(null); setRetry(value => value + 1); }}>Retry details</Button></>
-      : <p role="status">Loading card details…</p>)}
+    }}><InfoIcon /></IconButton>
+  );
+  return <>
+    {renderActions ? renderActions(trigger) : trigger}
+    <div id={detailsId} hidden={!open}>
+      {open && (read?.details ? <CardDetailsContent details={read.details} /> : read?.error
+        ? <><StatusNotice kind="error">{read.error}</StatusNotice>
+          <Button size="compact" onClick={() => { setRead(null); setRetry(value => value + 1); }}>Retry details</Button></>
+        : <p role="status">Loading card details…</p>)}
+    </div>
   </>;
 }

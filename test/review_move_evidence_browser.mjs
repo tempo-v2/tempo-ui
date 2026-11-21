@@ -90,9 +90,9 @@ try {
   await table.getByText("Comparison sources and columns").click();
   await table.getByRole("checkbox",{name:"Nearby",exact:true}).uncheck();
   await button("Hide candidate moves").click();
-  await button("Next move →").click();
+  await button("Next move").click();
   await warning.getByRole("button",{name:"Reload comparison"}).waitFor();
-  await button("← Previous").click();
+  await button("Previous move").click();
   await button("Previously prepared · e4").waitFor();
   await page.route("**/api/games/review",route=>route.abort(),{times:1});
   await warning.getByRole("button",{name:"Reload comparison"}).click();

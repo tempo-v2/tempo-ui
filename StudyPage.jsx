@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Button, Dialog, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
+import { Button, Dialog, IconButton, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
+import { BookmarkIcon, FlipIcon, KeyboardIcon, MutedIcon, SlidersIcon, VolumeIcon } from "./ControlIcons.jsx";
 import { StudyBoard, studyOrientation, turnFromFen } from "./StudyBoard.jsx";
 import { LichessControl } from "./LichessControl.jsx";
 import { StudyCardDetails } from "./StudyCardDetails.jsx";
@@ -14,6 +15,7 @@ import { PromotionChooser } from "./PromotionChooser.jsx";
 import { SMALL_READ_TIMEOUT_MS } from "./bounded_read.js";
 import { postCommand } from "./content_transport.js";
 import { DiagnosticsButton } from "./DiagnosticsButton.jsx";
+import { studyShortcuts } from "./shortcuts.js";
 
 export function StudyPage({
   view,
@@ -23,6 +25,7 @@ export function StudyPage({
   showSuccess,
   advancing,
   actions,
+  primaryShortcut,
   guided,
   stopped,
   boardContinuation,
@@ -54,7 +57,7 @@ export function StudyPage({
     ? presentTacticExplanation(view.feedback) : null;
   const continuationBelowBoard = attempt && boardContinuation;
   const { continuation, others } = !advancing && historyIndex === null
-    ? studyActionButtons({ view, state, actions, reproduced: !!guided?.uci, stopped })
+    ? studyActionButtons({ view, state, actions, reproduced: !!guided?.uci, stopped, primaryShortcut })
     : {};
   const panelContinuation = !continuationBelowBoard && continuation;
   const lesson = view?.lesson;
@@ -74,6 +77,37 @@ export function StudyPage({
   const [selectionReason, setSelectionReason] = useState(null);
   const attemptId = attempt ? view.attempt_id : null;
   const datasetId = view?.dataset_id;
+  const showCardDetails = attempt && (view.status === "complete" || view.assessment === "again" ||
+    view.feedback?.correct === false);
+  const currentReview = attempt && reviewAddresses?.current;
+  const previousReview = !stopped && reviewAddresses?.previous;
+
+  function renderActionRow(details) {
+    const showReviewActions = reviewMark && (reviewMark.pending || currentReview || previousReview);
+    if (!details && !showReviewActions && !others) return null;
+    return (
+      <div className="actions compact-controls" role="group" aria-label="Study actions">
+        {details}
+        {showReviewActions && (reviewMark.pending ? (
+          <Button size="compact" disabled={reviewMark.busy} onClick={reviewMark.retry}>Retry saving for review</Button>
+        ) : (
+          <>
+            {currentReview && (
+              <IconButton key={JSON.stringify(currentReview)} label="Review later" tooltip="Save this exercise for later review"
+                disabled={reviewMark.busy || !!choice || !!dialog || historyIndex !== null}
+                onClick={() => void reviewMark.send(currentReview)}><BookmarkIcon /></IconButton>
+            )}
+            {previousReview && (
+              <Button key={JSON.stringify(previousReview)} size="compact" disabled={reviewMark.busy || !!choice || !!dialog}
+                onClick={() => void reviewMark.send(previousReview)}>Save previous response</Button>
+            )}
+          </>
+        ))}
+        {others}
+      </div>
+    );
+  }
+
   useEffect(() => {
     if (!attemptId || !datasetId) return;
     const request = new AbortController();
@@ -191,14 +225,10 @@ export function StudyPage({
                 </StatusNotice>
               )}
               <MoveFeedback view={view} tacticClue={tacticClue} />
-              {attempt && (view.status === "complete" || view.assessment === "again" ||
-                view.feedback?.correct === false) && (
-                <StudyCardDetails key={JSON.stringify([view.dataset_id, view.attempt_id, view.revision])}
-                  view={view} onOpen={onOpenCardDetails} />
-              )}
               {historyLine && (!gameContext || inGameReplay) &&
                 <MoveTrail line={historyLine} index={historyIndex} gameReplay={inGameReplay}
-                  onInspect={onInspect} disabled={replayBlocked} onReturn={() => onInspect(null)} />}
+                  onInspect={onInspect} disabled={replayBlocked} onReturn={() => onInspect(null)}
+                  shortcuts={studyShortcuts.replay} />}
             </>
           )}
           {view?.status === "error" && (
@@ -208,33 +238,12 @@ export function StudyPage({
             <StatusNotice kind="error">{state.issue}</StatusNotice>
           )}
           {(state.issue || view?.status === "error") && <div className="actions"><DiagnosticsButton /></div>}
-          {reviewMark && (
-            <>
-              <div className="actions">
-                {reviewMark.pending ? (
-                  <Button size="compact" disabled={reviewMark.busy} onClick={reviewMark.retry}>Retry saving for review</Button>
-                ) : (
-                  <>
-                    {attempt && reviewAddresses.current && (
-                      <Button key={JSON.stringify(reviewAddresses.current)} size="compact"
-                        disabled={reviewMark.busy || !!choice || !!dialog || historyIndex !== null}
-                        onClick={() => void reviewMark.send(reviewAddresses.current)}>Review later</Button>
-                    )}
-                    {!stopped && reviewAddresses.previous && (
-                      <Button key={JSON.stringify(reviewAddresses.previous)} size="compact" disabled={reviewMark.busy || !!choice || !!dialog}
-                        onClick={() => void reviewMark.send(reviewAddresses.previous)}>Save previous response</Button>
-                    )}
-                  </>
-                )}
-              </div>
-              {reviewMark.message && <StatusNotice kind="error">
-                {reviewMark.message}
-              </StatusNotice>}
-            </>
-          )}
-          {(panelContinuation || others) && (
-            <div className="actions">{panelContinuation}{others}</div>
-          )}
+          {panelContinuation && <div className="actions">{panelContinuation}</div>}
+          {showCardDetails
+            ? <StudyCardDetails key={JSON.stringify([view.dataset_id, view.attempt_id, view.revision])}
+                view={view} onOpen={onOpenCardDetails} renderActions={renderActionRow} />
+            : renderActionRow()}
+          {reviewMark?.message && <StatusNotice kind="error">{reviewMark.message}</StatusNotice>}
           {canAnalyze && (
             <div className="actions study-analysis-actions">
               {historyIndex === null &&
@@ -257,13 +266,16 @@ export function StudyPage({
           )}
         </Surface>
         <StudyProgress summary={summary} unavailable={unavailable} />
-        <div className="actions study-board-controls" aria-label="Board controls" role="group">
-          {attempt && <Button size="compact" disabled={!!choice} onClick={onFlip}>Flip board</Button>}
-          <Button size="compact" aria-pressed={soundEnabled} onClick={() => onSoundChange(!soundEnabled)}>
-            {soundEnabled ? "Mute board" : "Unmute board"}
-          </Button>
-          <Button size="compact" onClick={() => setDialog("preferences")}>Board preferences</Button>
-          <Button size="compact" onClick={() => setDialog("help")}>Shortcuts</Button>
+        <div className="actions compact-controls study-board-controls" aria-label="Board controls" role="group">
+          {attempt && <IconButton label="Flip board" shortcut={studyShortcuts.flip}
+            disabled={!!choice} onClick={onFlip}><FlipIcon /></IconButton>}
+          <IconButton label="Board sounds" aria-pressed={soundEnabled}
+            tooltip={soundEnabled ? "Mute board" : "Unmute board"} onClick={() => onSoundChange(!soundEnabled)}>
+            {soundEnabled ? <VolumeIcon /> : <MutedIcon />}
+          </IconButton>
+          <IconButton label="Board preferences" onClick={() => setDialog("preferences")}><SlidersIcon /></IconButton>
+          <IconButton label="Keyboard shortcuts" shortcut={studyShortcuts.help}
+            onClick={() => setDialog("help")}><KeyboardIcon /></IconButton>
         </div>
       </aside>
       {dialog?.kind === "analysis" && (

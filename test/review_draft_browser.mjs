@@ -58,7 +58,7 @@ try {
   await play("d2d3"); await play("g8f6");
   const original = await draftMoves.innerText();
   assert.match(original,/Nd4 4.d3 Nf6/);
-  await button("← Previous").click();
+  await button("Previous move").click();
   await play("d7d6");
   assert.equal(await draftMoves.innerText(),original);
   await button("Starting position").click();
@@ -111,7 +111,7 @@ try {
   await button("Preview through 5… d6").click();
   await page.getByRole("heading",{name:"Add to White repertoire"}).waitFor();
   assert.deepEqual(previews.at(-1).lines,[["c6d4","d2d3","g8f6","e1g1","d7d6"]]);
-  await button("Next move →").click();
+  await button("Next move").click();
   await page.route("**/api/repertoires",async route=>{
     if(route.request().postDataJSON().command!=="save") return route.continue();
     await route.fetch(); await route.abort("failed");
