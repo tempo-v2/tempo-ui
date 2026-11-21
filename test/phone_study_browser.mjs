@@ -279,6 +279,13 @@ try {
   await button("Card details").tap();
   await page.evaluate(() => window.scrollTo(0, 0));
   await tapMove(page, answer);
+  await button("Continue").waitFor();
+  await button("Card details").tap();
+  await page.getByText(/Tempo has no recorded reason/).waitFor();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.getByText(/Tempo has no recorded reason/).waitFor({ state: "detached" });
+  assert.equal(await button("Card details").getAttribute("aria-expanded"), "false");
+  await page.evaluate(() => window.scrollTo(0, 0));
   const continueStudy = await checkContinuation("Continue", secondLayout);
   await continueStudy.tap();
   await button("Practice tactics").waitFor();

@@ -271,6 +271,20 @@ try {
   await stop();
   url = await start();
   assert.equal((await reviews({ command: "open", id: list.rows[0].id })).origin.prescribedUci, "g1f3");
+  await page.goto(url);
+  await button("Practice tactics").waitFor();
+  await button("Saved for review").click();
+  await button("Remove from Study").click();
+  await page.getByRole("dialog", { name: "Remove this tactic from Study?" })
+    .getByRole("button", { name: "Remove from Study", exact: true }).click();
+  await page.getByText("Removed from Study", { exact: true }).waitFor();
+  const refreshed = page.waitForResponse(reply =>
+    reply.url().endsWith("/api/study") && reply.request().postDataJSON().command === "next");
+  await button("Back to Study").click();
+  assert.equal((await (await refreshed).json()).can_practice_tactics, false);
+  await page.getByText("Done for today.", { exact: true }).waitFor();
+  assert.equal(await button("Practice tactics").count(), 0);
+
   for (const leave of ["skip", "concede"]) {
     await stop();
     database = join(directory, leave + ".sqlite");
@@ -402,6 +416,17 @@ try {
   assert.equal(tactic.removed_from_study, true);
   const due = await post("/api/tactics-collection", { command: "list", filter: "due" });
   assert.deepEqual(due.rows, []);
+  const capture = {
+    ...removedDataset,
+    pgn: '[Event "Repeat excluded capture"]\n[TempoSetupPlies "0"]\n\n1. e4 e5 2. Nf3 Nc6 *',
+  };
+  const capturePreview = await post("/api/tactics", { command: "preview", ...capture });
+  const savedAgain = await post("/api/tactics", {
+    command: "save", ...capture, token: capturePreview.token, selected: [0],
+  });
+  assert.equal(savedAgain.status, "tactics_saved");
+  assert.equal(savedAgain.ready_for_review, 0);
+  assert.equal((await post("/api/study", { command: "next" })).can_practice_tactics, false);
   await stop();
 
   database = join(directory, "analysis-save-review.sqlite");

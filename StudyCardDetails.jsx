@@ -46,14 +46,17 @@ export function StudyCardDetails({ view, onOpen }) {
     const owner = new AbortController();
     const address = { dataset_id, attempt_id, revision, content_version };
     const stamp = studyChangeStamp();
+    function closeDetails() {
+      owner.abort();
+      setRead(null);
+      setOpen(false);
+    }
     function closeOnStudyChange(event) {
-      if (event.key === studyChangeKey) {
-        owner.abort();
-        setRead(null);
-        setOpen(false);
-      }
+      if (event.key === studyChangeKey) closeDetails();
     }
     window.addEventListener("storage", closeOnStudyChange);
+    window.addEventListener("pageshow", closeDetails);
+    document.addEventListener("visibilitychange", closeDetails);
     readReviewCommand("/api/study/card-details", address, owner.signal).then(reply => {
       if (reply?.status !== "card_details" || !reply.details ||
           !Object.entries(address).every(([field, value]) => reply[field] === value)) {
@@ -72,6 +75,8 @@ export function StudyCardDetails({ view, onOpen }) {
     return () => {
       owner.abort();
       window.removeEventListener("storage", closeOnStudyChange);
+      window.removeEventListener("pageshow", closeDetails);
+      document.removeEventListener("visibilitychange", closeDetails);
     };
   }, [dataset_id, attempt_id, revision, content_version, open, retry]);
   return <>

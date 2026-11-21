@@ -363,7 +363,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, studyP
       setPage(nextPage);
       if (nextPage === "study" && reviewExclusion.current) {
         reviewExclusion.current = false;
-        if (view?.status === "ready" && view.activity !== "teach") {
+        if (view?.status === "empty" || (view?.status === "ready" && view.activity !== "teach")) {
           controller.current.start().catch(() => {});
         }
       }
