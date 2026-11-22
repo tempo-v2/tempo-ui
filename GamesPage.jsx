@@ -421,10 +421,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const sameRefreshRunning = refreshing && matchesRefresh(job, pending);
   const canRetryPending = pending && !acceptedCleanup && !busy && !sameRefreshRunning &&
     (!refreshing || pending.kind === "refresh");
+  const lastKnownDataset = dataset ?? previouslyIdentifiedDataset.current;
+  const knownPendingMismatch = !!pending && lastKnownDataset !== null &&
+    pending.payload.dataset_id !== lastKnownDataset;
   const recoverSavedImportWithoutContext = !dataset && !!contextIssue &&
     pendingEntry?.phase === "saved" && pending?.kind === "import" &&
-    (previouslyIdentifiedDataset.current === null ||
-      previouslyIdentifiedDataset.current === pending.payload.dataset_id);
+    !knownPendingMismatch;
   const needsRecovery = canRetryPending || (!busy && (acceptedCleanup || recoveryStatus === "blocked"));
   const currentReport = importResult?.datasetId === dataset ? importResult : null;
   const choiceReport = currentReport?.kind === "choose" ? currentReport.report : null;
@@ -1035,7 +1037,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           )}
           {canRetryPending && (
             <div className="actions">
-              {dataset && pending.payload.dataset_id !== dataset && (
+              {knownPendingMismatch && (
                 <StatusNotice kind="error">The pending Games request belongs to a different dataset.</StatusNotice>
               )}
               <Button disabled={!recoverSavedImportWithoutContext && (!dataset || pending.payload.dataset_id !== dataset)}

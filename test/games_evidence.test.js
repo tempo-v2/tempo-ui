@@ -1380,8 +1380,18 @@ test("an import for a different dataset stays pending and is never retargeted", 
   const pending = JSON.stringify({ kind: "import", payload: {
     command_id: "older-upload", dataset_id: "other-dataset", learner: "learner", pgn: "1. e4 1-0",
   } });
-  const page = await openGames(t, {}, { pending });
+  let contextReads = 0;
+  const page = await openGames(t, {
+    "GET /api/context": () => ++contextReads === 1
+      ? response({ status: "ready", dataset_id: "evidence-fixture", schema_version: 23 })
+      : failure("Context unavailable"),
+    "GET /api/games/job": () => failure("Job status unavailable"),
+  }, { pending });
   await page.click("Review Games request");
+  assert.equal(page.button("Retry same request").disabled, true);
+  assert.match(page.text(), /Games request belongs to a different dataset/);
+  await page.click("Reload Games");
+  assert.match(page.text(), /Games request belongs to a different dataset/);
   assert.equal(page.button("Retry same request").disabled, true);
   assert.equal(page.stored(), pending);
   assert.equal(page.count("POST /api/games/import"), 0);
