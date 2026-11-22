@@ -207,6 +207,7 @@ try {
   if (process.env.TEMPO_MAIA) {
     function seedForecastMoves(positions) {
       const seed = new DatabaseSync(database);
+      seed.exec("PRAGMA busy_timeout=5000");
       try {
         for (const [moves, chance] of positions) {
           const position = new Chess();
