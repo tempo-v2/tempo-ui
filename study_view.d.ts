@@ -30,6 +30,7 @@ export type TacticExplanation =
   | { readonly kind: "fork"; readonly attacker: TacticPiece; readonly targets: readonly [TacticPiece, TacticPiece] }
   | { readonly kind: "discovered_attack" | "discovered_check"; readonly attacker: TacticPiece; readonly target: TacticPiece }
   | { readonly kind: "hanging_piece"; readonly captured: TacticPiece }
+  | { readonly kind: "winning_exchange"; readonly captured: TacticPiece; readonly defender: TacticPiece }
   | { readonly kind: "mating_line" }
   | { readonly kind: "mate_in_one"; readonly king: TacticPiece; readonly checkers: readonly TacticPiece[] };
 /** Feedback and automatic replies produced by the server-side grader. */
