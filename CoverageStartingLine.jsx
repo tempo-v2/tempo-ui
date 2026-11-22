@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Button, StatusNotice } from "@tempo-v2/core-components";
-import { coverageStartingLine } from "./game_commands.js";
+import { coverageStartingLine, saveCoverageStartingLine } from "./game_commands.js";
 
 export function openingNotation(san) {
   return san.length ? san.map((move, index) => index % 2 === 0
@@ -39,7 +39,7 @@ export function CoverageStartingLine({ dataset, repertoire, setting, disabled, o
     setSaving(true);
     setIssue("");
     try {
-      const reply = await coverageStartingLine({
+      const reply = await saveCoverageStartingLine({
         dataset_id: dataset, repertoire_id: repertoire, candidate,
         save_at_revision: addressed.saved.revision,
       });

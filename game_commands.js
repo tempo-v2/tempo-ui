@@ -281,7 +281,14 @@ export function validCoverageLine(setting) {
 }
 
 export async function coverageStartingLine(payload, signal) {
-  const reply = await request("/coverage/starting-line", payload, signal);
+  return coverageLineReply(await request("/coverage/starting-line", payload, signal));
+}
+
+export async function saveCoverageStartingLine(payload, signal) {
+  return coverageLineReply(await request("/coverage/starting-line/save", payload, signal));
+}
+
+function coverageLineReply(reply) {
   const line = reply.line;
   if (!validCoverageLine(reply.saved) || (line && (!Array.isArray(line.san) ||
       !line.san.every(move => typeof move === "string") || !line.choices ||
