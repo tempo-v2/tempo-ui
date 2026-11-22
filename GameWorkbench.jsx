@@ -129,7 +129,7 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
     <div className="review-header"><Button size="compact" className="return-link" disabled={locked} onClick={onClose}>← Games</Button>
       <PageHeader title={current.review ? current.review.white + " vs " + current.review.black : "Game review"}
         subtitle={current.review && address.learner+" as "+current.review.learner_color+" · "+current.review.result}
-        actions={<label>Destination repertoire
+        actions={books.length > 0 && <label>Destination repertoire
       <select value={book?.id ?? ""} disabled={locked}
         onChange={e => switchBook(e.target.value || null)}>
         <option value="">Select a repertoire</option>

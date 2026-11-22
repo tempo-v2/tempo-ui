@@ -4,7 +4,7 @@ import { GameLibrary, recordedFinding } from "./GameLibrary.jsx";
 import { GameWorkbench, readReviewMark } from "./GameWorkbench.jsx";
 import { gamesTabs, readVisit, requestedGamesTab, reviewAddress, reviewUrl, sameGame } from "./review_route.js";
 import { AnalysisPage } from "./AnalysisPage.jsx";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button, IconButton, PageHeader, SectionHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 import {
@@ -12,6 +12,7 @@ import {
   sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
   readGaps, retryHistorical, startHistorical, startModel,
 } from "./game_commands.js";
+import { ApplicationContext } from "./application_context.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
 import { RepertoireCoverage, coveragePercent } from "./RepertoireCoverage.jsx";
 import { GapEditor } from "./GapEditor.jsx";
@@ -35,7 +36,7 @@ function groupGames(results, history) {
   return [...rowsByGame].map(([key, rows]) => ({key, rows}));
 }
 
-function GameResults({ groups, showFindings, results, repertoires, history = false, onChoose, dataset, onOpen }) {
+function GameResults({ groups, results, repertoires, history = false, onChoose, dataset, onOpen }) {
   const [queueStatus, setQueueStatus] = useState({});
   async function enqueue(game, key) {
     setQueueStatus(current => ({...current, [key]: "Queueing…"}));
@@ -49,13 +50,12 @@ function GameResults({ groups, showFindings, results, repertoires, history = fal
   const [detectorRow, setDetectorRow] = useState(null);
   return (
     <ul className="game-results">
-      {(groups ?? groupGames(results, history)).map(({rows, key, game, comparisons, destination:archiveDestination}) => {
+      {(groups ?? groupGames(results, history)).map(({rows, key, game, comparisons}) => {
         const result = rows[0] ?? game;
         const source = Object.hasOwn(sourceNames, result.source) ? sourceNames[result.source] : "Game";
         const gameLink = source + " game";
-        const destination = game ? archiveDestination : result.repertoire_id || (result.repertoires?.length === 1 ? result.repertoires[0].repertoire_id : null);
         const review = { dataset_id: dataset, source: result.source, game_id: result.game_id,
-          learner: result.learner, repertoire_id: destination };
+          learner: result.learner, repertoire_id: null };
         const openGame = (address) => onOpen(address, game?.repertoires ?? result.repertoires ?? []);
         const visit = dataset && readVisit(review);
         const mark = dataset && readReviewMark(visit?.address ?? review);
@@ -71,9 +71,8 @@ function GameResults({ groups, showFindings, results, repertoires, history = fal
                 </p>
               {game && <><p className="game-opening-name">{[game.eco,game.opening].filter(Boolean).join(" · ") || "Opening moves"}</p>
                 <p className="game-opening-moves">{game.moves.join(" ")}</p></>}
-              {game && (showFindings || comparisons.length === 1) && comparisons.map(book => <p key={book.repertoire_id}>
+              {game && comparisons.length === 1 && comparisons.map(book => <p key={book.repertoire_id}>
                 At import · {repertoires.find(b=>b.id === book.repertoire_id)?.name ?? "Recorded repertoire"} · {recordedFinding(book, game.moves)}
-                {showFindings && comparisons.length > 1 && <> · <Button variant="quiet" size="compact" className="inline-link" onClick={()=>openGame({...review,repertoire_id:book.repertoire_id})}>Review this decision</Button></>}
               </p>)}
               {game && !game.repertoires.length && <p>No per-repertoire comparison was recorded.</p>}
               {visit?.comparison && <p><strong>Last compared with {repertoires.find(b => b.id === visit.comparison.repertoire_id)?.name ?? visit.comparison.name}</strong>
@@ -279,6 +278,7 @@ function GamesPanel({ id, tab, children }) {
 }
 
 export function GamesPage({ onStudy, onRepertoires }) {
+  const { datasetId: dataset, issue: contextIssue, refresh: refreshContext } = useContext(ApplicationContext);
   const [review, setReview] = useState(reviewAddress);
   const [analysis, setAnalysis] = useState(null);
   const [recovery] = useState(readGapContinuation);
@@ -373,8 +373,8 @@ export function GamesPage({ onStudy, onRepertoires }) {
     refreshHistory(); refreshEvidenceReads();
   }
   const [source, setSource] = useState("lichess");
-  const [repertoires, setRepertoires] = useState(null);
-  const [dataset, setDataset] = useState(null);
+  const [catalog, setCatalog] = useState(null);
+  const repertoires = catalog?.dataset_id === dataset ? catalog.repertoires : null;
   const [pendingEntry, setPendingEntry] = useState(null);
   const [recoveryStatus, setRecoveryStatus] = useState("loading");
   const [cleanupIssue, setCleanupIssue] = useState("");
@@ -403,12 +403,16 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const lifecycle = useRef(null);
   const evidenceOwner = useRef(null);
   const historyOwner = useRef(null);
-  const catalogDataset = useRef(null);
+  const activeDataset = useRef(null);
+  const previouslyIdentifiedDataset = useRef(null);
   const observedRunning = useRef({ dataset: null });
   const acknowledgedRetry = useRef(null);
   const modelAction = useRef(null);
   const inFlight = useRef(false);
   const importing = source === "pgn";
+  const comparing = !!review?.repertoire_id;
+  const needsCatalog = (comparing && !activeGap) ||
+    (!review && !analysis && (tab === "coverage" || (tab === "import" && !importing)));
   const job = observedJob?.datasetId && observedJob.datasetId !== dataset ? null : observedJob;
   const refreshing = job?.status === "running";
   const pending = pendingEntry?.command;
@@ -494,32 +498,36 @@ export function GamesPage({ onStudy, onRepertoires }) {
     return () => lifecycle.current?.abort();
   }, []);
 
+  useLayoutEffect(() => {
+    activeDataset.current = dataset;
+    if (!dataset) return;
+    if (acknowledgedRetry.current?.dataset !== dataset) acknowledgedRetry.current = null;
+    if (previouslyIdentifiedDataset.current !== null && previouslyIdentifiedDataset.current !== dataset) {
+      evidenceOwner.current?.abort();
+      historyOwner.current?.abort();
+      modelAction.current = null;
+      setModelActionDataset(null);
+      setModelActionError("");
+      setHistory(null);
+      setJob(null);
+      setHistoryError("");
+      refreshHistory();
+    }
+    previouslyIdentifiedDataset.current = dataset;
+  }, [dataset]);
+
   useEffect(() => {
+    if (!needsCatalog || !dataset) return;
     const owner = new AbortController();
     setCatalogError("");
     readRepertoireCatalog(owner.signal).then(reply => {
-      if (!owner.signal.aborted) {
-        if (acknowledgedRetry.current?.dataset !== reply.dataset_id) acknowledgedRetry.current = null;
-        if (catalogDataset.current !== null && catalogDataset.current !== reply.dataset_id) {
-          evidenceOwner.current?.abort();
-          historyOwner.current?.abort();
-          modelAction.current = null;
-          setModelActionDataset(null);
-          setModelActionError("");
-          setHistory(null);
-          setJob(null);
-          setHistoryError("");
-          refreshHistory();
-        }
-        catalogDataset.current = reply.dataset_id;
-        setRepertoires(reply.repertoires);
-        setDataset(reply.dataset_id);
-      }
+      if (!owner.signal.aborted && reply.dataset_id === dataset) setCatalog(reply);
+      else if (!owner.signal.aborted) setCatalogError("The current data changed. Reload Games.");
     }).catch(error => {
       if (!owner.signal.aborted) setCatalogError(error.message || "Could not load repertoires.");
     });
     return () => owner.abort();
-  }, [reload]);
+  }, [dataset, needsCatalog, reload]);
 
   useEffect(() => {
     const request = new AbortController();
@@ -540,18 +548,18 @@ export function GamesPage({ onStudy, onRepertoires }) {
     async function check() {
       try {
         const next = await readGameJob(request.signal);
-        if (request.signal.aborted || dataset !== catalogDataset.current) return;
+        if (request.signal.aborted || dataset !== activeDataset.current) return;
         setJobError("");
         // A physical worker from a replaced dataset can still be finishing.
         // Its slot has no current-dataset result to display.
         setJob(next.datasetId && next.datasetId !== dataset ? { status: "idle" } : next);
         if (next.status === "running") timer = setTimeout(check, 1000);
-        else {
+        else if (next.datasetId === dataset) {
           refreshHistory();
-          if (next.datasetId === dataset) refreshEvidenceReads();
+          refreshEvidenceReads();
         }
       } catch (error) {
-        if (!request.signal.aborted && dataset === catalogDataset.current) {
+        if (!request.signal.aborted && dataset === activeDataset.current) {
           setJobError(error.message || "Could not check the refresh.");
           timer = setTimeout(check, 1500);
         }
@@ -680,7 +688,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     modelAction.current = action;
     setModelActionDataset(dataset);
     setModelActionError("");
-    const current = () => !signal.aborted && modelAction.current === action && dataset === catalogDataset.current;
+    const current = () => !signal.aborted && modelAction.current === action && dataset === activeDataset.current;
     try {
       const status = await startModel({ dataset_id: dataset }, signal);
       if (current()) {
@@ -786,7 +794,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   }
 
   function owns(command, signal) {
-    return !signal.aborted && command.payload.dataset_id === catalogDataset.current;
+    return !signal.aborted && command.payload.dataset_id === activeDataset.current;
   }
 
   async function settle(command, reply) {
@@ -830,7 +838,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   useEffect(() => {
     if (pendingEntry?.phase !== "saved" || inFlight.current ||
         job?.status !== "complete" || !matchesRefresh(job, pending) ||
-        job.datasetId !== catalogDataset.current) return;
+        job.datasetId !== activeDataset.current) return;
     inFlight.current = true;
     setBusy(true);
     void settle(pending, job).finally(() => {
@@ -839,11 +847,11 @@ export function GamesPage({ onStudy, onRepertoires }) {
     });
   }, [job, pendingEntry, busy]);
 
-  async function run(build, { recovering = false } = {}) {
+  async function run(build, { recovering = false, needsRefreshStatus = true } = {}) {
     if (recoveryStatus !== "ready" || !dataset || inFlight.current) return;
     if (recovering) {
       if (!pending || acceptedCleanup || pending.payload.dataset_id !== dataset) return;
-    } else if (pending || refreshing || !job || jobError) return;
+    } else if (pending || refreshing || (needsRefreshStatus && (!job || jobError))) return;
     const signal = lifecycle.current.signal;
     inFlight.current = true;
     setBusy(true);
@@ -866,7 +874,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       }
       if (owns(command, signal)) await deliver(command, signal);
     } catch (error) {
-      if (!signal.aborted && dataset === catalogDataset.current) {
+      if (!signal.aborted && dataset === activeDataset.current) {
         setIssue(error.message || "Could not process these games.");
         if (command) {
           refreshHistory();
@@ -900,7 +908,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       const range = utcDateRange(form.get("from"), form.get("to"));
       if (source === "stored") return { kind: "reprocess", payload: { ...identity, learner, ...range } };
       return { kind: "refresh", payload: { ...identity, source, account: learner, ...range } };
-    });
+    }, { needsRefreshStatus: !importing });
   }
 
   function choose(result, choice, candidate) {
@@ -927,7 +935,17 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const reviewing = review && !activeGap;
   const panelsHidden = !!(reviewing || analysis);
   return <div className="tempo-core">
-    {reviewing && <GameWorkbench recordedComparisons={recordedComparisons} address={review} dataset={dataset} books={repertoires ?? []}
+    {reviewing && !dataset ? <main className="tempo-core review-page">
+      <Button onClick={closeReview}>← Games</Button>
+      {contextIssue
+        ? <StatusNotice kind="error">{contextIssue} <Button onClick={refreshContext}>Retry connection</Button></StatusNotice>
+        : <p role="status">Loading Games…</p>}
+    </main> : reviewing && comparing && dataset && repertoires === null ? <main className="tempo-core review-page">
+      <Button onClick={closeReview}>← Games</Button>
+      {catalogError
+        ? <StatusNotice kind="error">{catalogError} <Button onClick={() => setReload(value => value + 1)}>Retry comparison</Button></StatusNotice>
+        : <p role="status">Loading repertoires…</p>}
+    </main> : reviewing && <GameWorkbench recordedComparisons={recordedComparisons} address={review} dataset={dataset} books={comparing ? repertoires ?? [] : []}
       onClose={closeReview} changeBook={(id, cursor) => openReview({...review, repertoire_id:id, ...cursor})}
       onSaved={() => {refreshHistory(); refreshEvidenceReads();}} />}
     {analysis && <AnalysisPage origin={analysis} onClose={returnFromAnalysis} />}
@@ -935,6 +953,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
       <Button size="compact" variant="quiet" onClick={onStudy}>← Study</Button>
       <PageHeader title="Games"
         actions={<><DiagnosticsButton /><Button onClick={() => { setSource("pgn"); selectTab("import", { learner: true }); }}>Import PGN</Button></>} />
+      {contextIssue && <StatusNotice kind="error">{contextIssue}</StatusNotice>}
       <div className="games-tabs" role="tablist" aria-label="Games views" onBlur={event => {
         if (!event.currentTarget.contains(event.relatedTarget)) setFocusedTab(null);
       }}>
@@ -946,13 +965,16 @@ export function GamesPage({ onStudy, onRepertoires }) {
         ))}
       </div>
       {tab !== "import" && needsRecovery && (
-        <div role="status"><Button size="compact" variant="quiet" onClick={() => selectTab("import")}>Review Games request</Button></div>
+        <div role="status"><Button size="compact" variant="quiet" onClick={() => {
+          if (pending?.kind === "import") setSource("pgn");
+          selectTab("import");
+        }}>Review Games request</Button></div>
       )}
       <GamesPanel id="import" tab={tab}>
         <Surface>
           <h2>{importing ? "Import a PGN" : "Compare completed games"}</h2>
-          {catalogError && <StatusNotice kind="error">{catalogError}</StatusNotice>}
-          {repertoires?.length === 0 && (
+          {!importing && catalogError && <StatusNotice kind="error">{catalogError}</StatusNotice>}
+          {!importing && repertoires?.length === 0 && (
             <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
           )}
           <form className="repertoire-form" onSubmit={submit}>
@@ -980,7 +1002,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
               {source === "chess_com" && <p className="game-source-note">Chess.com archives may take up to 12 hours to update.</p>}
               <div className="actions">
                 <Button type="submit" pending={busy && !refreshing}
-                  disabled={busy || refreshing || !job || !!jobError}>
+                  disabled={busy || refreshing || (!importing && (!job || !!jobError))}>
                   {importing ? "Import games" : source === "stored" ? "Reprocess saved games" : "Refresh games"}
                 </Button>
               </div>
@@ -1010,13 +1032,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
           )}
           {jobError && <StatusNotice kind="error">{jobError}</StatusNotice>}
           {refreshing && !jobError && <p role="status">Refreshing games. You can return to Study while this runs.</p>}
-          {(catalogError || jobError) && (
+          {(contextIssue || (!importing && catalogError) || jobError) && (
             <Button onClick={() => {
+              refreshContext();
               setJob(null);
-              setJobRevision(value => value + 1);
               historyOwner.current?.abort();
               setReload(value => value + 1);
-              refreshEvidenceReads();
             }}>Reload Games</Button>
           )}
         </Surface>
@@ -1049,19 +1070,16 @@ export function GamesPage({ onStudy, onRepertoires }) {
       </GamesPanel>
       <GamesPanel id="analysis" tab={tab}>
         {analysisVisited && <TacticalHistory dataset={dataset} onOpen={openReview} visible={tab === "analysis" && !panelsHidden} />}
-        {!dataset && <p role="status">{catalogError || "Loading Games…"}</p>}
+        {!dataset && <p role="status">{contextIssue || "Loading Games…"}</p>}
       </GamesPanel>
       <GamesPanel id="library" tab={tab}>
         <Surface>
           <SectionHeader title="Game library" />
-          {catalogError && <StatusNotice kind="error">{catalogError}
-            {" "}<Button size="compact" onClick={() => selectTab("import")}>Open Games recovery</Button>
-          </StatusNotice>}
+          {contextIssue && <Button size="compact" onClick={refreshContext}>Retry connection</Button>}
           {choiceReport && <details open>
             <summary>Corrective choice results</summary>
             <GameReport report={choiceReport} importing dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />
           </details>}
-          {repertoires?.length === 0 && <p>Add a repertoire to compare your games with prepared moves. <Button onClick={onRepertoires}>Open repertoires</Button></p>}
           {history?.lastSuccessfulRefresh != null ? (
             <p>Last successful provider refresh · {new Date(history.lastSuccessfulRefresh).toLocaleString()}</p>
           ) : null}
@@ -1075,10 +1093,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
           {!dataset && history && (history.results.length > 0
             ? <GameResults results={history.results} history repertoires={repertoires ?? []} />
             : <p>No games recorded yet.</p>)}
-          {dataset && <GameLibrary key={dataset} dataset={dataset} refresh={historyRevision} books={repertoires ?? []} recent={history?.results}
+          {dataset && <GameLibrary key={dataset} dataset={dataset} refresh={historyRevision} recent={history?.results}
             renderRecent={results=><GameResults history results={results} dataset={dataset} onOpen={openReview}
               onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
-            renderResults={(groups,showFindings)=><GameResults groups={groups} showFindings={showFindings} dataset={dataset} history onOpen={openReview}
+            renderResults={groups=><GameResults groups={groups} dataset={dataset} history onOpen={openReview}
               onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
             empty={<div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>} />}
         </Surface>

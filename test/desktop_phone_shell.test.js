@@ -298,3 +298,35 @@ test("An uncertain Capture delivery keeps the original save through context fail
   assert.equal(window.sessionStorage.getItem(captureKey), null);
   assert.equal(calls.filter(({ path }) => path === "/api/context").length, 1);
 });
+
+test("a pending Games import keeps its original address through Study navigation", async t => {
+  const key = "tempo.games.pending.v1";
+  const pending = { kind: "import", payload: {
+    command_id: "old-game-import", dataset_id: "shell-fixture", learner: "learner", pgn: "1. e4 1-0",
+  }};
+  const { window, calls } = await shell(t, false, { stored: { [key]: pending }, responses: {
+    "/api/games/import": {
+      fetched: 1, new_games: 1, duplicates: 0, matches: 0, deviations: 0, errors: [], results: [],
+    },
+  } });
+  const button = label => [...window.document.querySelectorAll("button")].find(item => item.textContent === label);
+  assert.equal(calls.filter(call => call.path === "/api/games/import").length, 0);
+  await window.runShell(() => button("← Study").click());
+  assert.equal(window.document.querySelector("h1").textContent, "Study");
+  assert.equal(window.sessionStorage.getItem(key), JSON.stringify(pending));
+  await window.runShell(async () => {
+    const moved = new Promise(resolve => window.addEventListener("popstate", resolve, { once: true }));
+    window.history.back();
+    await moved;
+  });
+  assert.equal(window.document.querySelector("h1").textContent, "Games");
+  const start = calls.length;
+  await window.runShell(() => button("Review Games request").click());
+  await window.runShell(() => button("Retry same request").click());
+  assert.deepEqual(calls.slice(start).filter(call => call.path === "/api/games/import").map(call => call.raw), [
+    JSON.stringify(pending.payload),
+  ]);
+  assert.equal(window.sessionStorage.getItem(key), null);
+  assert.equal(calls.filter(call => call.path === "/api/context").length, 1);
+  assert.equal(calls.filter(call => call.path === "/api/repertoires").length, 0);
+});
