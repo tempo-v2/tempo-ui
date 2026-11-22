@@ -19,8 +19,6 @@ const valid = condition => {
 };
 const count = (value, positive = false) => valid(Number.isSafeInteger(value) && value >= (positive ? 1 : 0));
 const nonempty = value => valid(typeof value === "string" && value.trim().length > 0);
-const reportGeneration = /^(.+):([0-9]+)$/s;
-const validateReportGeneration = value => valid(typeof value === "string" && reportGeneration.test(value));
 
 const color = value => value === "white" || value === "black";
 const roleNames = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" };
@@ -136,19 +134,13 @@ export function validateTacticalHistory(value, dataset, before) {
     return value;
   }
   valid(value.status === "running" || value.status === "ready");
-  if (value.report_schema !== undefined) valid(value.report_schema === 2);
   const controlFields = ["paused", "waiting_for_idle"].filter(field => Object.hasOwn(value, field));
   for (const field of controlFields) valid(typeof value[field] === "boolean");
   if (Object.hasOwn(value, "wait_reason")) {
     valid([null, "wall_power", "study_in_front", "study_quiet_period", "foreground_engine"].includes(value.wait_reason));
     valid(value.waiting_for_idle === (value.wait_reason !== null));
   }
-  const reportFields = ["report_schema", "report_generation"].filter(field => Object.hasOwn(value, field));
-  if (value.report_generation !== undefined) {
-    valid(value.report_schema === 2);
-    validateReportGeneration(value.report_generation);
-  }
-  object(value, [...reportFields, ...(Object.hasOwn(value, "wait_reason") ? ["wait_reason"] : []), ...(Object.hasOwn(value, "games") ? ["games"] : []), ...controlFields, "schema_version", "dataset_id", "status", "detector", "analysis_version", "last_error",
+  object(value, [...(Object.hasOwn(value, "wait_reason") ? ["wait_reason"] : []), ...(Object.hasOwn(value, "games") ? ["games"] : []), ...controlFields, "schema_version", "dataset_id", "status", "detector", "analysis_version", "last_error",
     "active_game", "statistics", "observations", "next_before"], "tactical history");
   if (value.games !== undefined) {
     valid(Array.isArray(value.games) && value.games.length <= 30);
@@ -227,10 +219,7 @@ export async function readTacticalHistory(dataset, before, signal) {
   if (before !== undefined) count(before, true);
   const value = await requestJson("/api/games/tactics", {
     method: "POST", payload: { dataset_id: dataset, ...(before === undefined ? {} : { before }) },
-    headers: {
-      "X-Tempo-Analysis-Wait-Reason": "1", "X-Tempo-Tactics-Report": "2",
-      "X-Tempo-Tactics-Report-Generation": "1",
-    },
+    headers: { "X-Tempo-Analysis-Wait-Reason": "1" },
     signal, cache: "no-store", timeoutMs: SMALL_READ_TIMEOUT_MS,
   });
   return validateTacticalHistory(value, dataset, before);
@@ -255,121 +244,4 @@ export async function commandTacticalAnalysis(dataset, action, fields = {}) {
     cache: "no-store", timeoutMs: SMALL_READ_TIMEOUT_MS,
   });
   valid(value?.accepted === true);
-}
-
-export const motifNames = Object.freeze({
-  hanging_material: "Hanging piece", fork: "Fork / double attack", pin: "Pin", skewer: "Skewer",
-  discovered_attack: "Discovered attack", discovered_check: "Discovered check",
-  mate_in_one: "Mate in 1", mate_in_two: "Mate in 2",
-});
-
-export function isNewerReportGeneration(available, snapshot) {
-  if (available === undefined || snapshot === undefined || available === snapshot) return false;
-  const [, version, generation] = available.match(reportGeneration);
-  const [, readVersion, readGeneration] = snapshot.match(reportGeneration);
-  return version !== readVersion || BigInt(generation) > BigInt(readGeneration);
-}
-
-export async function readPersonalTactics(dataset, query, signal) {
-  const value = await requestJson("/api/games/tactics/report", {
-    method: "POST", payload: {dataset_id: dataset, ...query}, signal,
-    cache: "no-store", timeoutMs: SMALL_READ_TIMEOUT_MS,
-  });
-  valid(value?.schema_version === 2 && value.dataset_id === dataset);
-  if (value.report_generation !== undefined) validateReportGeneration(value.report_generation);
-  if (query.report_generation !== undefined) valid(value.report_generation === query.report_generation);
-  valid(Array.isArray(value.games) && value.games.length <= 30);
-  count(value.archive_games);
-  count(value.filtered_games);
-  const results = row => {
-    object(row, ["wins", "draws", "losses"], "game results");
-    Object.values(row).forEach(number => count(number));
-  };
-  if (value.simple_tactics !== undefined) {
-    object(value.simple_tactics, ["found", "missed", "alternatives", "unclear", "awaiting_verification"], "simple tactics");
-    Object.values(value.simple_tactics).forEach(number => count(number));
-  }
-  results(value.loss_comparison.with_miss);
-  results(value.loss_comparison.without_miss);
-  count(value.loss_comparison.analyzed);
-  valid(value.loss_comparison.opportunity_counts.length === 3);
-  for (const pair of value.loss_comparison.opportunity_counts) {
-    valid(pair.length === 2);
-    pair.forEach(results);
-  }
-  for (const pattern of [value.prior_today, value.prior_hour]) {
-    valid(Array.isArray(pattern.bands) && pattern.bands.length === 4);
-    for (const band of pattern.bands) {
-      object(band, ["min", "results", "opportunities", "misses", "days"], "playing load");
-      count(band.min);
-      count(band.opportunities);
-      count(band.misses);
-      count(band.days);
-      valid(band.misses <= band.opportunities);
-      results(band.results);
-    }
-    if (pattern.possible_break !== null) {
-      const point = pattern.possible_break;
-      count(point.min);
-      count(point.days);
-      valid(point.counts.length === 2 && [point.lower, point.upper, point.difference].every(Number.isFinite));
-      point.counts.forEach(number => count(number, true));
-    }
-  }
-  for (const row of value.games) {
-    count(row.id, true);
-    count(row.ply);
-    valid(row.motifs.length > 0 && row.motifs.every(kind => Object.hasOwn(motifNames, kind)));
-    [row.game.source, row.game.learner, row.game.id].forEach(nonempty);
-    valid(["win", "draw", "loss", "unknown"].includes(row.game.result));
-  }
-  if (value.next_before !== null) count(value.next_before, true);
-  if (value.detail !== null) {
-    valid(value.games.some(row => row.id === value.detail.id));
-    validatePersonalPosition(value.detail);
-  }
-  return value;
-}
-
-
-export async function readPersonalPosition(dataset, id, generation, signal) {
-  const value = await requestJson("/api/games/tactics/position", {
-    method: "POST", payload: {dataset_id: dataset, id, report_generation: generation}, signal,
-    cache: "no-store", timeoutMs: SMALL_READ_TIMEOUT_MS,
-  });
-  valid(value?.schema_version === 2 && value.dataset_id === dataset && value.detail?.id === id);
-  if (value.report_generation !== undefined) validateReportGeneration(value.report_generation);
-  if (generation !== undefined) valid(value.report_generation === generation);
-  validatePersonalPosition(value.detail);
-  return value.detail;
-}
-
-function validatePersonalPosition(detail) {
-  object(detail, ["id", "best_moves", "details", "training"], "personal tactic detail");
-  count(detail.id, true);
-  if (detail.training !== null) {
-    object(detail.training, ["id", "status"], "Study link");
-    count(detail.training.id, true);
-    valid(["queued", "issued", "superseded", "reviewed"].includes(detail.training.status));
-  }
-  const { fen, assessment: summary } = detail.details;
-  const { legal } = boardMoves(fen);
-  move(summary.played, legal);
-  for (const answer of detail.best_moves) move(answer, legal);
-  for (const answer of summary.accepted_moves) move(answer, legal);
-  evaluationStatus(summary.analysis, legal);
-  valid(summary.kind === "personal_tactics" && Array.isArray(summary.personal.candidates));
-  for (const candidate of summary.personal.candidates) {
-    valid(Object.hasOwn(motifNames, candidate.motif));
-    move(candidate.answer, legal);
-    for (const target of [...candidate.attackers, ...candidate.targets]) {
-      valid(/^[a-h][1-8]$/.test(target.square) && color(target.color) && Object.values(roleNames).includes(target.role));
-    }
-    const board = new Chess(fen);
-    for (const item of [candidate.answer, ...candidate.continuation]) {
-      const {uci} = item;
-      valid(typeof uci === "string" && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci));
-      board.move({from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4]});
-    }
-  }
 }

@@ -3,7 +3,6 @@ import { Board, Button, SectionHeader, StatusNotice, Surface } from "@tempo-v2/c
 import { commandTacticalAnalysis, readTacticalHistory, tacticalNotation, tacticalOutcomes, tacticalScore } from "./tactical_history.js";
 import { sourceNames } from "./game_commands.js";
 import "./tactical_history.css";
-import {PersonalTactics} from "./PersonalTactics.jsx";
 
 const qualityNames = { best_or_equivalent: "Best or equivalent", inferior: "Inferior", uncertain: "Uncertain" };
 const outcomeDescriptions = {
@@ -144,11 +143,10 @@ function HistorySession({ dataset, onOpen, visible }) {
     : view?.status === "running" ? "Analyzing saved games"
     : stats?.pending_games > 0 ? "Waiting to analyze saved games" : incomplete > 0 ? "Analysis finished with gaps" : "Analysis up to date";
 
-  const personal = view?.report_schema === 2;
-  return <section aria-label={personal ? "Tactical history" : "Hanging-piece history"} className="tactical-history"><Surface>
+  return <section aria-label="Hanging-piece history" className="tactical-history"><Surface>
     <SectionHeader title="Analysis"><Button size="compact" variant="quiet" disabled={loading}
       onClick={() => setRevision(value => value + 1)}>Refresh tactics</Button></SectionHeader>
-    {!personal && <p>See when you took free material, missed a good capture, or chose an equally good move.</p>}
+    <p>See when you took free material, missed a good capture, or chose an equally good move.</p>
     {availability !== null && <StatusNotice>{availability}{view && " Showing the last available results."}</StatusNotice>}
     {error && <StatusNotice kind="error">The latest tactical results could not be read.{view && " Showing the last available results."}</StatusNotice>}
     {!view && loading && <p role="status">Reading tactical results…</p>}
@@ -170,16 +168,14 @@ function HistorySession({ dataset, onOpen, visible }) {
           {game.preparing ? " · Queued" : ` · ${game.checked} checked · ${game.pending} pending · ${game.inconclusive} inconclusive`}
         </li>)}</ul>
       </details>}
-      {!personal && <dl className="tactical-counts">{Object.entries(tacticalOutcomes).map(([key, label]) => <div key={key}>
+      <dl className="tactical-counts">{Object.entries(tacticalOutcomes).map(([key, label]) => <div key={key}>
         <dt>{label}</dt><dd>{(outcomes[key] ?? 0).toLocaleString()}</dd>
-      </div>)}</dl>}
-      {!personal && <p className="tactical-muted">Counts are per decision in your games. The same piece or puzzle can appear in more than one decision.</p>}
+      </div>)}</dl>
+      <p className="tactical-muted">Counts are per decision in your games. The same piece or puzzle can appear in more than one decision.</p>
       {stats.pending_requests > 0 && <p className="tactical-queue"><strong>{stats.pending_requests.toLocaleString()} {stats.pending_requests === 1 ? "review" : "reviews"} waiting in Study.</strong> Game puzzles alternate with due reviews after your current card.</p>}
       {incomplete > 0 && <p>{incomplete.toLocaleString()} {incomplete === 1 ? "game could" : "games could"} not be fully analyzed. Unfinished analysis is not counted as a missed capture.</p>}
       {view.last_error && <StatusNotice kind="error">{view.last_error}</StatusNotice>}
-      {personal ? <PersonalTactics dataset={dataset} onOpen={onOpen}
-        analysisGeneration={view.report_generation}
-        analysisProgress={`${stats.completed_games}:${stats.decisions_scanned}`}/> : current ? <>
+      {current ? <>
         <div className="tactical-history-layout">
           <div className="tactical-list"><h3>{before === undefined ? "Recent opportunities" : "Earlier opportunities"}</h3>
             <ol>{view.observations.map(row => <li key={row.id}>
