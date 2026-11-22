@@ -92,7 +92,7 @@ try {
   const board = () => page.getByLabel("Repertoire response board", { exact: true });
   const requests = [];
   page.on("request", request => {
-    if (/\/api\/games\/gap-(?:analysis|line)(?:\/status)?$/.test(request.url())) requests.push(request.url());
+    if (/\/api\/games\/(?:gap-(?:analysis|line)(?:\/status)?|coverage(?:\/status)?|gap-explorer)$/.test(request.url())) requests.push(request.url());
   });
   let loseSave = false;
   const saves = [];

@@ -1083,7 +1083,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
           <h2>Opponent coverage gaps</h2>
           <RepertoireCoverage key={dataset} dataset={dataset} repertoires={repertoires ?? []}
             forecastBook={forecastBook} onFilter={book => { setForecastBook(book); setGapOffset(0); }}
-            refresh={evidenceRevision} onReport={refreshEvidenceReads} />
+            onStartingLineSaved={refreshEvidenceReads} />
           <div className="actions">
             <Button disabled={!dataset || modelActionDataset === dataset || model?.status === "running"}
               onClick={() => void analyze()}>

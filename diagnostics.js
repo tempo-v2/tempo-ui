@@ -13,7 +13,6 @@ const routes = new Set([
   "/api/games/job", "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
   "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry", "/api/games/model",
   "/api/games/gaps", "/api/games/gap-draft",
-  "/api/games/gap-explorer",
 ]);
 const choices = {
   event: new Set(["request_start", "response_headers", "request_end", "late_response", "late_body"]),

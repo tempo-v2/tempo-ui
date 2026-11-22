@@ -5,7 +5,6 @@ import { Button, Dialog, IconButton, StatusNotice } from "@tempo-v2/core-compone
 import { CloseIcon } from "./ControlIcons.jsx";
 import { closeDialogShortcut } from "./shortcuts.js";
 import { playBoardMove } from "./board_move.js";
-import { GapExplorer } from "./GapAnalysis.jsx";
 import { previewGapResponse, repertoireError, staleGapCodes, writeGapContinuation } from "./gap_save.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { LichessControl } from "./LichessControl.jsx";
@@ -23,8 +22,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   const { draft, learner_color: color, actual_san, response_move_labels: labels } = gap.details;
   const [selected, setSelected] = useState(recovery?.response ?? "");
   const savedLabel = useRef(recovery?.savedLabel);
-  const [hover, setHover] = useState("");
-  const [focus, setFocus] = useState("");
   const [promotion, setPromotion] = useState(null);
   const [issue, setIssue] = useState("");
   const [stale, setStale] = useState(false);
@@ -49,38 +46,31 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
       }
       bySquare.get(id).push(move);
     }
-    return { bySquare, destinations, legal: new Set(draft.legal_moves) };
+    return { bySquare, destinations };
   }, [draft.legal_moves]);
   const selectedLabel = labels[selected] ?? "response";
-  const preview = hover || focus;
   const stagedBoard = useMemo(() => {
     if (!selected) return null;
     const current = new Chess(draft.fen);
     playBoardMove(current, selected);
     return current;
   }, [draft.fen, selected]);
-  const compare = preview && preview !== selected;
-  const fen = !compare && stagedBoard ? stagedBoard.fen() : draft.fen;
+  const fen = stagedBoard ? stagedBoard.fen() : draft.fen;
   const exportLine = useMemo(() => {
     if (phoneBuild) return null;
     const anchored = boardWithLeadIn(draft.fen, gap.details.anchor_route);
-    if (!compare && stagedBoard) playBoardMove(anchored, selected);
+    if (stagedBoard) playBoardMove(anchored, selected);
     return lineFromBoard(anchored);
-  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, compare, phoneBuild]);
+  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, phoneBuild]);
   const turn = fen.split(" ")[1] === "w" ? "white" : "black";
   const check = useMemo(() => new Chess(fen).isCheck() ? turn : false, [fen, turn]);
-  const shapes = [
-    ...(selected ? [shape(selected, "green")] : []),
-    ...(compare ? [shape(preview, "blue")] : []),
-  ];
+  const shapes = selected ? [shape(selected, "green")] : [];
   const locked = busy || !!pending || !!loadPending || !!settled || stale;
   usePageExitGuard(!!phoneBuild && (busy || !!pending || !!loadPending));
   const moveNumber = Number(draft.fen.split(" ")[5]) - (color === "white" ? 1 : 0);
   const opponentLabel = `${moveNumber}${color === "white" ? "…" : "."}${actual_san}`;
 
   function select(move) {
-    setHover("");
-    setFocus("");
     setPromotion(null);
     setSelected(move);
     setIssue("");
@@ -93,17 +83,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     if (!options?.length) return;
     if (options.length > 1) setPromotion({ moves: options.map(move => move[4]), base });
     else select(options[0]);
-  }
-
-  function moveButton(move, description) {
-    if (!moveOptions.legal.has(move)) return null;
-    return (
-      <button className="gap-move" type="button" aria-pressed={selected === move} disabled={locked}
-        onPointerEnter={() => setHover(move)} onPointerLeave={() => setHover("")}
-        onFocus={() => setFocus(move)} onBlur={() => setFocus("")} onClick={() => select(move)}>
-        <strong>{labels[move] ?? "Legal move"}</strong><span>{description}</span>
-      </button>
-    );
   }
 
   function remember(token, accepted = false) {
@@ -141,8 +120,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     inFlight.current = true;
     setBusy(true);
     setIssue("");
-    setHover("");
-    setFocus("");
     try {
       if (settled) {
         await finish(settled, !!pending || !!loadPending);
@@ -225,7 +202,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               </div>
               {!phoneBuild && <div className="gap-statistics">
                 <h3>Your response</h3>
-                <GapExplorer gap={gap} color={color} moveButton={moveButton} />
                 <details>
                   <summary>Before the opponent’s move</summary>
                   <p>{gap.details.profile} · Local coverage {percent(gap.details.local_coverage)}</p>

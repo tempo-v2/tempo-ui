@@ -224,7 +224,8 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
     const signedSave = JSON.parse(saves[0]);
     assert.match(signedSave.token, /^phone-forecast-v2:/);
     assert.equal(await button("Save line").count(), 0);
-    assert(!phoneRequests.slice(beforeUpgrade).some(path => path.startsWith("/api/games/gap-line")));
+    const retiredRoute = /^\/api\/games\/(?:gap-line(?:\/status)?|coverage(?:\/status)?|gap-explorer)$/;
+    assert(!phoneRequests.slice(beforeUpgrade).some(path => retiredRoute.test(path)));
     assert.equal((await phonePost("repertoires", { ...signedSave, pgn: "1. d4 *" })).code, "stale_preview");
     assert.equal((await phonePost("repertoires", { ...signedSave, dataset_id: "another-dataset" })).code, "stale_preview");
     assert.equal((await phonePost("repertoires", { ...signedSave, repertoire_id: "another-repertoire" })).code, "stale_preview");
@@ -236,10 +237,7 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
       /e4 d5 exd5 Qxd5 [^ ]+ \*/);
 
     await button("Close").click();
-    await page.getByText("Earlier estimate", { exact: true }).waitFor();
-    await page.getByLabel("Through your move").fill("3");
-    await button("Scan repertoire").click();
-    await page.getByText(/85% estimated coverage through your move 3/).waitFor();
+    assert.equal(await button("Scan repertoire").count(), 0);
     let expected = after;
     if (width === 320) {
       await ranking.first().getByRole("button", { name: "Fix response" }).click();
@@ -262,6 +260,7 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
     assert.equal(resumed.revision, original.revision);
     assert.deepEqual(facts(), expected);
     assert.equal(phoneRequests.filter(path => path === "/api/study").length, 2);
+    assert(!phoneRequests.slice(beforeUpgrade).some(path => retiredRoute.test(path)));
     assert.deepEqual(errors, []);
     console.log(`Phone Build ${width}px recovered the original installed line Save lost ${lostSave} delivery without starting a line preview.`);
   } finally {

@@ -299,32 +299,7 @@ function coverageLineReply(reply) {
   return reply;
 }
 
-function coverageReply(reply, address) {
-  if (reply.dataset_id !== address.dataset_id || reply.repertoire_id !== address.repertoire_id)
-    throw new Error("Coverage status belongs to a different repertoire.");
-  if (!["idle", "running", "complete", "failed"].includes(reply.status) || typeof reply.busy !== "boolean")
-    throw new Error("Invalid coverage status.");
-  if (reply.starting_line !== undefined && !validCoverageLine(reply.starting_line))
-    throw new Error("Invalid coverage starting line.");
-  const report = reply.report;
-  if (report && (!Number.isFinite(report.covered) || !Number.isFinite(report.unresolved) ||
-      report.covered < 0 || report.unresolved < 0 || report.covered + report.unresolved > 1.000000001))
-    throw new Error("Invalid coverage estimate.");
-  return reply;
-}
-
-export async function readCoverage(address, signal) {
-  return coverageReply(await read("/coverage/status", signal, address), address);
-}
-
-export async function startCoverage(payload, signal) {
-  const { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id, starting_line } = payload;
-  const command = { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id, starting_line };
-  return coverageReply(await request("/coverage", command, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS }), command);
-}
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
-export const startGapExplorer = (payload, signal) => request("/gap-explorer", payload, signal);
-export const readGapExplorer = signal => request("/gap-explorer", undefined, signal);
 
 export function utcDateRange(first, last, limit = 31) {
   const day = value => {

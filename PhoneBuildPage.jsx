@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { GapEditor } from "./GapEditor.jsx";
-import { RepertoireCoverage, coveragePercent, readPhoneScan } from "./RepertoireCoverage.jsx";
+import { RepertoireCoverage, coveragePercent } from "./RepertoireCoverage.jsx";
 import { gapDraft, readGaps } from "./game_commands.js";
 import { gapAddress, gapKey, readGapContinuation } from "./gap_save.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
@@ -49,8 +49,7 @@ async function loadDraft(dataset, book, offset, gap, owner) {
 function BuildWorkspace({ dataset, repertoires }) {
   const [recovery] = useState(readGapContinuation);
   const [book, setBook] = useState(() => {
-    const id = readPhoneScan(dataset)?.repertoire_id ??
-      (recovery?.gap.address.dataset_id === dataset ? recovery.gap.forecastBook : null);
+    const id = recovery?.gap.address.dataset_id === dataset ? recovery.gap.forecastBook : null;
     return repertoires.some(item => item.id === id && item.activity === "active") ? id : null;
   });
   const [activeGap, setActiveGap] = useState(recovery?.gap ?? null);
@@ -136,7 +135,7 @@ function BuildWorkspace({ dataset, repertoires }) {
   return <>
     <Surface>
       <RepertoireCoverage dataset={dataset} repertoires={repertoires} forecastBook={book} onFilter={selectBook}
-        refresh={revision} onReport={refresh} phoneBuild />
+        onStartingLineSaved={refresh} phoneBuild />
       {!repertoires.some(item => item.activity === "active") && <p>Choose an active repertoire in Tempo on your Mac to get started.</p>}
     </Surface>
     {book && <Surface>
@@ -148,7 +147,7 @@ function BuildWorkspace({ dataset, repertoires }) {
       </>}
       {!current && !editing && <p role="status">Loading coverage gaps…</p>}
       {opening && <p role="status">Opening reply…</p>}
-      {page?.gaps.length === 0 && <p>No open suggestions. Run a scan to check this repertoire.</p>}
+      {page?.gaps.length === 0 && <p>No open suggestions from saved coverage.</p>}
       {page?.gaps.length > 0 && <ol className="phone-build-gaps" start={offset + 1}>
         {page.gaps.map(gap => <li key={gapKey(gap)}>
           <div><strong>{gap.actual_san ?? "Opponent move"}</strong>

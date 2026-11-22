@@ -635,13 +635,6 @@ body {
   padding-inline-end: .4rem;
 }
 
-.gap-explorer {
-  min-width: 0;
-  padding: .75rem;
-  border: 1px solid #d9d8d0;
-  border-radius: .65rem;
-}
-
 .gap-selection {
   display: grid;
   gap: .2rem;
@@ -659,42 +652,6 @@ body {
 
 .gap-statistics summary {
   cursor: pointer;
-}
-
-.gap-moves {
-  list-style: none;
-  margin: .5rem 0;
-  padding: 0;
-}
-
-.gap-move {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .75rem;
-  text-align: start;
-  width: 100%;
-  padding: .45rem .5rem;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: .4rem;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.gap-move:hover,
-.gap-move:focus-visible {
-  border-color: #3468a1;
-}
-
-.gap-move[aria-pressed="true"] {
-  border-color: #53834a;
-  background: #53834a22;
-}
-
-.gap-token-path {
-  overflow-wrap: anywhere;
 }
 
 .gap-editor-actions {
