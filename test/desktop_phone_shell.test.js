@@ -60,7 +60,6 @@ async function shell(t, phone, { hash = "#games", responses: overrides = {}, sto
     "/api/study": { schema_version: 5, status: "empty", dataset_id: dataset, done: true,
       outstanding: 0, repertoire_remaining: 0, tactics_remaining: 0 },
     "/api/study-progress": { status: "error", message: "No progress fixture" },
-    "/api/study/presence": { status: "accepted" },
     "/api/study/relevance": { reason: "Practice fixture" },
     ...overrides,
   };
@@ -127,7 +126,6 @@ test("desktop opens a game link and browser Back returns to Study through the sh
 test("desktop opens Saved for review from Games without issuing a Study command", async t => {
   const { window, calls } = await shell(t, false, { responses: {
     "/api/study/saved-reviews": { status: "saved_reviews", rows: [], next: null },
-    "/api/study/presence": { status: "accepted" },
   } });
   const navigation = window.document.querySelector(".tempo-nav-sections");
   await window.runShell(() => navigation.querySelector('[aria-label="Study shortcuts"]').click());
@@ -197,14 +195,14 @@ test("phone keeps an active exercise free of desktop analysis and Lichess contro
   assert.equal(window.document.querySelector("h1").textContent, "Practice");
   assert.equal(window.document.querySelector('button[aria-label="Analyze in Lichess"]'), null);
   assert.equal([...window.document.querySelectorAll("button")].some(button => button.textContent === "Analyze"), false);
-  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/presence", "/api/study/relevance"].includes(call.path)));
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/relevance"].includes(call.path)));
 });
 
 test("phone ignores desktop game links and loads Build without issuing a Study command", async t => {
   const { window, calls } = await shell(t, true);
   assert.equal(window.document.querySelector("h1").textContent, "Study");
   assert.equal(window.document.querySelector('nav[aria-label="Tempo sections"]'), null);
-  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/presence"].includes(call.path)));
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress"].includes(call.path)));
   await window.runShell(() => window.dispatchEvent(new window.PopStateEvent("popstate")));
   assert.equal(window.document.querySelector("h1").textContent, "Study");
   assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);

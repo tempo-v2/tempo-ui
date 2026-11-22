@@ -72,7 +72,7 @@ function renderNavigation(page, onNavigate, navigationLocked) {
 export function DesktopApp() {
   return <div className="tempo-desktop">
     <DesktopBoardLayout>
-      <App studyPresenceSurface="desktop" initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
+      <App initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
         navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} renderNavigation={renderNavigation}
         studyCompanionSection="saved-reviews" showOriginalGameLink />
     </DesktopBoardLayout>
