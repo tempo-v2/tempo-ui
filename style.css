@@ -750,14 +750,9 @@ body {
 }
 
 .analysis-page { max-width: 98rem; margin: auto; padding: 1rem; }
-.analysis-layout { display:grid; grid-template-columns:minmax(18rem, 34rem) minmax(0,1fr); gap:1.5rem; align-items:start; }
+.analysis-layout { max-width: 34rem; }
 .analysis-layout select {max-width:100%}
 .analysis-layout fieldset {margin:1rem 0;border:1px solid #ccc;}
-.analysis-table {max-height:65vh;overflow:auto;}
-.analysis-table table {width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;}
-.analysis-table th,.analysis-table td {padding:.4rem;text-align:left;border-bottom:1px solid #ccc;}
-.analysis-table caption {text-align:left;font-size:.9rem;margin:.5rem 0;}
-@media(max-width:800px){.analysis-layout{grid-template-columns:minmax(0,1fr);}.analysis-layout>section:first-child{max-width:34rem;width:100%;}}
 
 .desktop-board-resize .desktop-board-frame {
   /* Allow room for the surrounding page controls on a short desktop. */
@@ -884,10 +879,6 @@ body {
   .review-grid {grid-template-columns:minmax(0,1fr);}
   .board-column {position:static;}
 }
-.candidate-toggle {margin-top:.5rem;text-decoration:underline;}
-.candidate-panel {margin:.7rem 0;padding:.7rem .85rem;border-left:.2rem solid var(--ui-border);background:var(--sage);}
-.candidate-panel h3:not(:first-child) {margin-top:.85rem;}
-.candidate-panel small {display:block;font-size:.8rem;color:var(--muted);margin:.3rem 0;}
 .preview-edges {margin:.65rem 0;padding:0;list-style:none;font-size:.9rem;}
 .preview-edges li {display:flex;justify-content:space-between;gap:1rem;padding:.24rem 0;border-top:1px solid var(--ui-border);}
 .library-window {font-size:.85rem;color:var(--muted);}
@@ -900,17 +891,8 @@ body {
 .review-header select {padding:.22rem .4rem;font-size:.85rem;}
 .review-board-tools,.review-board-tools form {display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;font-size:.86rem;}
 .review-board-tools input:not([type=checkbox]) {width:6rem;}
-.review-board-tools,.candidate-panel details {margin:.6rem 0;}
-.review-source {display:grid;grid-template-columns:1fr auto;gap:.15rem .4rem;padding:.3rem 0;}
-.review-source small {grid-column:1/-1;}
-.candidate-panel > small {display:block;margin:.35rem 0;}
-.review-comparison-scroll {max-width:100%;max-height:22rem;overflow:auto;margin:.5rem 0;}
-.review-comparison-scroll table {width:100%;border-collapse:collapse;font-size:.82rem;}
-.review-comparison-scroll td,.review-comparison-scroll th {padding:.25rem .3rem;border-bottom:1px solid var(--ui-border);text-align:left;white-space:nowrap;}
-.review-comparison-scroll button {border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;}
-.review-comparison-scroll th {position:sticky;top:0;background:var(--ui-surface);}
-.review-comparison-scroll button[aria-pressed=true] {background:var(--sage);}
-.review-side,.candidate-panel,.board-column {min-width:0;}
+.review-board-tools {margin:.6rem 0;}
+.review-side,.board-column {min-width:0;}
 
 .games-page > .training-header {padding:.45rem 0 1rem;border-bottom:1px solid var(--ui-border)}
 .games-page .game-title.ui-button {font-size:1.05rem;text-align:start;justify-content:start;padding-inline:.25rem}

@@ -15,7 +15,6 @@ const routes = new Set([
   "/api/games/gaps", "/api/games/gap-draft", "/api/games/gap-line", "/api/games/gap-line/status", "/api/games/gap-analysis",
   "/api/games/gap-explorer", "/api/games/detectors", "/api/games/detection",
   "/api/games/detection-result", "/api/games/tactics", "/api/games/tactics/command",
-  "/api/analysis/evidence", "/api/analysis/result",
 ]);
 const choices = {
   event: new Set(["request_start", "response_headers", "request_end", "late_response", "late_body"]),

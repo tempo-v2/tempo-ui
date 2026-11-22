@@ -157,7 +157,6 @@ test("desktop forwards an explicit Lichess launch through the analysis shell", a
   lineBoard.move("e4");
   const { window, calls } = await shell(t, false, { hash: "", responses: {
     "/api/study": practice,
-    "/api/analysis/evidence": { status: "error", message: "Fixture evidence unavailable" },
     "/api/study/analysis-context": {
       datasetId: practice.dataset_id, attemptId: practice.attempt_id,
       contentVersion: practice.content_version, revision: practice.revision,
@@ -186,6 +185,7 @@ test("desktop forwards an explicit Lichess launch through the analysis shell", a
   await window.runShell(async () => launch.click());
   assert.equal(window.document.querySelector("h1").textContent, "Analysis board");
   assert.equal(calls.filter(call => call.path === "/api/study/analysis-line").length, 1);
+  assert.equal(calls.some(call => call.path.startsWith("/api/analysis/")), false);
   assert.equal(destinations.length, 1);
   assert.match(destinations[0], /^https:\/\/lichess\.org\/analysis\/pgn\//);
   assert.equal(reserved.opener, null);

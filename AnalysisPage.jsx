@@ -3,7 +3,6 @@ import { MainBoard } from "./MainBoard.jsx";
 import { Button, IconButton, PageHeader, StatusNotice } from "@tempo-v2/core-components";
 import { PreviousIcon } from "./ControlIcons.jsx";
 import { Chess } from "chess.js";
-import { AnalysisEvidence } from "./AnalysisEvidence.jsx";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { moveArrow as shape } from "./move_evidence.js";
 import { playBoardMove } from "./board_move.js";
@@ -13,20 +12,10 @@ import { boardWithLeadIn, lineFromBoard } from "./lichess_analysis.js";
 import { usePageExitGuard } from "./page_exit_guard.js";
 
 const start = new Chess().fen();
-const colors = {
-  repertoire: "green",
-  stockfish: "blue",
-  rated: "yellow",
-  masters: "red",
-  maia: "maia",
-};
 export function AnalysisPage({ origin, onClose, interruption, renderRootLineAction, cardDetails }) {
   const root = origin.fen || start;
   const [path, setPath] = useState([]);
   const [paths, setPaths] = useState([[]]);
-  const [pins, setPins] = useState({});
-  const [overlay, setOverlay] = useState([]);
-  const [hover, setHover] = useState("");
   const [choice, setChoice] = useState(null);
   const boardInput = useRef(null);
   const draft = useMarkedLines(origin, root);
@@ -34,8 +23,6 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
   useEffect(() => {
     if (interrupted) {
       setChoice(null);
-      setHover("");
-      setOverlay([]);
     }
   }, [interrupted]);
   const { color, locked, destination } = draft;
@@ -69,8 +56,6 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
   const key = path.join(" ");
   function navigate(p) {
     setPath(p);
-    setHover("");
-    setOverlay([]);
     setChoice(null);
   }
   function play(m) {
@@ -85,16 +70,12 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
     if (!locked && discardMarkedLines()) onClose(draft.saved);
   }
   const arrows = new Map();
-  for (const { move, source } of overlay)
-    if (moves.has(move)) arrows.set(move, shape(move, colors[source]));
   if (!path.length)
     for (const [m, c] of [
       [origin.prescribedUci, "green"],
       [origin.playedUci, "red"],
     ])
       if (moves.has(m)) arrows.set(m, shape(m, c));
-  for (const m of pins[fen] || []) arrows.set(m, shape(m, "green"));
-  if (moves.has(hover)) arrows.set(hover, shape(hover, "blue"));
   const tree = useMemo(() => {
     const tree = new Map([["", { label: "Starting position" }]]);
     for (const p of paths) {
@@ -207,24 +188,6 @@ export function AnalysisPage({ origin, onClose, interruption, renderRootLineActi
             <MarkedLinesForm draft={draft} path={path} lineLabel={lineLabel} />
           )}
         </section>
-        <AnalysisEvidence
-          fen={fen}
-          bookRevision={draft.revision}
-          origin={{ ...origin, color, repertoireId: destination }}
-          moves={moves}
-          pins={pins[fen] || []}
-          togglePin={(m) =>
-            setPins({
-              ...pins,
-              [fen]: pins[fen]?.includes(m)
-                ? pins[fen].filter((x) => x !== m)
-                : [...(pins[fen] || []), m],
-            })
-          }
-          play={play}
-          hover={setHover}
-          onOverlay={setOverlay}
-        />
       </div>
       <PromotionChooser
         choice={choice}

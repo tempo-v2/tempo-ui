@@ -42,17 +42,6 @@ export function checkedExplorer(data, legal) {
   return data;
 }
 
-export function checkedMaia(data, legal) {
-  if (!record(data) || !record(data.probabilities) || !text(data.profile) ||
-      data.terminal !== (legal.size === 0)) invalid();
-  const moves = Object.entries(data.probabilities);
-  if (moves.length !== legal.size || moves.some(([move, probability]) =>
-    !legalMove(move, legal) || !Number.isFinite(probability) || probability < 0)) invalid();
-  const expected = data.terminal ? 0 : 1;
-  if (Math.abs(moves.reduce((mass, [, probability]) => mass + probability, 0) - expected) > 1e-8) invalid();
-  return data;
-}
-
 export function checkedStockfish(data, legal) {
   if (!record(data) || !text(data.engine) || !uniqueMoves(data.candidates, legal, row =>
     (Number.isSafeInteger(row.centipawns) && row.mate == null) ||
@@ -82,25 +71,6 @@ function checkedNearby(data, legal) {
         uniqueMoves(data.similar_responses[group], legal, row =>
           count(row.position_count) && row.position_count > 0))) invalid();
   return data;
-}
-
-export function checkedPositionEvidence(source, data, legal) {
-  switch (source) {
-    case "masters":
-    case "rated":
-      return checkedExplorer(data, legal);
-    case "maia":
-      return checkedMaia(data, legal);
-    case "stockfish":
-      if (typeof data?.comparison_complete !== "boolean") invalid();
-      return checkedStockfish(data, legal);
-    case "repertoire":
-      if (!Array.isArray(data?.exact) || !data.exact.every(row =>
-        record(row) && legalMove(row.uci, legal) && text(row.repertoire_id))) invalid();
-      return checkedNearby(data, legal);
-    default:
-      return invalid();
-  }
 }
 
 function checkedRecommendation(value, legal) {

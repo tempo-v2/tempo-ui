@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { checkDesktopBoardLayout, checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
 import { tacticalObservation, tacticalReport } from "./tactical_history_fixture.js";
-import { Chess } from "chess.js";
+import { reviewUrl as gameReviewUrl } from "../review_route.js";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -48,7 +48,8 @@ try {
   const {dataset_id} = await post("repertoires", {command:"list"});
   const book = {dataset_id, name:"White repertoire", learner_color:"white", pgn:"1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. d3 *"};
   const draft = await post("repertoires", {command:"preview", ...book});
-  await post("repertoires", {command:"save", ...book, token:draft.token});
+  const savedBook = await post("repertoires", {command:"save", ...book, token:draft.token});
+  const bookId = savedBook.repertoires.find(item => item.name === book.name).id;
   for (const [name, moves] of [
     ["Robin","1. e4 e5 2. Nf3 Nf6 3. Bc4 Nc6 4. d3 Bc5"],
     ["Avery","1. e4 e5 2. Nf3 Nc6 3. Bb5 a6"],
@@ -59,7 +60,11 @@ try {
   browser = await chromium.launch({channel:"chrome", headless:true});
   const page = await browser.newPage({viewport:{width:1280,height:900}});
   const errors = [];
+  const retiredCalls = [];
   page.on("pageerror", error => errors.push(error.message));
+  page.on("request", request => {
+    if (/\/api\/analysis\/(evidence|result)$/.test(request.url())) retiredCalls.push(request.url());
+  });
   const button = name => page.getByRole("button", {name,exact:true});
   const heading = name => page.getByRole("heading", {name,exact:true});
   const choose = async uci => {
@@ -151,6 +156,18 @@ try {
   await activeTab("Import").waitFor();
 
   const library = await post("games/library", {dataset_id});
+  async function openRepertoireReview(opponent) {
+    const game = library.entries.find(entry => entry.black === opponent);
+    assert(game);
+    const { source, game_id, learner, repertoires: comparisons } = game;
+    const address = { dataset_id, source, game_id, learner, repertoire_id: bookId };
+    // Restore an older explicit destination link with its recorded comparison.
+    await page.evaluate(({ url, reviewLibrary }) => {
+      window.history.pushState({ gamesTab: "library", reviewLibrary }, "", url);
+    }, { url: gameReviewUrl(address), reviewLibrary: { ...address, comparisons } });
+    await page.reload();
+    await heading("Andy vs " + opponent).waitFor();
+  }
   const game = library.entries.find(game => game.black === "River");
   assert(game);
   const observation = {...tacticalObservation(3), source:game.source, game_id:game.game_id, learner:game.learner};
@@ -200,9 +217,7 @@ try {
   await post("repertoires", {command:"save", ...secondBook, token:secondDraft.token});
   await page.reload();
   const search = page.getByLabel("Find a game");
-  const reason = page.getByLabel("First decision at import");
   await search.fill("Italian");
-  await reason.selectOption("opponent_gap");
   await page.getByText("1 game of 3", {exact:true}).waitFor();
   await button("Andy vs River").click();
   await checkDesktopBoardResize(page, "Game review board");
@@ -213,15 +228,14 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await button("← Games").click();
   assert.equal(await search.inputValue(), "Italian");
-  assert.equal(await reason.inputValue(), "opponent_gap");
-  await reason.selectOption("learner_move");
+  await search.fill("No matching learner");
   await heading("No games match these filters.").waitFor();
   await button("Clear filters").click();
   await search.fill("1.e4 e5 2.Nf3 Nf6");
   await page.getByText("1 game of 3", {exact:true}).waitFor();
   await button("Andy vs Robin").waitFor();
   await button("Clear filters").click();
-  await button("Andy vs Robin").click();
+  await openRepertoireReview("Robin");
   await page.getByRole("button", {name:/See move-order transposition/}).click();
   await page.getByText("Same position by another move order").waitFor();
   assert.match(await page.locator(".transposition").innerText(), /2\.Nf3 Nc6 3\.Bc4 Nf6/);
@@ -233,7 +247,7 @@ try {
   await button("Save selected line").click();
   await page.getByText("Saved through 4. d3 to White repertoire.").waitFor();
   await button("← Games").click();
-  await button("Andy vs Avery").click();
+  await openRepertoireReview("Avery");
   await page.getByText(/Prepared here · Bc4/).waitFor();
   async function verifyDrop(from,to,piece,removed) {
     const rect = await page.locator(".review-board cg-board").boundingBox();
@@ -274,58 +288,8 @@ try {
   await overlay.uncheck();
   await page.waitForFunction(()=>document.querySelectorAll(".review-board svg line").length === 0);
   await overlay.check();
-  const sourceCalls = [];
-  await page.route("**/api/analysis/evidence", async route => {
-    const req=route.request().postDataJSON();
-    if(req.source==="repertoire") return route.continue();
-    sourceCalls.push(req);
-    let data;
-    if(req.source==="stockfish") data={engine:"Test engine",comparison_complete:true,candidates:[
-      {uci:"f1c4",centipawns:32},{uci:"f1b5",centipawns:18},{uci:"c2c4",centipawns:2}].slice(0,req.candidate_count)};
-    if(req.source==="stockfish" && req.fen.split(" ")[1]==="b") data={engine:"Test engine",comparison_complete:true,
-      candidates:[{uci:"a7a6",centipawns:70},{uci:"g8f6",centipawns:-15}]};
-    if(req.source==="rated") data={white:5,draws:3,black:2,moves:[{uci:"f1b5",white:3,draws:1,black:2}]};
-    if(req.source==="maia") data={profile:"Rapid 1500",terminal:false,
-      probabilities:Object.fromEntries(new Chess(req.fen).moves({verbose:true}).map(({lan})=>[lan,lan==="f1c4"?.7:lan==="f1b5"?.3:0]))};
-    await route.fulfill({json:{request_id:req.request_id,fen:req.fen,source:req.source,status:"complete",data}});
-  });
-  await button("Compare candidate moves").click();
-  const table = page.getByRole("region",{name:"Move comparison"});
-  await table.getByRole("row").filter({hasText:"Bc4"}).getByRole("button",{name:"Circle Bc4"}).click();
-  await page.waitForFunction(()=>!!document.querySelector(".review-board svg circle"));
-  await table.getByText("Comparison sources and columns").click();
-  await table.getByText("+0.32",{exact:true}).waitFor();
-  const ranks = page.locator(".review-board svg");
-  await table.getByLabel("Stockfish on board").check();
-  await ranks.getByText("1/3",{exact:true}).waitFor();
-  await ranks.getByText("2",{exact:true}).waitFor();
-  assert.equal(sourceCalls.some(r=>r.source==="rated" || r.source==="maia"),false);
-  await table.getByRole("checkbox",{name:"Lichess Rapid"}).check();
-  await table.getByRole("checkbox",{name:"Maia"}).check();
-  await table.getByText("60.0% · 6",{exact:true}).waitFor();
-  await table.getByText("70.0%",{exact:true}).waitFor();
-  await table.getByRole("button",{name:"Maia",exact:true}).click();
-  assert.match(await table.locator("tbody tr").first().innerText(),/Bc4/);
-  await table.getByLabel("Stockfish lines").selectOption("1");
-  await page.waitForFunction(()=>!document.body.textContent.includes("+0.18"));
-  await table.getByText("+0.32",{exact:true}).waitFor();
-  assert(sourceCalls.some(r=>r.candidate_count===1));
-  await ranks.getByText("1",{exact:true}).waitFor();
-  assert.equal(await ranks.getByText("1/3",{exact:true}).count(),0);
-  await table.getByLabel("Move Nearby column left").click();
-  await table.getByRole("checkbox",{name:"Stockfish",exact:true}).uncheck();
-  await ranks.getByText("1",{exact:true}).waitFor({state:"detached"});
-  assert.equal(await table.getByRole("columnheader",{name:"Stockfish"}).count(),0);
-  await button("Hide candidate moves").click();
+  assert.equal(await button("Compare candidate moves").count(), 0);
   await verifyDrop([5,1],[1,5],"piece.bishop.white");
-  await button("Compare candidate moves").click();
-  await table.getByText("-0.70",{exact:true}).waitFor();
-  assert.match(await table.locator("tbody tr").first().innerText(),/a6/);
-  await table.getByLabel("Stockfish on board").check();
-  await ranks.getByText("1",{exact:true}).waitFor();
-  await button("Hide candidate moves").click();
-  await ranks.getByText("1",{exact:true}).waitFor({state:"detached"});
-  await page.unroute("**/api/analysis/evidence");
   await choose("a7a6");
   await verifyDrop([1,5],[2,6],"piece.bishop.white","piece.black.knight");
   await expectPiece(page,"c",6,"white bishop");
@@ -343,7 +307,7 @@ try {
   await expectPiece(page,"a",8,"white knight");
   assert.match(await page.locator(".branch-line").innerText(),/bxa8=N/);
   await button("← Games").click();
-  await button("Andy vs River").first().click();
+  await openRepertoireReview("River");
   await page.locator(".review-page").getByText(/Opponent played an unprepared move/).waitFor();
   await expectPiece(page, "d", 4, "black knight");
   await expectPiece(page, "c", 4, "white bishop");
@@ -406,6 +370,7 @@ try {
   await page.setViewportSize({width:375,height:812});
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth, null, {timeout:3000});
   assert.deepEqual(errors, []);
+  assert.deepEqual(retiredCalls, []);
   console.log("Passed PGN import, rendered board squares, transposition range, endpoint save, conflict, review marker and mobile resume.");
 } finally {
   await browser?.close();
