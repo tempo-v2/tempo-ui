@@ -421,6 +421,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const sameRefreshRunning = refreshing && matchesRefresh(job, pending);
   const canRetryPending = pending && !acceptedCleanup && !busy && !sameRefreshRunning &&
     (!refreshing || pending.kind === "refresh");
+  const recoverSavedImportWithoutContext = !dataset && !!contextIssue &&
+    pendingEntry?.phase === "saved" && pending?.kind === "import" &&
+    (previouslyIdentifiedDataset.current === null ||
+      previouslyIdentifiedDataset.current === pending.payload.dataset_id);
   const needsRecovery = canRetryPending || (!busy && (acceptedCleanup || recoveryStatus === "blocked"));
   const currentReport = importResult?.datasetId === dataset ? importResult : null;
   const choiceReport = currentReport?.kind === "choose" ? currentReport.report : null;
@@ -804,7 +808,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     await clearPending({ accepted: true });
   }
 
-  async function deliver(command, signal) {
+  async function deliver(command, signal, recoveryWithoutContext) {
     if (command.kind === "backfill" || command.kind === "backfill-retry") {
       const submit = command.kind === "backfill" ? startHistorical : retryHistorical;
       await submit(command.payload, signal);
@@ -819,10 +823,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
     } else if (command.kind !== "refresh") {
       const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
       const result = await submitGame(command.payload, signal);
-      if (!owns(command, signal)) return;
+      if (signal.aborted || (!recoveryWithoutContext && !owns(command, signal))) return;
       setImportResult({ datasetId: command.payload.dataset_id, kind: command.kind, report: result });
-      refreshHistory();
-      refreshEvidenceReads();
+      if (owns(command, signal)) {
+        refreshHistory();
+        refreshEvidenceReads();
+      }
       await settle(command);
     } else {
       const reply = await refreshGames(command.payload, signal);
@@ -848,20 +854,26 @@ export function GamesPage({ onStudy, onRepertoires }) {
   }, [job, pendingEntry, busy]);
 
   async function run(build, { recovering = false, needsRefreshStatus = true } = {}) {
-    if (recoveryStatus !== "ready" || !dataset || inFlight.current) return;
+    if (recoveryStatus !== "ready" || inFlight.current) return;
+    const recoveryWithoutContext = recovering && recoverSavedImportWithoutContext;
     if (recovering) {
-      if (!pending || acceptedCleanup || pending.payload.dataset_id !== dataset) return;
-    } else if (pending || refreshing || (needsRefreshStatus && (!job || jobError))) return;
+      if (!pending || acceptedCleanup ||
+          (!recoveryWithoutContext && (!dataset || pending.payload.dataset_id !== dataset))) return;
+    } else if (!dataset || pending || refreshing || (needsRefreshStatus && (!job || jobError))) return;
     const signal = lifecycle.current.signal;
     inFlight.current = true;
     setBusy(true);
     setIssue("");
     setCleanupIssue("");
     setImportResult(null);
+    const canDeliver = command => owns(command, signal) ||
+      (recoveryWithoutContext && !signal.aborted && activeDataset.current === null && command === pending &&
+        (previouslyIdentifiedDataset.current === null ||
+          previouslyIdentifiedDataset.current === command.payload.dataset_id));
     let command;
     try {
       command = await build();
-      if (!owns(command, signal)) return;
+      if (!canDeliver(command)) return;
       if (!recovering || pendingEntry.phase === "unsaved") {
         setPendingEntry({ command, phase: "unsaved" });
         try {
@@ -872,11 +884,11 @@ export function GamesPage({ onStudy, onRepertoires }) {
         }
         if (!signal.aborted) setPendingEntry({ command, phase: "saved" });
       }
-      if (owns(command, signal)) await deliver(command, signal);
+      if (canDeliver(command)) await deliver(command, signal, recoveryWithoutContext);
     } catch (error) {
-      if (!signal.aborted && dataset === activeDataset.current) {
+      if (!signal.aborted && (recoveryWithoutContext || dataset === activeDataset.current)) {
         setIssue(error.message || "Could not process these games.");
-        if (command) {
+        if (command && owns(command, signal)) {
           refreshHistory();
           refreshEvidenceReads();
           setJobRevision(revision => revision + 1);
@@ -1009,6 +1021,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
             </fieldset>
           </form>
           {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
+          {!dataset && importResult?.kind === "import" && <StatusNotice>Games import confirmed.</StatusNotice>}
           {cleanupIssue && <StatusNotice kind="error">{cleanupIssue}</StatusNotice>}
           {recoveryStatus === "blocked" && (
             <div className="actions">
@@ -1025,7 +1038,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
               {dataset && pending.payload.dataset_id !== dataset && (
                 <StatusNotice kind="error">The pending Games request belongs to a different dataset.</StatusNotice>
               )}
-              <Button disabled={!dataset || pending.payload.dataset_id !== dataset}
+              <Button disabled={!recoverSavedImportWithoutContext && (!dataset || pending.payload.dataset_id !== dataset)}
                 onClick={() => void run(() => pending, { recovering: true })}>Retry same request</Button>
               <Button onClick={() => void cleanup({ unsaved: pendingEntry.phase === "unsaved" })}>Dismiss pending request</Button>
             </div>

@@ -1404,3 +1404,36 @@ test("a transitional Coverage visit owns and cancels its catalog lookup", async 
   assert.equal(catalogSignal.aborted, true);
   assert.equal(page.count("GET /api/context"), 1);
 });
+
+for (const unavailable of ["failure", "deadline"]) {
+  test(`a saved import retries its exact request after context ${unavailable}`, async t => {
+    const payload = {
+      command_id: "saved-import", dataset_id: "saved-dataset", learner: "learner", pgn: "1. e4 1-0",
+    };
+    const pending = JSON.stringify({ kind: "import", payload });
+    let attempts = 0;
+    const page = await openGames(t, {
+      "GET /api/context": ({ signal }) => unavailable === "deadline" ? hang(signal) : failure("Unavailable"),
+      "POST /api/games/import": ({ body }) => {
+        assert.equal(body, JSON.stringify(payload));
+        if (++attempts === 1) throw new TypeError("Delivery interrupted.");
+        return response(refreshReport());
+      },
+    }, { pending });
+    await page.click("Review Games request");
+    if (unavailable === "deadline") {
+      assert.equal(page.button("Retry same request").disabled, true);
+      await page.advance(5000);
+    }
+    assert.equal(page.button("Retry same request").disabled, false);
+    await page.click("Retry same request");
+    assert.equal(page.stored(), pending);
+    assert.match(page.text(), /Delivery interrupted/);
+    await page.click("Retry same request");
+    assert.equal(page.stored(), null);
+    assert.match(page.text(), /Games import confirmed/);
+    assert.equal(page.count("POST /api/games/import"), 2);
+    assert.equal(page.button("Import games").closest("fieldset").disabled, true);
+    assert.equal(page.count("POST /api/repertoires"), 0);
+  });
+}
