@@ -1,3 +1,4 @@
+import { setIntroductionLimits } from "./study_settings_fixture.js";
 // Run from the assembled workspace after building Tempo and its UI.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -62,7 +63,6 @@ try {
     })),
   }));
   execFileSync(binary, ["init", database]);
-  execFileSync(binary, ["configure", database, "0", "2"]);
   execFileSync(binary, ["import-tactics", database, transfer]);
   tempo = spawn(binary, ["serve", database, ui, "0"], {
     env: { ...process.env, TEMPO_PHONE_ORIGIN: phoneOrigin, TEMPO_PHONE_TAILSCALE_LOGIN: login },
@@ -73,6 +73,7 @@ try {
     once(output, "line").then(([line]) => line.replace("Tempo study at ", "")),
     once(tempo, "exit").then(([code]) => { throw Error(`Tempo exited (${code})`); }),
   ]);
+  await setIntroductionLimits(local, 0, 2);
   const phoneFetch = (path, options) => new Promise((resolve, reject) => {
     const upstream = request(local + path, {
       method: options?.method,

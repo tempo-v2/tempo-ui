@@ -7,7 +7,8 @@ import { usePageExitGuard } from "./page_exit_guard.js";
 
 export function TacticSettingsPage({ onStudy }) {
   const [loaded, setLoaded] = useState(null);
-  const [limit, setLimit] = useState("");
+  const [openingLimit, setOpeningLimit] = useState("");
+  const [tacticLimit, setTacticLimit] = useState("");
   const [selection, setSelection] = useState({ mode: "any" });
   const [busy, setBusy] = useState(false);
   usePageExitGuard(busy);
@@ -27,11 +28,16 @@ export function TacticSettingsPage({ onStudy }) {
         setError(reply);
         return;
       }
-      if (reply.status !== "tactic_settings" || reply.schema_version !== 1) throw new Error("Unexpected settings reply.");
+      if (reply.status !== "tactic_settings" || reply.schema_version !== 1
+        || !Number.isSafeInteger(reply.new_openings_per_day) || reply.new_openings_per_day < 0
+        || !Number.isSafeInteger(reply.new_tactics_per_day) || reply.new_tactics_per_day < 0) {
+        throw new Error("Unexpected settings reply.");
+      }
       setLoaded(reply);
-      setLimit(String(reply.new_tactics_per_day));
+      setOpeningLimit(String(reply.new_openings_per_day));
+      setTacticLimit(String(reply.new_tactics_per_day));
       setSelection(reply.selection);
-      if (command.command === "save") notify("Tactics settings saved.");
+      if (command.command === "save") notify("Study settings saved.");
     } catch (failure) {
       setError({ message: failure.message, code: failure.code });
     } finally {
@@ -44,8 +50,8 @@ export function TacticSettingsPage({ onStudy }) {
   useEffect(() => { void load(); }, []);
 
   const selected = selection.theme_ids ?? [];
-  const validLimit = /^\d+$/.test(limit) && Number.isSafeInteger(Number(limit));
-  const canSave = validLimit && (selection.mode === "any" || selected.length > 0);
+  const validLimit = limit => /^\d+$/.test(limit) && Number.isSafeInteger(Number(limit));
+  const canSave = validLimit(openingLimit) && validLimit(tacticLimit) && (selection.mode === "any" || selected.length > 0);
   const groups = new Map();
   for (const theme of loaded?.themes ?? []) {
     if (!groups.has(theme.group)) groups.set(theme.group, []);
@@ -59,23 +65,28 @@ export function TacticSettingsPage({ onStudy }) {
       command: "save",
       dataset_id: loaded.dataset_id,
       expected_revision: loaded.revision,
-      new_tactics_per_day: Number(limit),
+      new_openings_per_day: Number(openingLimit),
+      new_tactics_per_day: Number(tacticLimit),
       selection,
     });
   }
 
   return (
     <main className="tempo-core repertoire-page">
-      <PageHeader title="Tactics settings" actions={<Button disabled={busy} onClick={onStudy}>Study</Button>} />
+      <PageHeader title="Study settings" actions={<Button disabled={busy} onClick={onStudy}>Study</Button>} />
       {error && <StatusNotice kind="error">{error.message}</StatusNotice>}
       {error && (!loaded || ["settings_conflict", "stale_dataset"].includes(error.code)) &&
         <Button disabled={busy} onClick={load}>Reload settings</Button>}
       {!loaded && busy && <p role="status">Loading settings…</p>}
       {loaded && <Surface>
         <form className="repertoire-form" onSubmit={save}>
+          <label>New opening positions per day
+            <input type="number" min="0" step="1" required value={openingLimit} disabled={busy}
+              onChange={event => setOpeningLimit(event.target.value)} />
+          </label>
           <label>New tactics per day
-            <input type="number" min="0" step="1" required value={limit} disabled={busy}
-              onChange={event => setLimit(event.target.value)} />
+            <input type="number" min="0" step="1" required value={tacticLimit} disabled={busy}
+              onChange={event => setTacticLimit(event.target.value)} />
           </label>
           <fieldset disabled={busy} className="tactic-theme-picker">
             <legend>New tactic types</legend>

@@ -99,7 +99,7 @@ export function TacticsCollectionPage({ onStudy, onCapture, onSettings }) {
       <PageHeader title="Tactics" actions={<div className="actions tactic-page-actions">
         <Button onClick={onStudy}>Study</Button>
         <Button onClick={onCapture}>Capture tactics</Button>
-        <IconButton label="Tactics settings" onClick={onSettings}><SettingsIcon /></IconButton>
+        <IconButton label="Study settings" onClick={onSettings}><SettingsIcon /></IconButton>
       </div>} />
       {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
       {target ? (
