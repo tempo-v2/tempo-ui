@@ -16,7 +16,6 @@ import { ApplicationContext } from "./application_context.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
 import { RepertoireCoverage, coveragePercent } from "./RepertoireCoverage.jsx";
 import { GapEditor } from "./GapEditor.jsx";
-import { GameDetectionPanel } from "./GameDetectionPanel.jsx";
 import { commandTacticalAnalysis } from "./tactical_history.js";
 import { TacticalHistory } from "./TacticalHistory.jsx";
 import { gapAddress, gapKey, readGapContinuation } from "./gap_save.js";
@@ -47,7 +46,6 @@ function GameResults({ groups, results, repertoires, history = false, onChoose, 
       setQueueStatus(current => ({...current, [key]: "Could not queue. Try again."}));
     }
   }
-  const [detectorRow, setDetectorRow] = useState(null);
   return (
     <ul className="game-results">
       {(groups ?? groupGames(results, history)).map(({rows, key, game, comparisons}) => {
@@ -139,18 +137,6 @@ function GameResults({ groups, results, repertoires, history = false, onChoose, 
             ))}
             <p>{result.matches} matched · {result.deviations} learner misses · {result.opponent_deviations} opponent deviations · {result.coverage_gaps} outside coverage</p>
             </div>; })}
-            {history && dataset && (
-              <>
-                <Button onClick={() => setDetectorRow(detectorRow === key ? null : key)}
-                  aria-expanded={detectorRow === key}>
-                  {detectorRow === key ? "Close detector" : "Open tactics detector"}
-                </Button>
-                {detectorRow === key && (
-                  <GameDetectionPanel key={JSON.stringify([dataset, result.source, result.game_id, result.learner])}
-                    dataset={dataset} source={result.source} gameId={result.game_id} learner={result.learner} />
-                )}
-              </>
-            )}
             </details>
           </li>
         );

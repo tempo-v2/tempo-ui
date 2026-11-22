@@ -98,20 +98,6 @@ facts. `test/tactical_history_mounted.test.js` mounts the production component
 and Core board to verify outcome presentation, source navigation, pagination,
 polling recovery, and cancellation of late replies.
 
-From the assembled workspace, build the production UI and both Tempo binaries,
-then run:
-
-```sh
-make build-ui
-cargo build --locked -p tempo --bin tempo --example game_detection_contract_host
-node tempo-ui/test/game_detection_browser.mjs \
-  target/debug/tempo target/debug/examples/game_detection_contract_host tempo-ui/dist
-```
-
-The runner uses a disposable SQLite database, Chrome, and the built UI served
-by the production host with an external fixture detector. Playwright can be
-resolved by Node or specified with `TEMPO_PLAYWRIGHT`.
-
 ## Phone Study and Build
 
 The build also emits the standalone phone Study bundle under `dist/phone`.

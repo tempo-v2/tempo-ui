@@ -1374,6 +1374,10 @@ test("plain library, replay and manual import do not request a repertoire catalo
   assert.equal(page.stored(), null);
   assert.equal(page.count("POST /api/repertoires"), 0);
   assert.equal(page.count("POST /api/study"), 0);
+  assert.doesNotMatch(page.text(), /Open tactics detector/);
+  for (const route of ["GET /api/games/detectors", "POST /api/games/detection", "POST /api/games/detection-result"]) {
+    assert.equal(page.count(route), 0);
+  }
 });
 
 test("an import for a different dataset stays pending and is never retargeted", async t => {
