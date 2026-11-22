@@ -109,6 +109,7 @@ export function createStudyController({
     if (command.command === "resume" && analysisVisit?.phase === "return" &&
         analysisVisit.returnTo === "next")
       return begin(() => ({ command: "next" }));
+    // A saved legacy allowance can still finish its Next-only continuation.
     if (
       (command.command === "acknowledge" && reply.status === "complete" && reply.activity === "teach") ||
       (command.command === "learn_more_tactics" && reply.status === "empty" && !reply.done)
@@ -244,16 +245,6 @@ export function createStudyController({
     skip: () => begin(() => attemptCommand("skip"), true),
     resumeSkipped: () => begin(() => ({ command: "resume_skipped" })),
     studyStatus: () => begin(() => ({ command: "study_status" })),
-    practiceTactics: () => begin(() => ({ command: "practice_tactics" })),
-    learnMoreTactics: () => begin(() => {
-      if (view?.status !== "empty" || !view.done || !view.can_learn_more_tactics)
-        throw new Error("Complete the required study before increasing today's tactics allowance");
-      return {
-        command: "learn_more_tactics",
-        dataset_id: view.dataset_id,
-        submission_id: string(makeSubmissionId(), "submission_id", true),
-      };
-    }, true),
     abandon: () => begin(() => attemptCommand("abandon"), true),
     retry: () =>
       busy

@@ -243,8 +243,6 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
     }),
     giveUp: run(() => controller.current.giveUp()),
     resumeSkipped: run(() => controller.current.resumeSkipped()),
-    practiceTactics: run(() => controller.current.practiceTactics()),
-    learnMoreTactics: run(() => controller.current.learnMoreTactics()),
     acknowledge: run(() => controller.current.acknowledge(guided?.uci)),
     retry: run(async () => {
       const retryingNext = controller.current.getState().retryingNext;

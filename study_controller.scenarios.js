@@ -245,13 +245,16 @@ test("lesson acknowledgement replays the reproduced move with no recall grade", 
   assert.equal(controller.getState().view.status, "ready");
 });
 
-test("an uncertain extra tactics allowance replays its exact command before asking for Next", async () => {
+test("a saved legacy allowance replays its exact command before asking for Next", async () => {
   const done = {
     schema_version: 5, status: "empty", dataset_id: "dataset-1", done: true,
     outstanding: 0, repertoire_remaining: 0, tactics_remaining: 0,
     can_practice_tactics: true, can_learn_more_tactics: true, learn_more_count: 4,
   };
-  let saved;
+  const legacy = {
+    command: "learn_more_tactics", dataset_id: "dataset-1", submission_id: "extra-allowance",
+  };
+  let saved = { pending: legacy };
   let lost = true;
   const requests = [];
   const create = () => createStudyController({
@@ -262,9 +265,8 @@ test("an uncertain extra tactics allowance replays its exact command before aski
     transport: {
       async send(command) {
         requests.push(command);
-        if (command.command === "next") return requests.length === 1 ? done : ready();
-        assert.equal(command.command, "learn_more_tactics");
-        assert.deepEqual(command, saved.pending);
+        if (command.command === "next") return ready();
+        assert.deepEqual(command, legacy);
         if (lost) {
           lost = false;
           throw new Error("allowance reply lost");
@@ -273,19 +275,16 @@ test("an uncertain extra tactics allowance replays its exact command before aski
       },
     },
     render() {},
-    makeSubmissionId: () => "extra-allowance",
+    makeSubmissionId: () => assert.fail("legacy allowance replay must preserve its identity"),
   });
   const first = create();
-  await first.start();
-  await assert.rejects(first.learnMoreTactics(), /reply lost/);
+  await assert.rejects(first.start(), /reply lost/);
   const reopened = create();
   await reopened.start();
-  assert.deepEqual(requests[1], requests[2]);
-  assert.deepEqual(requests[3], { command: "next" });
+  assert.deepEqual(requests, [legacy, legacy, { command: "next" }]);
   assert.equal(reopened.getState().view.status, "ready");
   assert.equal(saved.pending, null);
 });
-
 
 test("analysis recovery replays an uncertain concession once and reopens the accepted position without Next", async () => {
   let saved, drop = true;
