@@ -119,11 +119,11 @@ export function presentTacticExplanation(feedback) {
         shapes: [ring(hint.captured)],
       };
     case "winning_exchange": {
-      const defender = hint.defender.color === "white" ? "White" : "Black";
-      const attacker = hint.defender.color === "white" ? "Black" : "White";
+      const defendingSide = hint.defender.color === "white" ? "White" : "Black";
+      const attackingSide = hint.defender.color === "white" ? "Black" : "White";
       return {
         label: "Winning exchange",
-        text: `${attacker} has two attackers on ${piece(hint.captured)}, and only ${piece(hint.defender)} can recapture. ${attacker} still wins material if ${defender} recaptures.`,
+        text: `${attackingSide} has at least two attackers on ${piece(hint.captured)}, and only ${piece(hint.defender)} can recapture. ${attackingSide} still wins material if ${defendingSide} recaptures.`,
         shapes: [ring(hint.captured), ring(hint.defender)],
       };
     }
