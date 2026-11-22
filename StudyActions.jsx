@@ -28,7 +28,7 @@ export function studyActionButtons({ view, state, actions, reproduced, stopped, 
       others: <>
         {!teaching && <Button disabled={disabled || view.assessment !== null} onClick={actions.giveUp}>Show move</Button>}
         <Button disabled={disabled} onClick={actions.skip}>
-          {view.repertoire_context === "warmup" ? "Skip warm-up" : "Skip"}
+          Skip
         </Button>
         {stop}
       </>,

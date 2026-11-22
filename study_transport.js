@@ -11,7 +11,6 @@ export const studyTransport = {
       return await postCommand("/api/study", command, undefined, {
         ...studyMoveDetails,
         "X-Tempo-Study-Opponent-Moves": "1",
-        "X-Tempo-Study-Repertoire-Runs": "1",
         "X-Tempo-Study-Tactic-Explanation": "1",
       }, {
         timeoutMs: statusRead ? SMALL_READ_TIMEOUT_MS : SHORT_ACK_TIMEOUT_MS,

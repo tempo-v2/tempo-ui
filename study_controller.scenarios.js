@@ -443,3 +443,42 @@ test("returning to guided Study selects Next if the resumed ID is closed or belo
       view.content_version === initial.content_version));
   }
 });
+
+test("retired warm-up resolves the old command before refreshing Study", async () => {
+  const sent = [];
+  const pending = {
+    command: "answer",
+    dataset_id: "dataset-1",
+    attempt_id: "warm-up",
+    expected_revision: 0,
+    submission_id: "prior-answer",
+    answer: { uci: "e2e4" },
+  };
+  const controller = createStudyController({
+    storage: { load: () => ({ pending }), save() {} },
+    transport: {
+      async send(command) {
+        sent.push(command);
+        if (command.command === "answer") {
+          return {
+            schema_version: 5,
+            status: "error",
+            code: "retired_activity",
+            message: "Connected repertoire warm-ups have been retired.",
+            retryable: false,
+          };
+        }
+        return ready();
+      },
+    },
+    render() {},
+    makeSubmissionId: () => assert.fail("Refreshing does not allocate an answer"),
+  });
+
+  await controller.start();
+  assert.equal(controller.getState().canRetry, false);
+  assert.equal(controller.getState().refreshRequired, true);
+  await controller.refresh();
+  assert.deepEqual(sent, [pending, { command: "next" }]);
+  assert.equal(controller.getState().view.status, "ready");
+});
