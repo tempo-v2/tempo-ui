@@ -38,6 +38,9 @@ export function readTacticExplanation(value) {
       case "hanging_piece":
         object(value, ["kind", "captured"], "hanging piece");
         return { kind, captured: subject(value.captured) };
+      case "winning_exchange":
+        object(value, ["kind", "captured", "defender"], "winning exchange");
+        return { kind, captured: subject(value.captured), defender: subject(value.defender) };
       case "mating_line":
         object(value, ["kind"], "mating line");
         return { kind };
@@ -115,6 +118,15 @@ export function presentTacticExplanation(feedback) {
         text: `${move} takes ${piece(hint.captured)}. The opponent has no immediate legal recapture.`,
         shapes: [ring(hint.captured)],
       };
+    case "winning_exchange": {
+      const defendingSide = hint.defender.color === "white" ? "White" : "Black";
+      const attackingSide = hint.defender.color === "white" ? "Black" : "White";
+      return {
+        label: "Winning exchange",
+        text: `${attackingSide} has at least two attackers on ${piece(hint.captured)}, and only ${piece(hint.defender)} can recapture. If ${defendingSide} recaptures, ${attackingSide} comes out ahead in the exchange on ${hint.captured.square}.`,
+        shapes: [ring(hint.captured), ring(hint.defender)],
+      };
+    }
     case "mating_line":
       return { label: "Mating sequence", text: `${move} starts a sequence that ends in checkmate.`, shapes: [] };
     case "mate_in_one":
