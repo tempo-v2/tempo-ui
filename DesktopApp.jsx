@@ -57,7 +57,7 @@ function renderSection(page, goTo, datasetId, onTacticExcluded) {
   if (page === "tactics") return <TacticsCollectionPage onStudy={onStudy}
     onCapture={() => goTo("capture")} onSettings={() => goTo("tactic-settings")} />;
   if (page === "tactic-settings") return <TacticSettingsPage onStudy={onStudy} />;
-  if (page === "capture") return <TacticsCapturePage datasetId={datasetId} onStudy={onStudy}
+  if (page === "capture") return <TacticsCapturePage onStudy={onStudy}
     onTactics={() => goTo("tactics")} />;
 }
 

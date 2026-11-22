@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { Board, Button, PageHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { turnFromFen } from "./StudyBoard.jsx";
-import { sendRepertoireCommand } from "./repertoire_commands.js";
+import { ApplicationContext } from "./application_context.js";
 import { sendTacticCommand, tacticRecovery } from "./tactic_commands.js";
 import { LichessControl } from "./LichessControl.jsx";
 import { TacticBuilder } from "./TacticBuilder.jsx";
@@ -124,8 +124,8 @@ function CaptureRow({ row, selection, checked, onSelect, onDraft, onApply, busy 
   );
 }
 
-export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
-  const [dataset, setDataset] = useState(datasetId);
+export function TacticsCapturePage({ onStudy, onTactics }) {
+  const { datasetId: dataset, issue: contextIssue, refresh: refreshContext } = useContext(ApplicationContext);
   const [mode, setMode] = useState("import");
   const [builderKey, setBuilderKey] = useState(0);
   const [pgn, setPgn] = useState("");
@@ -147,12 +147,6 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
   usePageExitGuard(locked);
   const validRows = preview?.rows.filter(row => row.status === "valid" && !dirtyRows.includes(row.record)) ?? [];
 
-  async function loadDataset() {
-    const reply = await sendRepertoireCommand({ command: "list" });
-    if (reply.status === "error") throw new Error(reply.message);
-    setDataset(reply.dataset_id);
-  }
-
   async function runRequest(task) {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -168,9 +162,13 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
     }
   }
 
-  async function showCommandError(reply) {
+  function showCommandError(reply) {
     setIssue(reply.message);
-    if (reply.code === "stale_dataset" && !reply.retryable) await loadDataset();
+    if (reply.code === "stale_dataset" && !reply.retryable) {
+      setPreview(null);
+      setSelected([]);
+      refreshContext();
+    }
   }
 
   async function save(command, { stored = false } = {}) {
@@ -187,7 +185,7 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
     }
     if (reply.status === "error") {
       if (!reply.retryable && currentImport) setPreview(null);
-      await showCommandError(reply);
+      showCommandError(reply);
       return;
     }
     if (currentImport) {
@@ -221,6 +219,7 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
   }
 
   function saveBuiltTactic(pgn) {
+    if (!dataset) return;
     return runRequest(async () => {
       setNotice(null);
       const input = { command: "preview", dataset_id: dataset, pgn };
@@ -241,12 +240,8 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
     setIssue(null);
     try {
       const recovered = await tacticRecovery.load();
-      if (!recovered && !datasetId) await loadDataset();
       setRecovering(false);
-      if (recovered) {
-        setDataset(recovered.dataset_id);
-        await runRequest(() => save(recovered, { stored: true }));
-      }
+      if (recovered) await runRequest(() => save(recovered, { stored: true }));
     } catch (error) {
       setIssue(error.message);
     }
@@ -279,7 +274,7 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
 
   function startPreview(event) {
     event.preventDefault();
-    requestPreview({ command: "preview", dataset_id: dataset, pgn });
+    if (dataset) requestPreview({ command: "preview", dataset_id: dataset, pgn });
   }
 
   function updateSelection(selection) {
@@ -305,6 +300,11 @@ export function TacticsCapturePage({ datasetId, onStudy, onTactics }) {
         {onTactics && <Button disabled={locked} onClick={onTactics}>Tactics</Button>}
       </div>} />
       {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
+      {!dataset && !contextIssue && <p role="status">Loading Tempo data…</p>}
+      {contextIssue && <>
+        <StatusNotice kind="error">{contextIssue}</StatusNotice>
+        <Button onClick={refreshContext}>Retry connection</Button>
+      </>}
       {notice && (
         <StatusNotice>
           {notice.message}

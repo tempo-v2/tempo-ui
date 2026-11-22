@@ -11,11 +11,14 @@ const bundle = await build({
     contents: `
       import React, { act } from "react";
       import { createRoot } from "react-dom/client";
+      import { App } from "./App.jsx";
+      import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
       import { DesktopApp } from "./DesktopApp.jsx";
       import { PhoneApp } from "./PhoneApp.jsx";
       const root = createRoot(document.getElementById("root"));
-      globalThis.mountShell = phone => act(() => root.render(phone
-        ? <PhoneApp /> : <DesktopApp />));
+      globalThis.mountShell = (phone, capture) => act(() => root.render(capture
+        ? <App initialPage="capture" renderSection={() => <TacticsCapturePage />} />
+        : phone ? <PhoneApp /> : <DesktopApp />));
       globalThis.unmountShell = () => act(() => root.unmount());
       globalThis.runShell = callback => act(callback);
     `,
@@ -27,7 +30,7 @@ const bundle = await build({
 });
 const script = bundle.outputFiles.find(file => file.path.endsWith(".js")).text;
 
-async function shell(t, phone, { hash = "#games", responses: overrides = {} } = {}) {
+async function shell(t, phone, { hash = "#games", responses: overrides = {}, stored = {}, capture = false } = {}) {
   const { window } = new JSDOM('<!doctype html><div id="root"></div>', {
     url: "http://tempo.test/", runScripts: "outside-only", pretendToBeVisual: true,
   });
@@ -40,11 +43,13 @@ async function shell(t, phone, { hash = "#games", responses: overrides = {} } = 
     port2 = { postMessage: () => setImmediate(() => this.port1.onmessage()) };
   };
   window.localStorage.setItem("tempo-v2-board-sounds", "false");
+  for (const [key, value] of Object.entries(stored)) window.sessionStorage.setItem(key, JSON.stringify(value));
   if (hash) window.history.pushState(null, "", hash);
   const calls = [];
   const errors = [];
   const dataset = "shell-fixture";
   const responses = {
+    "/api/context": { status: "ready", dataset_id: dataset, schema_version: 22 },
     "/api/repertoires": { schema_version: 4, status: "repertoires", dataset_id: dataset, repertoires: [] },
     "/api/games": { results: [], last_successful_refresh_ms: null },
     "/api/games/library": { dataset_id: dataset, through: 0, next_before: null, entries: [] },
@@ -60,9 +65,12 @@ async function shell(t, phone, { hash = "#games", responses: overrides = {} } = 
     ...overrides,
   };
   window.fetch = async (path, options = {}) => {
-    calls.push({ path, command: options.body && JSON.parse(options.body) });
+    calls.push({ path, method: options.method, command: options.body && JSON.parse(options.body), raw: options.body });
     if (!Object.hasOwn(responses, path)) errors.push("Unexpected endpoint " + path);
-    return { ok: true, status: 200, json: async () => responses[path] };
+    const reply = responses[path];
+    return typeof reply === "function"
+      ? reply()
+      : { ok: true, status: 200, json: async () => reply };
   };
   window.addEventListener("error", event => errors.push(event.message));
   window.eval(script);
@@ -71,7 +79,7 @@ async function shell(t, phone, { hash = "#games", responses: overrides = {} } = 
     window.close();
     assert.deepEqual(errors, []);
   });
-  await window.mountShell(phone);
+  await window.mountShell(phone, capture);
   return { window, calls };
 }
 
@@ -189,14 +197,14 @@ test("phone keeps an active exercise free of desktop analysis and Lichess contro
   assert.equal(window.document.querySelector("h1").textContent, "Practice");
   assert.equal(window.document.querySelector('button[aria-label="Analyze in Lichess"]'), null);
   assert.equal([...window.document.querySelectorAll("button")].some(button => button.textContent === "Analyze"), false);
-  assert(calls.every(call => ["/api/study", "/api/study-progress", "/api/study/presence", "/api/study/relevance"].includes(call.path)));
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/presence", "/api/study/relevance"].includes(call.path)));
 });
 
 test("phone ignores desktop game links and loads Build without issuing a Study command", async t => {
   const { window, calls } = await shell(t, true);
   assert.equal(window.document.querySelector("h1").textContent, "Study");
   assert.equal(window.document.querySelector('nav[aria-label="Tempo sections"]'), null);
-  assert(calls.every(call => ["/api/study", "/api/study-progress", "/api/study/presence"].includes(call.path)));
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/presence"].includes(call.path)));
   await window.runShell(() => window.dispatchEvent(new window.PopStateEvent("popstate")));
   assert.equal(window.document.querySelector("h1").textContent, "Study");
   assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
@@ -207,4 +215,86 @@ test("phone ignores desktop game links and loads Build without issuing a Study c
   assert.equal(window.location.hash, "#build");
   assert.deepEqual(calls.filter(call => call.path === "/api/repertoires").map(call => call.command.command), ["list"]);
   assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
+});
+
+async function submitCapturePreview(window, pgn) {
+  const input = window.document.querySelector('input[type="file"]');
+  Object.defineProperty(input, "files", { value: [{ text: async () => pgn }] });
+  await window.runShell(() => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+  const preview = window.document.querySelector('.capture-import button[type="submit"]');
+  assert.equal(preview.disabled, false);
+  await window.runShell(() => preview.click());
+}
+
+test("Capture uses shell context with Study and Repertoire unavailable", async t => {
+  const { window, calls } = await shell(t, false, { capture: true, responses: {
+    "/api/tactics": { status: "tactics_preview", schema_version: 4, token: "preview-token", rows: [] },
+  } });
+  assert.equal(window.document.querySelector("h1").textContent, "Capture tactics");
+  await submitCapturePreview(window, "1. e4 *");
+  assert.deepEqual(calls.map(({ path, method, command }) => ({ path, method, command })), [
+    { path: "/api/context", method: "GET", command: undefined },
+    { path: "/api/tactics", method: "POST", command: { command: "preview", dataset_id: "shell-fixture", pgn: "1. e4 *" } },
+  ]);
+});
+
+const pendingCapture = {
+  command: "save", dataset_id: "old-dataset", pgn: "1. e4 *", token: "old-token", selected: [0],
+};
+const captureKey = "tempo-tactics-recovery-v4";
+
+test("Capture replays an immutable pending save even while context is unavailable", async t => {
+  const { window, calls } = await shell(t, false, { stored: { [captureKey]: pendingCapture }, responses: {
+    "/api/context": () => ({ ok: false, status: 503, json: async () =>
+      ({ status: "unavailable", code: "storage_unavailable" }) }),
+    "/api/tactics": { status: "tactics_saved", schema_version: 4, count: 1 },
+  } });
+  assert.equal(window.document.querySelector("h1").textContent, "Capture tactics");
+  assert.match(window.document.body.textContent, /Tempo storage is unavailable/);
+  assert.match(window.document.body.textContent, /One tactic saved/);
+  assert.deepEqual(calls.map(({ path }) => path).sort(), ["/api/context", "/api/tactics"]);
+  assert.equal(calls.find(({ path }) => path === "/api/tactics").raw, JSON.stringify(pendingCapture));
+  assert.equal(window.sessionStorage.getItem(captureKey), null);
+});
+
+test("An authoritative stale Capture save refreshes context without changing the old payload", async t => {
+  let gets = 0;
+  let captures = 0;
+  const { window, calls } = await shell(t, false, { stored: { [captureKey]: pendingCapture }, responses: {
+    "/api/context": () => ({ ok: true, status: 200, json: async () => ({
+      status: "ready", dataset_id: ++gets === 1 ? "old-dataset" : "new-dataset", schema_version: 22,
+    }) }),
+    "/api/tactics": () => ({ ok: true, status: 200, json: async () => ++captures === 1
+      ? { status: "error", schema_version: 4, code: "stale_dataset", message: "Dataset changed.", retryable: false }
+      : { status: "tactics_preview", schema_version: 4, token: "fresh-preview", rows: [] } }),
+  } });
+  await submitCapturePreview(window, "1. e4 *");
+  assert.deepEqual(calls.filter(({ path }) => path === "/api/tactics").map(({ command }) => command), [
+    pendingCapture, { command: "preview", dataset_id: "new-dataset", pgn: "1. e4 *" },
+  ]);
+  assert.equal(calls.filter(({ path }) => path === "/api/context").length, 2);
+  assert.equal(calls.some(({ path }) => path === "/api/repertoires" || path === "/api/study"), false);
+});
+
+test("An uncertain Capture delivery keeps the original save through context failure", async t => {
+  let saves = 0;
+  const { window, calls } = await shell(t, false, { stored: { [captureKey]: pendingCapture }, responses: {
+    "/api/context": () => ({ ok: false, status: 503, json: async () =>
+      ({ status: "unavailable", code: "storage_unavailable" }) }),
+    "/api/tactics": () => {
+      if (++saves === 1) throw new TypeError("Connection interrupted.");
+      return { ok: true, status: 200, json: async () => ({
+        status: "tactics_saved", schema_version: 4, count: 1,
+      }) };
+    },
+  } });
+  assert.equal(window.sessionStorage.getItem(captureKey), JSON.stringify(pendingCapture));
+  const retry = [...window.document.querySelectorAll("button")].find(button => button.textContent === "Retry capture");
+  assert.ok(retry);
+  await window.runShell(() => retry.click());
+  assert.deepEqual(calls.filter(({ path }) => path === "/api/tactics").map(({ raw }) => raw), [
+    JSON.stringify(pendingCapture), JSON.stringify(pendingCapture),
+  ]);
+  assert.equal(window.sessionStorage.getItem(captureKey), null);
+  assert.equal(calls.filter(({ path }) => path === "/api/context").length, 1);
 });
