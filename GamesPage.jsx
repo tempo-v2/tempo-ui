@@ -9,8 +9,8 @@ import { Button, IconButton, PageHeader, SectionHeader, StatusNotice, Surface } 
 import { NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 import {
   chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, recoverGameRefresh,
-  sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
-  readGaps, retryHistorical, startHistorical, startModel,
+  sourceNames, utcDateRange, utcDayMs, gapDraft, modelStatus,
+  readGaps, recoverHistorical, startModel,
 } from "./game_commands.js";
 import { ApplicationContext } from "./application_context.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
@@ -136,53 +136,6 @@ const departureLabels = {
   authored_endpoint: "Authored line ended",
   outside_context: "Outside authored context",
 };
-
-const utcDate = time => new Date(time).toISOString().slice(0, 10);
-
-function HistoricalImport({ job, disabled, onStart, onRetry }) {
-  const today = Math.floor(Date.now() / utcDayMs) * utcDayMs;
-  const state = job?.status;
-  const active = job?.windows?.[job.active_window];
-  return (
-    <Surface>
-      <form className="repertoire-form" onSubmit={onStart}>
-        <fieldset disabled={disabled || ["running", "paused"].includes(state)}>
-          <div className="repertoire-fields">
-            <label>Lichess account <input name="lichess" maxLength={40} defaultValue={job?.request?.lichess ?? ""} /></label>
-            <label>Chess.com account <input name="chess_com" maxLength={40} defaultValue={job?.request?.chess_com ?? ""} /></label>
-          </div>
-          <p>Accounts entered here stay recognized. Leave a provider blank to skip it for this import.</p>
-          <div className="repertoire-fields">
-            <label>First day (UTC) <input type="date" name="from" defaultValue={utcDate(today - 90 * utcDayMs)} required /></label>
-            <label>Last day (UTC) <input type="date" name="to" defaultValue={utcDate(today - utcDayMs)}
-              max={utcDate(today - utcDayMs)} required /></label>
-          </div>
-          <p>Qualifying historical misses can add new Game Agains. A later repertoire reset stops this job from adding more for that repertoire.</p>
-          <Button type="submit">Start historical backfill</Button>
-        </fieldset>
-      </form>
-      {job?.windows && (
-        <div>
-          <p role="status">{job.windows.filter(window => window.status === "complete").length} complete · {job.incomplete_windows} incomplete · {job.pending_windows} pending</p>
-          {active && <p>Processing {sourceNames[active.source]} · {active.learner} · {utcDate(active.from_ms)} to {utcDate(active.to_ms - 1)}</p>}
-          {job.error && <StatusNotice kind="error">{job.error}</StatusNotice>}
-          {(state === "incomplete" || state === "paused") &&
-            <Button disabled={disabled} onClick={onRetry}>Retry remaining windows</Button>}
-          <details>
-            <summary>Provider windows</summary>
-            <ul className="game-results">{job.windows.map(window => (
-              <li key={`${window.source}:${window.learner}:${window.from_ms}`}>
-                <strong>{sourceNames[window.source]} · {window.learner} · {utcDate(window.from_ms)} to {utcDate(window.to_ms - 1)}</strong>
-                <p>{window.status} · {window.accepted} processed of {window.received} returned{window.split && " · split after provider limit"}</p>
-                {window.notes.length > 0 && <ul>{window.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
-              </li>
-            ))}</ul>
-          </details>
-        </div>
-      )}
-    </Surface>
-  );
-}
 
 function GameReport({ report, importing, repertoires, dataset, onOpen, history }) {
   return (
@@ -356,6 +309,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [evidenceRevision, setEvidenceRevision] = useState(0);
   const [importResult, setImportResult] = useState(null);
   const [refreshResult, setRefreshResult] = useState(null);
+  const [historicalResult, setHistoricalResult] = useState(null);
   const [issue, setIssue] = useState("");
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
@@ -366,7 +320,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const activeDataset = useRef(null);
   const previouslyIdentifiedDataset = useRef(null);
   const observedRunning = useRef({ dataset: null });
-  const acknowledgedRetry = useRef(null);
   const modelAction = useRef(null);
   const inFlight = useRef(false);
   const importing = source === "pgn";
@@ -386,11 +339,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const choiceReport = currentReport?.kind === "choose" ? currentReport.report : null;
   const importReport = currentReport?.kind !== "choose" ? currentReport?.report : null;
   const confirmedRefresh = refreshResult?.datasetId === dataset ? refreshResult : null;
-  const backfillRead = evidenceFor(evidence.backfill, dataset);
   const modelRead = evidenceFor(evidence.model, dataset);
   const gapRead = evidence.gaps?.forecastBook === forecastBook
     ? evidenceFor(evidence.gaps, dataset, gapOffset) : undefined;
-  const backfill = backfillRead?.value;
   const model = modelRead?.value;
   const projection = modelRead?.projection;
   const gapPage = gapRead?.value;
@@ -413,27 +364,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     if (observedRunning.current.dataset !== dataset) observedRunning.current = { dataset };
     const activity = observedRunning.current;
     const running = value.status === "running";
-    let settled = activity[name] && !running;
-    if (name === "backfill") {
-      const hasSettlement = ["complete", "incomplete", "paused"].includes(value.status);
-      if (hasSettlement) {
-        // A Retry can advance a different window without changing the maximum attempt.
-        // Paused work may have already committed batches of a still-pending window.
-        const settlement = JSON.stringify([value.job_id, value.status, value.windows.map(window => [
-          window.source, window.learner, window.from_ms, window.to_ms, window.attempt, window.status,
-        ])]);
-        // A local Retry can commit batches and pause again between status reads.
-        const retry = acknowledgedRetry.current;
-        if (retry?.dataset === dataset && retry.jobId === value.job_id) {
-          acknowledgedRetry.current = null;
-          settled = true;
-        }
-        settled = settled || settlement !== activity.backfillSettlement;
-        activity.backfillSettlement = settlement;
-      } else {
-        settled = false;
-      }
-    }
+    const settled = activity[name] && !running;
     activity[name] = running;
     updateEvidence(name, { value, ...readChanges });
     if (settled) refreshHistory();
@@ -458,7 +389,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   useLayoutEffect(() => {
     activeDataset.current = dataset;
     if (!dataset) return;
-    if (acknowledgedRetry.current?.dataset !== dataset) acknowledgedRetry.current = null;
     if (previouslyIdentifiedDataset.current !== null && previouslyIdentifiedDataset.current !== dataset) {
       evidenceOwner.current?.abort();
       historyOwner.current?.abort();
@@ -514,16 +444,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
     const resources = [
       {
-        name: "backfill",
-        read: historicalStatus,
-        apply(value) {
-          if (value.status !== "idle" && value.request?.dataset_id !== dataset) {
-            throw new Error("Historical backfill belongs to a different dataset.");
-          }
-          observeStatus("backfill", value);
-        },
-      },
-      {
         name: "model",
         read: modelStatus,
         apply(value) {
@@ -555,7 +475,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
     function shouldPoll(resource) {
       const activity = observedRunning.current;
-      const running = activity.dataset === dataset && (activity.backfill || activity.model);
+      const running = activity.dataset === dataset && activity.model;
       return resource.failed || running || pendingProjection || (resource.name === "gaps" && refreshGaps);
     }
 
@@ -596,17 +516,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
       for (const resource of resources) clearTimeout(resource.timer);
     };
   }, [dataset, evidenceRevision, gapOffset, forecastBook]);
-
-  function beginBackfill(event) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void run(() => ({ kind: "backfill", payload: {
-      command_id: crypto.randomUUID(), dataset_id: dataset,
-      lichess: form.get("lichess").trim() || null,
-      chess_com: form.get("chess_com").trim() || null,
-      ...utcDateRange(form.get("from"), form.get("to"), 366),
-    } }));
-  }
 
   async function analyze() {
     if (!dataset || modelAction.current || model?.status === "running") return;
@@ -733,16 +642,16 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   async function deliver(command, signal, recoveryWithoutContext) {
     if (command.kind === "backfill" || command.kind === "backfill-retry") {
-      const submit = command.kind === "backfill" ? startHistorical : retryHistorical;
-      await submit(command.payload, signal);
+      const reply = await recoverHistorical(command.payload, command.kind === "backfill-retry", signal);
       if (!owns(command, signal)) return;
-      // The acknowledged historical job may be older than the current slot.
-      if (command.kind === "backfill-retry") {
-        const { dataset_id, job_id } = command.payload;
-        acknowledgedRetry.current = { dataset: dataset_id, jobId: job_id };
+      if (reply.status === "retired") {
+        setPendingEntry({ command, phase: "retired" });
+        await clearPending();
+        setIssue(reply.message);
+      } else {
+        setHistoricalResult(reply);
+        await settle(command);
       }
-      refreshEvidenceReads();
-      await settle(command);
     } else if (command.kind !== "refresh") {
       const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
       const result = await submitGame(command.payload, signal);
@@ -975,17 +884,11 @@ export function GamesPage({ onStudy, onRepertoires }) {
               history={history} repertoires={repertoires ?? []} />
           </Surface></details>
         )}
-        <details className="game-import">
-          <summary>Historical backfill{backfill && backfill.status !== "idle" ? ` · ${backfill.status}` : ""}</summary>
-          <HistoricalImport key={backfill?.job_id ?? "idle"} job={backfill}
-            disabled={!dataset || busy || commandsBlocked} onStart={beginBackfill}
-            onRetry={() => void run(() => ({ kind: "backfill-retry", payload: {
-              command_id: crypto.randomUUID(), dataset_id: dataset, job_id: backfill.job_id,
-            } }))} />
-        </details>
-        {backfillRead?.error && (
-          <StatusNotice kind="error">Historical backfill status · {backfillRead.error}
-            {" "}<Button size="compact" onClick={refreshEvidenceReads}>Retry historical status</Button>
+        {dataset && historicalResult?.datasetId === dataset && (
+          <StatusNotice kind="info">
+            Historical Games request was accepted and is archived.
+            {historicalResult.pendingWindows > 0 && ` Stopped windows: ${historicalResult.pendingWindows}.`}
+            {historicalResult.incompleteWindows > 0 && ` Incomplete windows: ${historicalResult.incompleteWindows}.`}
           </StatusNotice>
         )}
       </GamesPanel>

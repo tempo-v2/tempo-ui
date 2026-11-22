@@ -202,21 +202,34 @@ export async function reprocessGames(payload, signal) {
   return gameReport(await request("/reprocess", payload, signal));
 }
 
-export const historicalStatus = signal => read("/backfill", signal);
-
-async function acknowledgeHistorical(path, payload, jobId, signal) {
-  const reply = await request(path, payload, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS });
-  if (!jobId || !payload.dataset_id || reply?.job_id !== jobId || reply?.request?.dataset_id !== payload.dataset_id)
-    throw new Error("The historical reply belongs to a different job or dataset.");
-  if (!["running", "incomplete", "complete"].includes(reply.status))
-    throw new Error("Tempo did not acknowledge the historical request.");
-  return reply;
+export async function recoverHistorical(payload, retry, signal) {
+  const jobId = retry ? payload.job_id : payload.command_id;
+  function matches({ dataset_id, job_id, command_id }) {
+    return jobId && job_id === jobId && dataset_id === payload.dataset_id &&
+      command_id === payload.command_id;
+  }
+  let reply;
+  try {
+    reply = await request(retry ? "/backfill/retry" : "/backfill", payload, signal, {
+      expectedStatus: 200, timeoutMs: SHORT_ACK_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (error.status === 410 && error.code === "retired_feature" && error.retryable === false &&
+        matches(error.details)) return { status: "retired", message: error.message };
+    throw error;
+  }
+  if (!matches({ ...reply, dataset_id: reply?.request?.dataset_id })) {
+    throw new Error("The historical reply belongs to a different request, job, or dataset.");
+  }
+  if (reply.execution !== "retired" || !["complete", "incomplete"].includes(reply.status)) {
+    throw new Error("Tempo did not confirm the archived historical request.");
+  }
+  return {
+    status: reply.status, datasetId: payload.dataset_id,
+    pendingWindows: count(reply.pending_windows, "stopped windows"),
+    incompleteWindows: count(reply.incomplete_windows, "incomplete windows"),
+  };
 }
-
-export const startHistorical = (payload, signal) =>
-  acknowledgeHistorical("/backfill", payload, payload.command_id, signal);
-export const retryHistorical = (payload, signal) =>
-  acknowledgeHistorical("/backfill/retry", payload, payload.job_id, signal);
 
 function modelReply(reply) {
   if (!["idle", "running", "complete", "incomplete"].includes(reply?.status))

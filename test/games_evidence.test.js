@@ -89,26 +89,6 @@ const model = (status, dataset = "evidence-fixture") => ({
   status, ...(status === "idle" ? {} : { dataset_id: dataset }), profile: "Maia Rapid 1500", completed: status === "running" ? 1 : 2, total: 2,
 });
 
-const backfill = (status, jobId = "history-fixture", datasetId = "evidence-fixture") => ({
-  status,
-  job_id: jobId,
-  request: { command_id: jobId, dataset_id: datasetId },
-  active_window: status === "running" ? 0 : 1,
-  incomplete_windows: 0,
-  pending_windows: status === "running" ? 1 : 0,
-  windows: [{
-    status,
-    learner: jobId,
-    source: "lichess",
-    from_ms: Date.UTC(2026, 10, 9),
-    to_ms: Date.UTC(2026, 10, 10),
-    notes: [],
-    attempt: 0,
-    received: 1,
-    accepted: status === "running" ? 0 : 1,
-  }],
-});
-
 const gapPage = (move, more = false) => ({
   dataset_id: "evidence-fixture",
   more,
@@ -119,7 +99,6 @@ const gapPage = (move, more = false) => ({
 
 const retryLabel = "Retry evidence reads";
 const analyzeLabel = "Analyze Maia probabilities";
-const backfillLabel = "Start historical backfill";
 const gapLabel = "Fix response";
 const emptyGaps = "No confirmed opponent gaps";
 const response = (body, status = 200) => ({ status, ok: status < 400, json: async () => body });
@@ -163,7 +142,6 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
     "POST /api/repertoires": catalog,
     "GET /api/games": () => response({ results: [], last_successful_refresh_ms: null }),
     "POST /api/games/library": ({payload}) => response({dataset_id:payload.dataset_id, through:0, next_before:null, entries:[]}),
-    "GET /api/games/backfill": () => response({ status: "idle" }),
     "GET /api/games/model": () => response(model("idle")),
     "GET /api/games/gaps": () => response(gapPage()),
   };
@@ -244,103 +222,6 @@ test("model completion survives a failed gaps refresh and gaps retry after two s
   assert.equal(page.calls.length, settledReads);
 });
 
-test("historical backfill settles despite a failed Maia status read", async t => {
-  let status = "running";
-  const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(backfill(status)),
-    "GET /api/games/model": () => failure("Maia status unavailable"),
-  });
-  const historyReads = page.count("GET /api/games");
-  assert.match(page.text(), /0 complete · 0 incomplete · 1 pending/);
-  assert.equal(page.button(backfillLabel).closest("fieldset").disabled, true);
-  assert.match(page.text(), /Maia status unavailable/);
-  status = "complete";
-  await page.advance(2000);
-  assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
-  assert.equal(page.button(backfillLabel).closest("fieldset").disabled, false);
-  assert.match(page.text(), /Maia status unavailable/);
-  assert.equal(page.count("GET /api/games"), historyReads + 1);
-});
-
-test("replaying an accepted backfill request can observe completion and refresh history once", async t => {
-  let status = "running";
-  const payload = {
-    command_id: "accepted-backfill", dataset_id: "evidence-fixture",
-    lichess: "example", chess_com: null, from_ms: Date.UTC(2026, 10, 9), to_ms: Date.UTC(2026, 10, 10),
-  };
-  const pending = JSON.stringify({ kind: "backfill", payload });
-  const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(backfill(status, payload.command_id)),
-    "POST /api/games/backfill": ({ body }) => {
-      assert.equal(body, JSON.stringify(payload));
-      status = "complete";
-      return response(backfill(status, payload.command_id));
-    },
-  }, { pending });
-  assert.match(page.text(), /0 complete · 0 incomplete · 1 pending/);
-  const historyReads = page.count("GET /api/games");
-  await page.click("Retry same request");
-  assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
-  assert.equal(page.count("POST /api/games/backfill"), 1);
-  assert.equal(page.stored(), null);
-  assert.equal(page.count("GET /api/games"), historyReads + 1);
-  await page.advance(6000);
-  assert.equal(page.count("GET /api/games"), historyReads + 1);
-});
-
-test("a current backfill that finishes between acknowledgement and status read refreshes history once", async t => {
-  const payload = { command_id: "fast", dataset_id: "evidence-fixture" };
-  let started = false;
-  const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(started ? backfill("complete", "fast") : { status: "idle" }),
-    "GET /api/games": () => started ? gameHistory("fast-game") : gameHistory(),
-    "POST /api/games/backfill": () => {
-      started = true;
-      return response(backfill("running", "fast"));
-    },
-  }, { pending: JSON.stringify({ kind: "backfill", payload }) });
-  const historyReads = page.count("GET /api/games");
-  await page.click("Retry same request");
-  assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
-  assert.match(page.text(), /fast-game · [Bb]ook/);
-  assert.equal(page.stored(), null);
-  await page.advance(6000);
-  assert.equal(page.count("GET /api/games"), historyReads + 1);
-});
-
-test("historical Retry clears only an acknowledgement for the pending job and preserves current status", async t => {
-  const payload = { command_id: "retry-a", dataset_id: "evidence-fixture", job_id: "job-a" };
-  const pending = `{ "kind":"backfill-retry", "payload":${JSON.stringify(payload)} }`;
-  const replies = [
-    backfill("complete", "job-b"),
-    backfill("complete", "job-a", "different-dataset"),
-    backfill("complete", "job-a"),
-  ];
-  let holdCurrentRead = false;
-  const page = await openGames(t, {
-    "GET /api/games/backfill": ({ signal }) =>
-      holdCurrentRead ? hang(signal) : response(backfill("running", "job-b")),
-    "POST /api/games/backfill/retry": ({ body }) => {
-      assert.equal(body, JSON.stringify(payload));
-      return response(replies.shift());
-    },
-  }, { pending });
-  assert.match(page.text(), /Processing Lichess · job-b/);
-  for (let i = 0; i < 2; i++) {
-    await page.click("Retry same request");
-    assert.equal(page.stored(), pending);
-    assert.match(page.text(), /reply belongs to a different job or dataset/);
-    assert.match(page.text(), /Processing Lichess · job-b/);
-  }
-  holdCurrentRead = true;
-  const historyReads = page.count("GET /api/games");
-  await page.click("Retry same request");
-  assert.equal(page.stored(), null);
-  assert.match(page.text(), /Processing Lichess · job-b/);
-  assert.doesNotMatch(page.text(), /job-a/);
-  assert.equal(page.count("GET /api/games"), historyReads);
-});
-
 test("context timeout leaves history available and reload enables dataset-dependent actions", async t => {
   let stalled = true;
   const page = await openGames(t, {
@@ -391,26 +272,9 @@ test("history deadline includes response body consumption and recovery publishes
   assert.equal(page.button("Reload game evidence"), undefined);
 });
 
-test("historical status deadline leaves the other evidence available and recovers the running job", async t => {
-  let stalled = true;
-  const page = await openGames(t, {
-    "GET /api/games/backfill": ({ signal }) => stalled ? hang(signal) : response(backfill("running")),
-    "GET /api/games/gaps": () => response(gapPage("a7a6")),
-  });
-  assert.match(page.text(), /a6 · 1 game/);
-  await page.advance(5000);
-  assert.match(page.text(), /Historical backfill status · Tempo did not respond before the wait ended/);
-  stalled = false;
-  await page.click("Retry historical status");
-  assert.match(page.text(), /Processing Lichess · history-fixture/);
-  assert.equal(page.button("Retry historical status"), undefined);
-});
-
 test("a hung Maia read leaves other resources live and times out at five seconds", async t => {
-  let status = "running";
   let hungSignal;
   const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(backfill(status)),
     "GET /api/games/gaps": () => response(gapPage("h7h6")),
     "GET /api/games/model": ({ signal }) => {
       if (hungSignal) return response(model("complete"));
@@ -419,9 +283,7 @@ test("a hung Maia read leaves other resources live and times out at five seconds
     },
   });
   assert.match(page.text(), /h6 · 1 game/);
-  status = "complete";
   await page.advance(2000);
-  assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
   assert.equal(page.count("GET /api/games/model"), 1);
   await page.advance(2999);
   assert.equal(hungSignal.aborted, false);
@@ -477,7 +339,7 @@ test("initial gaps failure stays unknown and manual read retry preserves pending
   assert.doesNotMatch(page.text(), /Gaps temporarily unavailable/);
   assert.match(page.text(), /Maia temporarily unavailable/);
   assert.deepEqual(page.calls.slice(beforeRetry).map(call => call.endpoint).sort(), [
-    "GET /api/games/backfill", "GET /api/games/gaps", "GET /api/games/model",
+    "GET /api/games/gaps", "GET /api/games/model",
   ]);
   failModel = false;
   const beforePoll = page.calls.length;
@@ -513,13 +375,11 @@ test("paginated gaps timeout ignores a noncooperative result and retries the sam
 });
 
 test("paging aborts an old gap read and retry only reads the new page", async t => {
-  let historical = "running";
   let initialReads = 0;
   let pageReads = 0;
   let resolveOldPage;
   let unresolvedPage;
   const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(backfill(historical)),
     "GET /api/games/model": () => response(model("running")),
     "GET /api/games/gaps": () => {
       if (initialReads++ === 0) return response(gapPage("a7a6", true));
@@ -540,19 +400,17 @@ test("paging aborts an old gap read and retry only reads the new page", async t 
   assert.equal(oldRequest.signal.aborted, false);
   assert.equal(initialReads, 2);
   const historyReads = page.count("GET /api/games");
-  historical = "complete";
   await page.click("Next gaps");
   assert.equal(oldRequest.signal.aborted, true);
   assert.equal(oldRequest.signal.reason.name, "AbortError");
-  assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
   assert.match(page.text(), /Maia Rapid 1500 · running/);
-  assert.equal(page.count("GET /api/games"), historyReads + 1);
+  assert.equal(page.count("GET /api/games"), historyReads);
   assert.match(page.text(), /Next gap page unavailable/);
   assert.doesNotMatch(page.text(), /a6|No confirmed opponent gaps/);
   const beforeRetry = page.calls.length;
   await page.click(retryLabel);
   assert.deepEqual(page.calls.slice(beforeRetry).map(call => call.endpoint).sort(), [
-    "GET /api/games/backfill", "GET /api/games/model", "POST /api/games/gaps",
+    "GET /api/games/model", "POST /api/games/gaps",
   ]);
   assert.match(page.text(), /b6 · 1 game/);
   await page.flush(() => resolveOldPage(response(gapPage("a7a5"))));
@@ -579,7 +437,6 @@ test("successful background reads retain gap action errors and show optional pro
   });
   assert.match(page.text(), /Maia Rapid 1500 · running/);
   assert.doesNotMatch(page.text(), /Modeled reach/);
-  assert.match(page.text(), /Accounts entered here stay recognized\. Leave a provider blank to skip it for this import\./);
   await page.click(gapLabel);
   assert.match(page.text(), /The repertoire document changed/);
 
@@ -617,260 +474,6 @@ function gameHistory(...learners) {
   });
 }
 
-for (const replay of [true, false]) {
-  test(`first terminal historical status refreshes actual history ${replay ? "with old Retry" : "without pending work"}`, async t => {
-    const status = deferred();
-    const payload = { command_id: "retry-a", dataset_id: "evidence-fixture", job_id: "job-a" };
-    const pending = JSON.stringify({ kind: "backfill-retry", payload });
-    let completed = false;
-    const page = await openGames(t, {
-      "GET /api/games": () => completed ? gameHistory("game-from-B") : gameHistory(),
-      "GET /api/games/backfill": () => status.promise,
-      "POST /api/games/backfill/retry": ({ body }) => {
-        assert.equal(body, JSON.stringify(payload));
-        return response(backfill("complete", "job-a"));
-      },
-    }, replay ? { pending } : {});
-    assert.match(page.text(), /No games recorded yet/);
-    const reads = page.count("GET /api/games");
-    completed = true;
-    await page.flush(() => status.resolve(response(backfill("complete", "job-b"))));
-    if (replay) {
-      assert.equal(page.stored(), pending);
-      await page.click("Retry same request");
-    }
-    await page.advance(10000);
-    assert.equal(page.stored(), null);
-    assert.match(page.text(), /Lichess · job-b/);
-    assert.doesNotMatch(page.text(), /job-a/);
-    assert.match(page.text(), /game-from-B · [Bb]ook/, JSON.stringify({
-      historyBefore: reads, historyAfter: page.count("GET /api/games"),
-      status: page.count("GET /api/games/backfill"), gaps: page.count("GET /api/games/gaps"),
-      pending: page.stored(), text: page.text(),
-    }));
-    assert.equal(page.count("GET /api/games"), reads + 1);
-    assert.equal(page.count("POST /api/games/backfill/retry"), Number(replay));
-  });
-}
-
-test("foreign historical status is a recoverable read error scoped to Games", async t => {
-  const pending = JSON.stringify({ kind: "backfill-retry", payload: {
-    command_id: "retry-a", dataset_id: "evidence-fixture", job_id: "job-a",
-  } });
-  let foreign = true;
-  const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(foreign
-      ? backfill("complete", "foreign-job", "other") : { status: "idle" }),
-    "GET /api/games/gaps": () => response(gapPage("h7h6")),
-    "GET /api/games": () => gameHistory("local-game"),
-  }, { pending });
-  assert.doesNotMatch(page.text(), /foreign-job/);
-  assert.match(page.text(), /Historical backfill status · .*different dataset/);
-  assert.match(page.text(), /local-game · [Bb]ook/);
-  assert.match(page.text(), /h6 · 1 game/);
-  assert.equal(page.stored(), pending);
-  const reads = page.count("GET /api/games");
-  foreign = false;
-  await page.click("Retry historical status");
-  assert.equal(page.button("Retry historical status"), undefined);
-  assert.equal(page.count("GET /api/games"), reads);
-  assert.equal(page.stored(), pending);
-  assert.equal(page.count("POST /api/games/backfill/retry"), 0);
-});
-
-test("accepted old Retry leaves the current running job polling until its history is available", async t => {
-  let settled = false;
-  const payload = { command_id: "retry-a", dataset_id: "evidence-fixture", job_id: "job-a" };
-  const pending = JSON.stringify({ kind: "backfill-retry", payload });
-  const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(backfill(settled ? "complete" : "running", "job-b")),
-    "GET /api/games": () => settled ? gameHistory("job-b-game") : gameHistory(),
-    "POST /api/games/backfill/retry": ({ body }) => {
-      assert.equal(body, JSON.stringify(payload));
-      return response(backfill("complete", "job-a"));
-    },
-  }, { pending });
-  const reads = page.count("GET /api/games");
-  const statusReads = page.count("GET /api/games/backfill");
-  await page.click("Retry same request");
-  assert.equal(page.stored(), null);
-  assert.match(page.text(), /Processing Lichess · job-b/);
-  assert.equal(page.count("GET /api/games"), reads);
-  settled = true;
-  await page.advance(2000);
-  assert.ok(page.count("GET /api/games/backfill") >= statusReads + 2);
-  assert.match(page.text(), /job-b-game · [Bb]ook/);
-  assert.doesNotMatch(page.text(), /job-a/);
-  await page.advance(10000);
-  assert.equal(page.count("GET /api/games"), reads + 1);
-  assert.equal(page.count("POST /api/games/backfill/retry"), 1);
-});
-
-test("same historical job settles again when another window retries below the maximum attempt", async t => {
-  let retried = false;
-  let notes = [];
-  const job = () => {
-    const value = backfill("incomplete", "same-job");
-    value.incomplete_windows = 1;
-    const [window] = value.windows;
-    value.windows = [
-      { ...window, attempt: 2, status: "complete", notes },
-      { ...window, source: "pgn", attempt: retried ? 1 : 0, accepted: retried ? 1 : 0 },
-    ];
-    return value;
-  };
-  const page = await openGames(t, {
-    "GET /api/games/backfill": () => response(job()),
-    "GET /api/games/model": () => response(model("running")),
-    "GET /api/games": () => gameHistory(retried ? "second-batch" : "first-batch"),
-    "POST /api/games/backfill/retry": ({ payload }) => {
-      assert.equal(payload.job_id, "same-job");
-      retried = true;
-      return response(job());
-    },
-  });
-  assert.match(page.text(), /first-batch · [Bb]ook/);
-  const reads = page.count("GET /api/games");
-  const statusReads = page.count("GET /api/games/backfill");
-  notes = ["Changed display note"];
-  await page.advance(4000);
-  assert.ok(page.count("GET /api/games/backfill") > statusReads);
-  assert.equal(page.count("GET /api/games"), reads);
-  await page.click("Retry remaining windows");
-  assert.match(page.text(), /second-batch · [Bb]ook/);
-  assert.equal(page.count("GET /api/games"), reads + 1);
-  await page.advance(10000);
-  assert.equal(page.count("GET /api/games"), reads + 1);
-  assert.equal(page.count("POST /api/games/backfill/retry"), 1);
-});
-
-test("settled history supersedes a late response and a timed-out replacement remains retryable", async t => {
-  const status = deferred();
-  const old = deferred();
-  let oldSignal;
-  let phase = "initial";
-  const page = await openGames(t, {
-    "GET /api/games/backfill": () => status.promise,
-    "GET /api/games": ({ signal }) => {
-      if (phase === "initial") {
-        oldSignal = signal;
-        return old.promise; // The underlying transport deliberately ignores cancellation.
-      }
-      if (phase === "settled") return hang(signal);
-      return gameHistory("current-game");
-    },
-  });
-  phase = "settled";
-  await page.flush(() => status.resolve(response(backfill("complete"))));
-  assert.equal(oldSignal.aborted, true);
-  await page.flush(() => old.resolve(gameHistory("obsolete-game")));
-  assert.doesNotMatch(page.text(), /obsolete-game/);
-  await page.advance(5000);
-  assert.match(page.text(), /Tempo did not respond before the wait ended/);
-  phase = "recovered";
-  await page.click("Reload game evidence");
-  assert.match(page.text(), /current-game · [Bb]ook/);
-  assert.doesNotMatch(page.text(), /obsolete-game|Tempo did not respond before the wait ended/);
-  assert.equal(page.count("POST /api/games/backfill/retry"), 0);
-});
-
-test("paused historical work may expose durable rows before a window completes", async t => {
-  let state = "paused";
-  let later = false;
-  const page = await openGames(t, {
-    "GET /api/games/backfill": () => {
-      const value = backfill(state);
-      value.windows[0].status = "pending";
-      value.pending_windows = 1;
-      value.error = state === "paused" ? "Paused after applying a batch" : undefined;
-      return response(value);
-    },
-    "GET /api/games/model": () => response(model("running")),
-    "GET /api/games": () => gameHistory(later ? "after-resume" : "before-resume"),
-  });
-  assert.match(page.text(), /before-resume · [Bb]ook/);
-  const reads = page.count("GET /api/games");
-  await page.advance(2000);
-  assert.equal(page.count("GET /api/games"), reads);
-  state = "running";
-  await page.advance(2000);
-  later = true;
-  state = "paused";
-  await page.advance(2000);
-  assert.match(page.text(), /after-resume · [Bb]ook/);
-  await page.advance(4000);
-  assert.equal(page.count("GET /api/games"), reads + 1);
-});
-
-for (const interruptedRead of ["none", "failed", "timed out", "foreign", "cancelled"]) {
-  test(`same-tab acknowledged paused Retry refreshes history with identical status (${interruptedRead})`, async t => {
-    const paused = backfill("paused", "same-job");
-    paused.pending_windows = 1;
-    paused.windows[0] = { ...paused.windows[0], status: "pending", received: 0, accepted: 0 };
-    delete paused.active_window;
-    paused.error = "Paused after applying a batch";
-    const staleRead = deferred();
-    const ownedRead = deferred();
-    let staleSignal;
-    let retried = false;
-    let recover = false;
-    const page = await openGames(t, {
-      "GET /api/games/backfill": ({ signal }) => {
-        if (retried && !recover) {
-          if (interruptedRead === "failed") return failure("Status unavailable");
-          if (interruptedRead === "timed out") return hang(signal);
-          if (interruptedRead === "foreign") {
-            return response({ ...paused, request: { ...paused.request, dataset_id: "foreign" } });
-          }
-          if (interruptedRead === "cancelled") {
-            staleSignal = signal;
-            return staleRead.promise;
-          }
-        }
-        if (recover && interruptedRead === "cancelled") return ownedRead.promise;
-        return response(structuredClone(paused));
-      },
-      "GET /api/games/model": () => response(model("running")),
-      "GET /api/games/gaps": () => response(gapPage("a7a6", true)),
-      "POST /api/games/gaps": () => response(gapPage("h7h6")),
-      "GET /api/games": () => gameHistory(retried ? "later-48-games" : "first-24-games"),
-      "POST /api/games/backfill/retry": ({ payload }) => {
-        assert.equal(payload.job_id, "same-job");
-        assert.equal(payload.dataset_id, "evidence-fixture");
-        retried = true;
-        return response({ ...paused, status: "running", error: undefined });
-      },
-    });
-    assert.match(page.text(), /first-24-games · [Bb]ook/);
-    const reads = page.count("GET /api/games");
-    const statusReads = page.count("GET /api/games/backfill");
-    await page.click("Retry remaining windows");
-    assert.equal(page.stored(), null);
-    if (interruptedRead !== "none") {
-      if (interruptedRead === "timed out") await page.advance(5000);
-      assert.match(page.text(), /first-24-games · [Bb]ook/);
-      assert.equal(page.count("GET /api/games"), reads);
-      recover = true;
-      if (interruptedRead === "cancelled") {
-        await page.click("Next gaps");
-        assert.equal(staleSignal.aborted, true);
-        await page.flush(() => staleRead.resolve(response(structuredClone(paused))));
-        assert.equal(page.count("GET /api/games"), reads);
-        await page.flush(() => ownedRead.resolve(response(structuredClone(paused))));
-      } else {
-        await page.advance(2000);
-      }
-    }
-    assert.match(page.text(), /later-48-games · [Bb]ook/);
-    assert.doesNotMatch(page.text(), /first-24-games/);
-    assert.ok(page.button("Retry remaining windows"));
-    await page.advance(10000);
-    assert.ok(page.count("GET /api/games/backfill") > statusReads + 1);
-    assert.equal(page.count("GET /api/games"), reads + 1);
-    assert.equal(page.count("POST /api/games/backfill/retry"), 1);
-  });
-}
-
 test("changing dataset while Games reads are pending clears old rows and ignores late replies", async t => {
   const oldHistory = deferred();
   const oldStatus = deferred();
@@ -885,12 +488,12 @@ test("changing dataset while Games reads are pending clears old rows and ignores
       status: "ready", dataset_id: changed ? "next-dataset" : "evidence-fixture", schema_version: 22,
     }),
     "GET /api/games/model": () => response(model(modelState, changed ? "next-dataset" : "evidence-fixture")),
-    "GET /api/games/backfill": ({ signal }) => {
-      if (changed) return response(backfill("complete", "next-job", "next-dataset"));
+    "GET /api/games/gaps": ({ signal }) => {
+      if (changed) return response({ ...gapPage("h7h6"), dataset_id: "next-dataset" });
+      if (!oldStatusSignal && modelState === "running") return response(gapPage());
       oldStatusSignal = signal;
       return oldStatus.promise;
     },
-    "GET /api/games/gaps": () => response({ ...gapPage(), dataset_id: changed ? "next-dataset" : "evidence-fixture" }),
     "GET /api/games": ({ signal }) => {
       if (changed) return newHistory.promise;
       if (++historyReads === 1) return gameHistory("old-dataset-game");
@@ -910,12 +513,12 @@ test("changing dataset while Games reads are pending clears old rows and ignores
   assert.doesNotMatch(page.text(), /old-dataset-game/);
   await page.flush(() => {
     oldHistory.resolve(gameHistory("obsolete-game"));
-    oldStatus.resolve(response(backfill("complete", "old-job")));
+    oldStatus.resolve(response(gapPage("a7a6")));
     newHistory.resolve(gameHistory("new-dataset-game"));
   });
   assert.match(page.text(), /new-dataset-game · book/);
-  assert.match(page.text(), /Lichess · next-job/);
-  assert.doesNotMatch(page.text(), /old-dataset-game|obsolete-game|old-job|different dataset/);
+  assert.match(page.text(), /h6 · 1 game/);
+  assert.doesNotMatch(page.text(), /old-dataset-game|obsolete-game|a6 · 1 game|different dataset/);
 });
 
 for (const stall of ["fetch", "body"]) {
@@ -1402,5 +1005,69 @@ for (const unavailable of ["failure", "deadline"]) {
     assert.equal(page.count("POST /api/games/import"), 2);
     assert.equal(page.button("Import games").closest("fieldset").disabled, true);
     assert.equal(page.count("POST /api/repertoires"), 0);
+  });
+}
+
+for (const kind of ["backfill", "backfill-retry"]) {
+  const dataset_id = "evidence-fixture";
+  const job_id = "original-backfill";
+  const payload = kind === "backfill"
+    ? { command_id: job_id, dataset_id, lichess: "Original", chess_com: null,
+        from_ms: 86400000, to_ms: 172800000 }
+    : { command_id: "original-retry", dataset_id, job_id };
+  const endpoint = kind === "backfill" ? "POST /api/games/backfill" : "POST /api/games/backfill/retry";
+  const pending = JSON.stringify({ kind, payload });
+  const reply = {
+    status: "incomplete", execution: "retired", request: { dataset_id },
+    job_id, command_id: payload.command_id, pending_windows: 2, incomplete_windows: 1,
+  };
+
+  test(`legacy ${kind} readback preserves identity and explicitly stops pending windows`, async t => {
+    const page = await openGames(t, {
+      [endpoint]: ({ body }) => {
+        assert.equal(body, JSON.stringify(payload));
+        return response(reply);
+      },
+    }, { pending });
+    const historyReads = page.count("GET /api/games");
+    await page.click("Retry same request");
+    assert.equal(page.stored(), null);
+    assert.match(page.text(), /Historical Games request was accepted and is archived\. Stopped windows: 2\. Incomplete windows: 1\./);
+    assert.equal(page.count("GET /api/games"), historyReads);
+    assert.equal(page.count(endpoint), 1);
+    await page.advance(6000);
+    assert.equal(page.count("GET /api/games/backfill"), 0);
+    assert.equal(page.button("Start historical backfill"), undefined);
+    assert.equal(page.button("Retry remaining windows"), undefined);
+    assert.equal(page.button("Import games").closest("fieldset").disabled, false);
+  });
+
+  test(`legacy ${kind} keeps ambiguous responses and clears exact terminal retirement`, async t => {
+    let step = 0;
+    const retired = {
+      status: "error", code: "retired_feature", retryable: false, dataset_id, job_id,
+      command_id: payload.command_id, message: "Historical Games backfill has been retired.",
+    };
+    const page = await openGames(t, {
+      [endpoint]: ({ body }) => {
+        assert.equal(body, JSON.stringify(payload));
+        switch (++step) {
+          case 1: return failure("Storage briefly unavailable");
+          case 2: return response({ ...reply, command_id: "foreign" });
+          case 3: return response({ ...retired, job_id: "foreign" }, 410);
+          default: return response(retired, 410);
+        }
+      },
+    }, { pending });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.click("Retry same request");
+      assert.equal(page.stored(), pending);
+    }
+    await page.click("Retry same request");
+    assert.equal(page.stored(), null);
+    assert.match(page.text(), /Historical Games backfill has been retired/);
+    assert.doesNotMatch(page.text(), /request was accepted/);
+    assert.equal(page.count(endpoint), 4);
+    assert.equal(page.count("GET /api/games/backfill"), 0);
   });
 }
