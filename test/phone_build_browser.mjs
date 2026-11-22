@@ -129,6 +129,10 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
     assert.equal((await button("Build").boundingBox()).height >= 44, true);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.getByRole("combobox", { name: "Repertoire", exact: true }).selectOption(repertoire_id);
+    await button("Edit starting line").click();
+    await button("e4").click();
+    await button("Use this position").click();
+    await page.getByText(/Start coverage after · 1\.e4/).waitFor();
     await page.getByLabel("Through your move").fill("3");
     await page.getByLabel("Target probability (%)").fill("95");
     const starts = [];
@@ -146,6 +150,7 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
       await button("Retry same scan").click();
     }
     await page.getByText(/60% estimated coverage through your move 3/).waitFor();
+    assert.deepEqual(JSON.parse(starts[0]).starting_line.moves, ["e2e4"]);
     assert.equal(starts.length, lostScan === "after" ? 1 : 2);
     if (lostScan === "before") assert.equal(starts[0], starts[1]);
     const ranking = page.locator(".phone-build-gaps > li");

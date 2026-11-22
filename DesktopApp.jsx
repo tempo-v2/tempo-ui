@@ -9,6 +9,7 @@ import { RepertoiresPage } from "./RepertoiresPage.jsx";
 import { hasPendingRepertoireCommand } from "./repertoire_commands.js";
 import { readGapContinuation } from "./gap_save.js";
 import { TacticsCollectionPage } from "./TacticsCollectionPage.jsx";
+import { CoverageSettingsPage } from "./CoverageSettingsPage.jsx";
 import { TacticSettingsPage } from "./TacticSettingsPage.jsx";
 import { TacticsCapturePage } from "./TacticsCapturePage.jsx";
 import { hasPendingTacticCommand } from "./tactic_commands.js";
@@ -51,6 +52,7 @@ function renderSection(page, goTo, datasetId, onTacticExcluded) {
     onTacticExcluded={onTacticExcluded} />;
   if (page === "games") return <GamesPage onStudy={onStudy}
     onRepertoires={() => goTo("repertoires")} />;
+  if (page === "coverage-settings") return <CoverageSettingsPage onStudy={onStudy} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={onStudy} />;
   if (page === "tactics") return <TacticsCollectionPage onStudy={onStudy}
     onCapture={() => goTo("capture")} onSettings={() => goTo("tactic-settings")} />;
