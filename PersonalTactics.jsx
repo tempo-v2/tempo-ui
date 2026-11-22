@@ -236,6 +236,11 @@ export function PersonalTactics({dataset, onOpen, analysisGeneration, analysisPr
     {anchor !== undefined && <Button onClick={() => {setAnchor(undefined); setBefore(undefined); setDetail(undefined); setGeneration(undefined);}}>Back to all opportunities</Button>}
     {before !== undefined && <Button onClick={() => page(undefined)}>Newest</Button>}
     {view && <>
+      {view.simple_tactics && <section>
+        <h3>Simple tactics in your games</h3>
+        <p>Found {view.simple_tactics.found} · Missed {view.simple_tactics.missed} · Sound alternatives {view.simple_tactics.alternatives} · Unclear {view.simple_tactics.unclear}</p>
+        {view.simple_tactics.awaiting_verification > 0 && <p>{view.simple_tactics.awaiting_verification} candidate turns awaiting verification.</p>}
+      </section>}
       <LossComparison view={view}/>
       <h3>When to take a break</h3>
       <PlayingLoad title="Games earlier that day" pattern={view.prior_today}/>

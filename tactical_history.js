@@ -285,6 +285,10 @@ export async function readPersonalTactics(dataset, query, signal) {
     object(row, ["wins", "draws", "losses"], "game results");
     Object.values(row).forEach(number => count(number));
   };
+  if (value.simple_tactics !== undefined) {
+    object(value.simple_tactics, ["found", "missed", "alternatives", "unclear", "awaiting_verification"], "simple tactics");
+    Object.values(value.simple_tactics).forEach(number => count(number));
+  }
   results(value.loss_comparison.with_miss);
   results(value.loss_comparison.without_miss);
   count(value.loss_comparison.analyzed);
