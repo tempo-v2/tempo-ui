@@ -47,7 +47,7 @@ async function stop() {
 }
 
 try {
-  execFileSync(binary, ["init-practice", database]);
+  execFileSync(binary, ["init", database]);
   const origin = await start();
   const post = async (path, command) => {
     const response = await fetch(origin + "/api/" + path, {
