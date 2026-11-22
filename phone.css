@@ -58,8 +58,7 @@
 
 .phone-build .ui-button,
 .gap-editor-phone .ui-button,
-.gap-editor-phone .ui-icon-button,
-.gap-editor-phone .gap-line-moves button {
+.gap-editor-phone .ui-icon-button {
   min-height: var(--ui-control-height-touch, 44px);
 }
 
@@ -96,17 +95,6 @@
 
 .gap-editor-phone .gap-layout {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.gap-editor-phone .gap-line-moves {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: .25rem;
-}
-
-.gap-editor-phone .gap-line-moves li {
-  flex: 0 0 auto;
 }
 
 .gap-phone-evidence summary {

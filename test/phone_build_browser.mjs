@@ -1,4 +1,4 @@
-// Run from an assembled workspace with TEMPO_BINARY, TEMPO_PLAYWRIGHT and TEMPO_MAIA.
+// Set TEMPO_BINARY, TEMPO_PREVIOUS_BINARY, TEMPO_PREVIOUS_UI, TEMPO_PLAYWRIGHT and TEMPO_MAIA.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -13,6 +13,9 @@ import { Chess } from "chess.js";
 const { devices, webkit } = await import(process.env.TEMPO_PLAYWRIGHT || "playwright");
 const binary = resolve(process.env.TEMPO_BINARY || "target/release/tempo");
 const ui = resolve("tempo-ui/dist");
+assert(process.env.TEMPO_PREVIOUS_BINARY && process.env.TEMPO_PREVIOUS_UI, "Set the previous installed binary and assets.");
+const previousBinary = resolve(process.env.TEMPO_PREVIOUS_BINARY);
+const previousUi = resolve(process.env.TEMPO_PREVIOUS_UI);
 assert(process.env.TEMPO_MAIA, "Set TEMPO_MAIA to the configured Stockfish/Maia directory.");
 const authority = "tempo-build.example.ts.net:8443";
 const phoneOrigin = `https://${authority}`;
@@ -36,17 +39,20 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
   const database = join(scratch, "study.sqlite");
   let server, proxy, page;
   try {
-    execFileSync(binary, ["init", database]);
+    execFileSync(previousBinary, ["init", database]);
     await symlink(resolve(process.env.TEMPO_MAIA), join(scratch, "maia"), "dir");
-    server = spawn(binary, ["serve", database, ui, "0"], {
-      env: { ...process.env, TEMPO_PHONE_ORIGIN: phoneOrigin, TEMPO_PHONE_TAILSCALE_LOGIN: login },
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    const output = createInterface({ input: server.stdout });
-    const desktop = await Promise.race([
-      once(output, "line").then(([line]) => line.replace("Tempo study at ", "")),
-      once(server, "exit").then(([code]) => { throw Error(`Tempo exited (${code})`); }),
-    ]);
+    async function start(executable, assets) {
+      server = spawn(executable, ["serve", database, assets, "0"], {
+        env: { ...process.env, TEMPO_PHONE_ORIGIN: phoneOrigin, TEMPO_PHONE_TAILSCALE_LOGIN: login },
+        stdio: ["ignore", "pipe", "inherit"],
+      });
+      const output = createInterface({ input: server.stdout });
+      return Promise.race([
+        once(output, "line").then(([line]) => line.replace("Tempo study at ", "")),
+        once(server, "exit").then(([code]) => { throw Error(`Tempo exited (${code})`); }),
+      ]);
+    }
+    let desktop = await start(previousBinary, previousUi);
     async function post(path, command) {
       const reply = await fetch(desktop + "/api/" + path, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command),
@@ -177,11 +183,16 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
 
     const saves = [];
     let blockNext = true;
+    let acceptedReply;
     await page.route("**/api/repertoires", async route => {
       if (route.request().postDataJSON().command !== "save") return route.continue();
       saves.push(route.request().postData());
       if (saves.length !== 1) return route.continue();
-      if (lostSave === "after") assert.equal((await route.fetch()).status(), 200);
+      if (lostSave === "after") {
+        const accepted = await route.fetch();
+        assert.equal(accepted.status(), 200);
+        acceptedReply = await accepted.text();
+      }
       return route.abort();
     });
     await page.route("**/api/games/gaps", route => {
@@ -193,22 +204,27 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
     });
     await button("Save line").click();
     await button("Retry save").waitFor();
+    const beforeUpgrade = phoneRequests.length;
+    const stopped = once(server, "exit");
+    server.kill();
+    await stopped;
+    desktop = await start(binary, ui);
+    const recovered = page.waitForResponse(response => response.url().endsWith("/api/repertoires") &&
+      response.request().postDataJSON().command === "save");
     await page.reload();
+    const recoveredResponse = await recovered;
+    assert.equal(recoveredResponse.status(), 200);
+    if (acceptedReply) assert.equal(await recoveredResponse.text(), acceptedReply);
     await button("Retry loading next gap").waitFor();
     await dialog.getByText("Saved line through your move 3.", { exact: true }).waitFor();
-    let interruptPreview = width === 375;
-    await page.route("**/api/games/gap-line", async route => {
-      if (interruptPreview && route.request().postDataJSON().gap.actual_move === "c7c5") {
-        interruptPreview = false;
-        await post("repertoires", { ...address, command: "rename", name: "Renamed white opening" });
-      }
-      await route.continue();
-    });
     await button("Retry loading next gap").click();
     await dialog.getByRole("heading", { name: "Respond to 1…c5" }).waitFor();
     assert.equal(saves.length, 2);
     assert.equal(saves[0], saves[1]);
     const signedSave = JSON.parse(saves[0]);
+    assert.match(signedSave.token, /^phone-forecast-v2:/);
+    assert.equal(await button("Save line").count(), 0);
+    assert(!phoneRequests.slice(beforeUpgrade).some(path => path.startsWith("/api/games/gap-line")));
     assert.equal((await phonePost("repertoires", { ...signedSave, pgn: "1. d4 *" })).code, "stale_preview");
     assert.equal((await phonePost("repertoires", { ...signedSave, dataset_id: "another-dataset" })).code, "stale_preview");
     assert.equal((await phonePost("repertoires", { ...signedSave, repertoire_id: "another-repertoire" })).code, "stale_preview");
@@ -219,12 +235,7 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
     assert.match((await post("repertoires", { ...address, command: "read_document" })).document.pgn,
       /e4 d5 exd5 Qxd5 [^ ]+ \*/);
 
-    if (width === 375) {
-      await dialog.getByRole("button", { name: "Refresh gaps" }).click();
-      await dialog.waitFor({ state: "hidden" });
-    } else {
-      await button("Close").click();
-    }
+    await button("Close").click();
     await page.getByText("Earlier estimate", { exact: true }).waitFor();
     await page.getByLabel("Through your move").fill("3");
     await button("Scan repertoire").click();
@@ -235,7 +246,7 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
       await dialog.getByRole("heading", { name: "Respond to 1…c5" }).waitFor();
       await tapResponse(page, "g1f3");
       await dialog.getByText("Selected Nf3", { exact: true }).waitFor();
-      await button("Save response only").click();
+      await button("Save response").click();
       await dialog.waitFor({ state: "hidden" });
       expected = facts();
       assert.equal(expected[3].length, after[3].length + 1);
@@ -252,7 +263,7 @@ async function verifyPhoneBuild(browser, width, lostScan, lostSave) {
     assert.deepEqual(facts(), expected);
     assert.equal(phoneRequests.filter(path => path === "/api/study").length, 2);
     assert.deepEqual(errors, []);
-    console.log(`Phone Build ${width}px passed with scan lost ${lostScan} delivery and save lost ${lostSave} delivery.`);
+    console.log(`Phone Build ${width}px recovered the original installed line Save lost ${lostSave} delivery without starting a line preview.`);
   } finally {
     await page?.close();
     if (proxy) await new Promise(resolve => proxy.close(resolve));

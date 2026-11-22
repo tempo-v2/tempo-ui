@@ -345,6 +345,3 @@ export async function readGameReview(address, signal) {
   if (reply.status === "error") throw new Error(reply.message);
   return validateGameReview(reply, address);
 }
-
-export const startGapLine = (payload, signal) => request("/gap-line", payload, signal);
-export const readGapLine = (payload, signal) => read("/gap-line/status", signal, payload);

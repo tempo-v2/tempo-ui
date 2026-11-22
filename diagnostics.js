@@ -12,7 +12,7 @@ const routes = new Set([
   "/api/tactics-collection", "/api/games", "/api/games/library", "/api/games/review",
   "/api/games/job", "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
   "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry", "/api/games/model",
-  "/api/games/gaps", "/api/games/gap-draft", "/api/games/gap-line", "/api/games/gap-line/status",
+  "/api/games/gaps", "/api/games/gap-draft",
   "/api/games/gap-explorer",
 ]);
 const choices = {
