@@ -114,7 +114,7 @@ export function presentTacticExplanation(feedback) {
       };
     case "hanging_piece":
       return {
-        label: hint.captured.role === "pawn" ? "Pawn capture" : "Hanging piece",
+        label: hint.captured.role === "pawn" ? "Hanging pawn" : "Hanging piece",
         text: `${move} takes ${piece(hint.captured)}. The opponent has no immediate legal recapture.`,
         shapes: [ring(hint.captured)],
       };
