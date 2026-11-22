@@ -274,11 +274,31 @@ export async function readGaps(signal, offset = 0, forecastRepertoire = null) {
   return reply;
 }
 
+export function validCoverageLine(setting) {
+  return setting && Number.isSafeInteger(setting.revision) && setting.revision >= 0 &&
+    Array.isArray(setting.moves) && setting.moves.length < 40 &&
+    setting.moves.every(uci => typeof uci === "string" && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci));
+}
+
+export async function coverageStartingLine(payload, signal) {
+  const reply = await request("/coverage/starting-line", payload, signal);
+  const line = reply.line;
+  if (!validCoverageLine(reply.saved) || (line && (!Array.isArray(line.san) ||
+      !line.san.every(move => typeof move === "string") || !line.choices ||
+      Object.values(line.choices).some(move => typeof move !== "string"))) ||
+      (reply.minimum_move !== null && !Number.isInteger(reply.minimum_move))) {
+    throw new Error("Invalid coverage starting line.");
+  }
+  return reply;
+}
+
 function coverageReply(reply, address) {
   if (reply.dataset_id !== address.dataset_id || reply.repertoire_id !== address.repertoire_id)
     throw new Error("Coverage status belongs to a different repertoire.");
   if (!["idle", "running", "complete", "failed"].includes(reply.status) || typeof reply.busy !== "boolean")
     throw new Error("Invalid coverage status.");
+  if (reply.starting_line !== undefined && !validCoverageLine(reply.starting_line))
+    throw new Error("Invalid coverage starting line.");
   const report = reply.report;
   if (report && (!Number.isFinite(report.covered) || !Number.isFinite(report.unresolved) ||
       report.covered < 0 || report.unresolved < 0 || report.covered + report.unresolved > 1.000000001))
@@ -291,8 +311,8 @@ export async function readCoverage(address, signal) {
 }
 
 export async function startCoverage(payload, signal) {
-  const { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id } = payload;
-  const command = { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id };
+  const { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id, starting_line } = payload;
+  const command = { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id, starting_line };
   return coverageReply(await request("/coverage", command, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS }), command);
 }
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);

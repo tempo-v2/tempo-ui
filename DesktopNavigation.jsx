@@ -5,7 +5,7 @@ const sections = [
   { page: "study", label: "Study", href: "#", shortcuts: [{ page: "saved-reviews", label: "Saved for review" }] },
   { page: "games", label: "Games", href: gamesTabUrl("library"),
     shortcuts: gamesTabs.map(([tab, label]) => ({ page: "games", label, href: gamesTabUrl(tab) })) },
-  { page: "repertoires", label: "Repertoires" },
+  { page: "repertoires", label: "Repertoires", shortcuts: [{ page: "coverage-settings", label: "Coverage settings" }] },
   { page: "tactics", label: "Tactics", shortcuts: [
     { page: "capture", label: "Capture tactics" },
     { page: "tactic-settings", label: "Tactics settings" },

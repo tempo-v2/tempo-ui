@@ -11,6 +11,7 @@ export function gapAddress(datasetId, gap) {
   return {
     dataset_id: datasetId, repertoire_id: gap.repertoire_id, position: gap.position,
     actual_move: gap.actual_move, document_revision: gap.document_revision,
+    ...(gap.gap_kind === "forecast" && gap.forecast?.report_id ? { report_id: gap.forecast.report_id } : {}),
     ...(Object.hasOwn(gap, "gap_kind") ? { gap_kind: gap.gap_kind } : {}),
   };
 }

@@ -193,6 +193,17 @@ try {
   await page.getByText(/85% estimated coverage.*80% target/).waitFor();
   assert.equal(starts.length, 3);
   assert.equal(await button("Retry same scan").count(), 0);
+  await button("Edit starting line").click();
+  await button("e4").click();
+  await button("Use this position").click();
+  await page.getByText(/Start coverage after · 1\.e4/).waitFor();
+  await page.getByText(/Starting line changed/).waitFor();
+  const scoped = await post("games/coverage/status", address);
+  assert.deepEqual(scoped.starting_line.moves, ["e2e4"]);
+  assert.equal(scoped.stale, true);
+  await button("Scan repertoire").click();
+  await page.getByText(/85% estimated coverage.*after 1\.e4/).waitFor();
+
   if (process.env.TEMPO_MAIA) {
     function seedForecastMoves(positions) {
       const seed = new DatabaseSync(database);

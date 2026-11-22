@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { Button, StatusNotice } from "@tempo-v2/core-components";
-import { readCoverage, startCoverage } from "./game_commands.js";
+import { readCoverage, startCoverage, validCoverageLine } from "./game_commands.js";
+import { CoverageStartingLine, openingNotation } from "./CoverageStartingLine.jsx";
 
 export function coveragePercent(probability) {
   if (probability > 0 && probability < 0.001) return "<0.1%";
@@ -18,6 +19,7 @@ export function readPhoneScan(dataset) {
         typeof saved.request_id === "string" && saved.request_id &&
         Number.isInteger(saved.target_percent) && saved.target_percent >= 1 && saved.target_percent <= 100 &&
         Number.isInteger(saved.through_move) && saved.through_move >= 1 && saved.through_move <= 20 &&
+        (saved.starting_line === undefined || validCoverageLine(saved.starting_line)) &&
         (saved.prior_report_id === null || typeof saved.prior_report_id === "string")) return saved;
   } catch { /* A fresh scan still needs writable recovery storage. */ }
   return null;
@@ -28,6 +30,7 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
   const [selected, setSelected] = useState(forecastBook ?? "");
   const [restored] = useState(() => phoneBuild && readPhoneScan(dataset));
   const [target, setTarget] = useState(String(restored?.target_percent ?? 90));
+  const [scanDepth, setScanDepth] = useState(null);
   const [depth, setDepth] = useState(String(restored?.through_move ?? 8));
   const [attempt, setAttempt] = useState(() => restored && restored.repertoire_id === forecastBook
     ? { request: restored, delivery: 0, canRetry: false } : null);
@@ -44,6 +47,12 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
   const active = repertoires.filter(item => item.activity === "active");
   const repertoire = active.find(item => item.id === (phoneBuild ? forecastBook : selected));
   const current = state?.dataset_id === dataset && state?.repertoire_id === repertoire?.id ? state : null;
+
+  const depthMatches = !!scanDepth && scanDepth?.repertoire === repertoire?.id &&
+    scanDepth?.revision === current?.starting_line?.revision;
+  const minimumDepth = depthMatches ? scanDepth.minimum ?? 1 : 1;
+  const lineBlocksScan = depthMatches ? scanDepth.blocked : !!current?.starting_line?.moves.length;
+  const reportDepth = Number(depth);
 
   const request = attempt?.request;
   const delivery = attempt?.delivery;
@@ -115,14 +124,18 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
     };
   }, [dataset, repertoire?.id, refresh, request, delivery, readRetry, phoneBuild]);
 
+  const changeScanDepth = React.useCallback(next => {
+    setScanDepth({ repertoire: repertoire?.id, ...next });
+  }, [repertoire?.id]);
   function submit(event) {
     event.preventDefault();
-    if (!repertoire || !current || current.busy || attempt) return;
+    if (!repertoire || !current || current.busy || attempt || lineBlocksScan || reportDepth < minimumDepth) return;
     setIssue("");
     const request = {
       request_id: crypto.randomUUID(), dataset_id: dataset, repertoire_id: repertoire.id,
       target_percent: Number(target), through_move: Number(depth),
       prior_report_id: current.report?.request_id ?? null,
+      starting_line: current.starting_line,
     };
     if (phoneBuild) {
       try {
@@ -169,11 +182,19 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
           <input type="number" min="1" max="100" required value={target} onChange={event => setTarget(event.target.value)} />
         </label>
         <label>Through your move
-          <input type="number" min="1" max="20" required value={depth} onChange={event => setDepth(event.target.value)} />
+          <input type="number" min={minimumDepth} max="20" required value={depth} onChange={event => setDepth(event.target.value)} />
         </label>
       </div>
+      {current?.starting_line && <CoverageStartingLine key={repertoire.id} dataset={dataset}
+        repertoire={repertoire.id} setting={current.starting_line} disabled={!!attempt} onScanDepth={changeScanDepth}
+        onSaved={saved => {
+          setState(previous => previous?.repertoire_id === repertoire.id
+            ? { ...previous, starting_line: saved, stale: true } : previous);
+          setReadRetry(count => count + 1);
+          reportChanged.current();
+        }} />}
       <div className="actions">
-        <Button type="submit" disabled={!dataset || !repertoire || !current || current.busy || !!attempt}>Scan repertoire</Button>
+        <Button type="submit" disabled={!dataset || !repertoire || !current || current.busy || !!attempt || lineBlocksScan || reportDepth < minimumDepth}>Scan repertoire</Button>
         {attempt?.canRetry && <Button type="button" onClick={retry}>Retry same scan</Button>}
         {phoneBuild && readIssue && !attempt && <Button type="button" onClick={() => setReadRetry(count => count + 1)}>Retry scan status</Button>}
         {!phoneBuild && report && forecastBook !== repertoire?.id && <Button type="button" onClick={() => onFilter(repertoire.id)}>This scan</Button>}
@@ -186,10 +207,13 @@ export function RepertoireCoverage({ dataset, repertoires, forecastBook, onFilte
     {report && <div role="status">
       <p><strong>{earlier ? "Earlier estimate" : achievement}</strong> · {minimum}
         {report.unresolved > 1e-9 && ` to ${maximum}`} estimated coverage through your move {report.through_move}
+        { report.starting_san?.length > 0 && ` after ${openingNotation(report.starting_san)}`}
         { ` · ${report.target_percent}% target`}</p>
       <p>Rapid around 1500 · Explorer at {report.explorer_positions} of {report.positions} positions
         { ` · Maia at ${report.maia_positions} of ${report.positions}`}</p>
-      {current.stale && <p>Repertoire changed. Rerun the scan to update the estimate.</p>}
+      {current.stale && <p>{(report.starting_line?.revision ?? 0) !== (current.starting_line?.revision ?? 0)
+        ? "Starting line changed. Rerun the scan to update the estimate."
+        : "Repertoire changed. Rerun the scan to update the estimate."}</p>}
     </div>}
   </div>;
 }
