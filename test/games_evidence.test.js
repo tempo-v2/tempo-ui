@@ -162,7 +162,6 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
     "POST /api/repertoires": catalog,
     "GET /api/games": () => response({ results: [], last_successful_refresh_ms: null }),
     "POST /api/games/library": ({payload}) => response({dataset_id:payload.dataset_id, through:0, next_before:null, entries:[]}),
-    "POST /api/games/tactics": ({payload}) => response({schema_version:1,dataset_id:payload.dataset_id,status:"unavailable",message:"Stockfish is unavailable."}),
     "GET /api/games/job": () => response({ status: "idle" }),
     "GET /api/games/backfill": () => response({ status: "idle" }),
     "GET /api/games/model": () => response(model("idle")),
@@ -1374,8 +1373,8 @@ test("plain library, replay and manual import do not request a repertoire catalo
   assert.equal(page.stored(), null);
   assert.equal(page.count("POST /api/repertoires"), 0);
   assert.equal(page.count("POST /api/study"), 0);
-  assert.doesNotMatch(page.text(), /Open tactics detector/);
-  for (const route of ["GET /api/games/detectors", "POST /api/games/detection", "POST /api/games/detection-result"]) {
+  assert.doesNotMatch(page.text(), /Open tactics detector|Queue analysis/);
+  for (const route of ["GET /api/games/detectors", "POST /api/games/detection", "POST /api/games/detection-result", "POST /api/games/tactics", "POST /api/games/tactics/command"]) {
     assert.equal(page.count(route), 0);
   }
 });

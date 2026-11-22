@@ -1,7 +1,6 @@
 // From the assembled workspace, with TEMPO_BINARY and TEMPO_PLAYWRIGHT.
 import assert from "node:assert/strict";
 import { checkDesktopBoardLayout, checkDesktopBoardResize } from "./desktop_board_resize_browser.mjs";
-import { tacticalObservation, tacticalReport } from "./tactical_history_fixture.js";
 import { reviewUrl as gameReviewUrl } from "../review_route.js";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
@@ -63,7 +62,7 @@ try {
   const retiredCalls = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("request", request => {
-    if (/\/api\/analysis\/(evidence|result)$/.test(request.url())) retiredCalls.push(request.url());
+    if (/\/api\/(?:analysis\/(?:evidence|result)|games\/tactics(?:\/command)?|study\/presence)$/.test(request.url())) retiredCalls.push(request.url());
   });
   const button = name => page.getByRole("button", {name,exact:true});
   const heading = name => page.getByRole("heading", {name,exact:true});
@@ -168,14 +167,10 @@ try {
     await page.reload();
     await heading("Andy vs " + opponent).waitFor();
   }
-  const game = library.entries.find(game => game.black === "River");
-  assert(game);
-  const observation = {...tacticalObservation(3), source:game.source, game_id:game.game_id, learner:game.learner};
-  await page.route("**/api/games/tactics", route => route.fulfill({json:tacticalReport({dataset:dataset_id, observations:[observation]})}));
-  await navLink("Games").hover();
-  await navLink("Analysis").click();
-  await activeTab("Analysis").waitFor();
-  await button("Open source game").click();
+  await page.goto(origin + "/#games?tab=analysis");
+  await activeTab("Library").waitFor();
+  assert.equal(await tab("Analysis").count(), 0);
+  await button("Andy vs River").click();
   await heading("Andy vs River").waitFor();
   const reviewUrl = page.url();
   await navLink("Games").focus();
@@ -186,9 +181,7 @@ try {
   await legacy.getByRole("heading", { name: "Andy vs River", exact: true }).waitFor();
   await legacy.close();
   await page.goBack();
-  await activeTab("Analysis").waitFor();
-  await button("Open source game").waitFor();
-  await tab("Library").click();
+  await activeTab("Library").waitFor();
 
   await page.setViewportSize({width:390, height:650});
   await page.evaluate(() => window.scrollTo(0, 500));

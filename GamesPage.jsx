@@ -16,8 +16,6 @@ import { ApplicationContext } from "./application_context.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
 import { RepertoireCoverage, coveragePercent } from "./RepertoireCoverage.jsx";
 import { GapEditor } from "./GapEditor.jsx";
-import { commandTacticalAnalysis } from "./tactical_history.js";
-import { TacticalHistory } from "./TacticalHistory.jsx";
 import { gapAddress, gapKey, readGapContinuation } from "./gap_save.js";
 import { commandRecovery } from "./content_transport.js";
 import { DiagnosticsButton } from "./DiagnosticsButton.jsx";
@@ -36,16 +34,6 @@ function groupGames(results, history) {
 }
 
 function GameResults({ groups, results, repertoires, history = false, onChoose, dataset, onOpen }) {
-  const [queueStatus, setQueueStatus] = useState({});
-  async function enqueue(game, key) {
-    setQueueStatus(current => ({...current, [key]: "Queueing…"}));
-    try {
-      await commandTacticalAnalysis(dataset, "enqueue", {source: game.source, game_id: game.game_id, learner: game.learner});
-      setQueueStatus(current => ({...current, [key]: "Queued"}));
-    } catch {
-      setQueueStatus(current => ({...current, [key]: "Could not queue. Try again."}));
-    }
-  }
   return (
     <ul className="game-results">
       {(groups ?? groupGames(results, history)).map(({rows, key, game, comparisons}) => {
@@ -62,9 +50,6 @@ function GameResults({ groups, results, repertoires, history = false, onChoose, 
         return (
           <li key={key}>
             {onOpen && <div className="game-row"><div><Button variant="quiet" size="compact" className="game-title" onClick={() => openGame(review)}>{gameTitle}</Button>
-              {history && dataset && <Button size="compact" variant="quiet" onClick={() => enqueue(result, key)}
-                disabled={["Queued", "Queueing…"].includes(queueStatus[key])}>Queue analysis</Button>}
-              {queueStatus[key] && <span role="status">{queueStatus[key]}</span>}
               <p>{source} · {game?.color ? "Played "+game.color : result.learner}{date != null && " · " + new Date(date).toLocaleDateString(undefined, {timeZone:"UTC"})}
                 </p>
               {game && <><p className="game-opening-name">{[game.eco,game.opening].filter(Boolean).join(" · ") || "Opening moves"}</p>
@@ -269,7 +254,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [analysis, setAnalysis] = useState(null);
   const [recovery] = useState(readGapContinuation);
   const [tab, setTab] = useState(() => recovery ? "coverage" : historyTab());
-  const [analysisVisited, setAnalysisVisited] = useState(tab === "analysis");
   const [focusRequest, setFocusRequest] = useState(null);
   const [focusedTab, setFocusedTab] = useState(null);
   const learnerInput = useRef(null);
@@ -306,7 +290,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
       if (next || selected !== "coverage") cancelGapOpening();
       setReview(next);
       setTab(selected);
-      if (selected === "analysis") setAnalysisVisited(true);
     }
     if (requestedGamesTab()) sync();
     return subscribeGamesHistory(sync);
@@ -324,7 +307,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
     if (next !== "coverage") cancelGapOpening();
     replaceDesktopEntry({ ...window.history.state, gamesTab: next }, "#games");
     setTab(next);
-    if (next === "analysis") setAnalysisVisited(true);
     if (next !== tab || learner) window.scrollTo?.(0, 0);
     setFocusRequest({ tab: next, learner });
   }
@@ -1066,10 +1048,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
             {" "}<Button size="compact" onClick={refreshEvidenceReads}>Retry historical status</Button>
           </StatusNotice>
         )}
-      </GamesPanel>
-      <GamesPanel id="analysis" tab={tab}>
-        {analysisVisited && <TacticalHistory dataset={dataset} onOpen={openReview} visible={tab === "analysis" && !panelsHidden} />}
-        {!dataset && <p role="status">{contextIssue || "Loading Games…"}</p>}
       </GamesPanel>
       <GamesPanel id="library" tab={tab}>
         <Surface>
