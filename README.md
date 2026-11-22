@@ -1,9 +1,16 @@
 # Tempo UI
 
-In an assembled workspace, run `make build-ui` from its root. In a standalone
-source checkout, run `python3 -B tools/development_guard.py && npm ci && npm run build`.
-The preflight protects the managed installation before installing dependencies
-and again before building. The host serves `dist/index.html` and the bundled `dist/assets/`. The UI installs its locked Core package from `vendor/`, so a sibling Core checkout is unnecessary. The Core package contains corresponding sources and notices for the bundled board and pieces.
+In an assembled workspace, run `make build-ui` from its root. For a
+standalone UI checkout, point `TEMPO_TOOLING_DIR` at the matching Tempo
+checkout's `tools` directory. From the UI checkout, run:
+
+```sh
+python3 -B "$TEMPO_TOOLING_DIR/development_guard.py"
+npm ci && npm run build
+```
+
+The shared Tempo preflight protects the managed installation before dependency
+installation and again before building. The host serves `dist/index.html` and the bundled `dist/assets/`. The UI installs its locked Core package from `vendor/`, so a sibling Core checkout is unnecessary. The Core package contains corresponding sources and notices for the bundled board and pieces.
 
 The matched Tempo server accepts v4 JSON commands at `/api/study` and `/api/repertoires`. `study_controller.js` validates study replies, persists an exact mutation before delivery, and recovers it with the same submission ID on reload. With no pending command, the backend chooses or resumes the current durable activity.
 

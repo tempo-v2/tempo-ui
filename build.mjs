@@ -1,8 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { build } from "esbuild";
 import { copyFile, mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
-execFileSync("python3", ["-B", fileURLToPath(new URL("./tools/development_guard.py", import.meta.url))], { stdio: "inherit" });
+const tooling = process.env.TEMPO_TOOLING_DIR
+  || fileURLToPath(new URL("../tempo/tools/", import.meta.url));
+execFileSync("python3", ["-B", join(tooling, "development_guard.py")], { stdio: "inherit" });
 await rm("dist", { recursive: true, force: true });
 const chessLicense = await readFile("node_modules/chess.js/LICENSE", "utf8");
 const sounds = (await readdir("sounds")).filter(name => name.endsWith(".mp3"));
