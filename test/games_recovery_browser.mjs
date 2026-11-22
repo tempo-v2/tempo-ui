@@ -25,8 +25,6 @@ async function verifyUpgrade(acceptedUsesExternal) {
   const externalKey = pendingKey + "-external";
   const providerCalls = [];
   const connected = new Set();
-  let releaseB;
-  const heldB = new Promise(resolve => { releaseB = resolve; });
   let provider, proxy, host, browser;
 
   async function listen(server) {
@@ -48,7 +46,7 @@ async function verifyUpgrade(acceptedUsesExternal) {
         response.writeHead(404).end();
         return;
       }
-      if (providerCalls.push(request.url) === 2) await heldB;
+      providerCalls.push(request.url);
       response.writeHead(200, { "Content-Type": "application/x-ndjson" }).end();
     });
     proxy = httpServer();
@@ -245,12 +243,18 @@ async function verifyUpgrade(acceptedUsesExternal) {
 
     await stop();
     assert.equal(await start(candidate, candidateUi, env, new URL(base).port), base);
-    const { dataset_id } = acceptedCommand;
-    const laterId = "refresh-b";
-    const later = await refresh(base, { ...acceptedCommand, command_id: laterId });
-    assert.equal(later.status, 202);
-    assert.deepEqual(await later.json(), { dataset_id, command_id: laterId, status: "running" });
-    const running = await job(base, laterId, "running");
+    const retiredStatus = await fetch(base + "/api/games/job");
+    assert.equal(retiredStatus.status, 410);
+    assert.equal((await retiredStatus.json()).code, "retired_feature");
+    const changed = await refresh(base, { ...acceptedCommand, account: "different" });
+    assert.equal(changed.status, 400);
+    assert.equal((await changed.json()).code, "store_conflict");
+    const wrongDataset = await refresh(base, { ...acceptedCommand, dataset_id: "another-dataset" });
+    assert.equal(wrongDataset.status, 400);
+    assert.equal((await wrongDataset.json()).code, "stale_dataset");
+    const candidatePaths = [];
+    for (const page of [accepted, unaccepted])
+      page.on("request", request => candidatePaths.push(new URL(request.url()).pathname));
 
     await accepted.unroute(jobRoute);
     await accepted.unroute(commandRoute);
@@ -263,15 +267,7 @@ async function verifyUpgrade(acceptedUsesExternal) {
     assert.equal((await retryA).postData(), oldAccepted);
     await accepted.getByRole("heading", { name: "Recovered refresh results" }).waitFor();
     await confirmRemoved(accepted, savedAccepted);
-    await accepted.getByText("Refreshing games. You can return to Study while this runs.").waitFor();
-    assert.deepEqual(await job(base, laterId, "running"), running);
     assert.deepEqual(receipts(), acceptedRows);
-    await accepted.getByRole("tab", { name: "Library" }).click();
-    releaseB();
-    await job(base, laterId, "complete");
-    await accepted.getByRole("tab", { name: "Import" }).click();
-    await accepted.getByText("Latest refresh", { exact: true }).first().waitFor();
-    assert.equal(providerCalls.length, 2);
 
     await unaccepted.unroute(commandRoute);
     await unaccepted.reload();
@@ -279,16 +275,26 @@ async function verifyUpgrade(acceptedUsesExternal) {
     const retryC = unaccepted.waitForRequest(request => request.url().endsWith("/api/games/refresh"));
     await button(unaccepted, "Retry same request").click();
     assert.equal((await retryC).postData(), oldUnaccepted);
-    await job(base, unacceptedCommand.command_id, "complete");
+    await unaccepted.getByText("This refresh was not accepted. Remote game refresh has been retired.").waitFor();
     await confirmRemoved(unaccepted, savedUnaccepted);
-    await unaccepted.waitForFunction(() => !document.body.textContent.includes("Refreshing games."));
-    assert.deepEqual(receipts().map(row => row.id).sort(), [laterId, acceptedCommand.command_id, unacceptedCommand.command_id].sort());
-    assert.equal(providerCalls.length, 3);
+    assert.equal(await unaccepted.getByRole("heading", { name: "Recovered refresh results" }).count(), 0);
+    assert.deepEqual(receipts(), acceptedRows);
+    assert.equal(providerCalls.length, 1);
+    assert(!candidatePaths.includes("/api/games/job"));
+    await unaccepted.getByLabel("Learner name").fill("learner");
+    await unaccepted.getByLabel("Or paste PGN").fill('[White "learner"]\n[Black "opponent"]\n\n1. e4 e5 1-0');
+    await button(unaccepted, "Import games").click();
+    await unaccepted.getByRole("heading", { name: "Import results" }).waitFor();
+    await button(unaccepted, "Review game").click();
+    await unaccepted.getByRole("heading", { name: "learner vs opponent" }).waitFor();
+    assert.deepEqual(receipts().find(row => row.id === acceptedCommand.command_id), acceptedRows[0]);
+    assert(!receipts().some(row => row.id === unacceptedCommand.command_id));
+    assert.equal(providerCalls.length, 1);
+    assert(!candidatePaths.includes("/api/games/job"));
     const acceptedStorage = acceptedUsesExternal ? "IndexedDB" : "inline";
     const unacceptedStorage = acceptedUsesExternal ? "inline" : "IndexedDB";
-    console.log(`Previous client stored accepted-lost Refresh in ${acceptedStorage} and unaccepted Refresh in ${unacceptedStorage}. Candidate bytes matched, B stayed current, and each command committed once.`);
+    console.log(`Previous client stored accepted-lost Refresh in ${acceptedStorage} and unaccepted Refresh in ${unacceptedStorage}. Candidate bytes matched. The saved receipt replayed and the undelivered refresh stopped without a new receipt or provider call.`);
   } finally {
-    releaseB();
     await browser?.close();
     await stop();
     for (const socket of connected) socket.destroy();

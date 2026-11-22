@@ -15,6 +15,7 @@ const bundle = await build({
       import { ApplicationContext, useApplicationContextReader } from "./application_context.js";
       function GamesFixture() {
         const context = useApplicationContextReader();
+        globalThis.refreshGamesContext = context.refresh;
         return <ApplicationContext.Provider value={context}>
           <GamesPage onStudy={() => {}} onRepertoires={() => {}} />
         </ApplicationContext.Provider>;
@@ -162,7 +163,6 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
     "POST /api/repertoires": catalog,
     "GET /api/games": () => response({ results: [], last_successful_refresh_ms: null }),
     "POST /api/games/library": ({payload}) => response({dataset_id:payload.dataset_id, through:0, next_before:null, entries:[]}),
-    "GET /api/games/job": () => response({ status: "idle" }),
     "GET /api/games/backfill": () => response({ status: "idle" }),
     "GET /api/games/model": () => response(model("idle")),
     "GET /api/games/gaps": () => response(gapPage()),
@@ -197,11 +197,8 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
     text: () => window.document.body.textContent.replace(/\s+/g, " "),
     click: label => window.runBrowser(() => button(label).click()),
     flush: window.runBrowser,
+    refreshContext: () => window.runBrowser(window.refreshGamesContext),
     stored: () => window.sessionStorage.getItem(pendingKey),
-    submitRefresh: () => window.runBrowser(() => {
-      window.document.querySelector('input[name="learner"]').value = "learner";
-      button("Refresh games").click();
-    }),
     submitImport: pgn => window.runBrowser(() => {
       window.document.querySelector('input[name="learner"]').value = "learner";
       window.document.querySelector('textarea[name="pgn"]').value = pgn;
@@ -354,7 +351,7 @@ test("context timeout leaves history available and reload enables dataset-depend
   });
   assert.match(page.text(), /No games recorded yet/);
   assert.equal(page.button(analyzeLabel).disabled, true);
-  assert.equal(page.button("Refresh games").closest("fieldset").disabled, true);
+  assert.equal(page.button("Import games").closest("fieldset").disabled, true);
   await page.advance(4999);
   assert.equal(page.button("Reload Games"), undefined);
   await page.advance(1);
@@ -363,7 +360,7 @@ test("context timeout leaves history available and reload enables dataset-depend
   stalled = false;
   await page.click("Reload Games");
   assert.equal(page.button(analyzeLabel).disabled, false);
-  assert.equal(page.button("Refresh games").closest("fieldset").disabled, false);
+  assert.equal(page.button("Import games").closest("fieldset").disabled, false);
   assert.equal(page.button("Reload Games"), undefined);
   assert.equal(page.pollTimers(), 0);
 });
@@ -389,29 +386,9 @@ test("history deadline includes response body consumption and recovery publishes
   assert.doesNotMatch(page.text(), /Loading game evidence|Unexpected Games response/);
   stalled = false;
   await page.click("Reload game evidence");
-  assert.match(page.text(), /Last successful provider refresh/);
   assert.match(page.text(), /restored-player · [Bb]ook/);
   assert.match(page.text(), /5 matched · 0 learner misses/);
   assert.equal(page.button("Reload game evidence"), undefined);
-});
-
-test("ordinary refresh status read times out and reload recovers without replaying pending work", async t => {
-  let stalled = true;
-  const pending = '{ "kind":"refresh","payload":{"command_id":"uncertain","dataset_id":"evidence-fixture"} }';
-  const page = await openGames(t, {
-    "GET /api/games/job": ({ signal }) => stalled ? hang(signal) : response({ status: "idle" }),
-  }, { pending });
-  await page.advance(5000);
-  assert.match(page.text(), /Tempo did not respond before the wait ended/);
-  const retryStart = page.calls.length;
-  stalled = false;
-  await page.click("Reload Games");
-  assert.equal(page.stored(), pending);
-  assert.equal(page.button("Reload Games"), undefined);
-  const retryPosts = page.calls.slice(retryStart).filter(call => call.endpoint.startsWith("POST"));
-  assert.deepEqual(retryPosts.map(call => [call.endpoint, call.payload]), [
-    ["POST /api/games/library", { dataset_id:"evidence-fixture" }],
-  ]);
 });
 
 test("historical status deadline leaves the other evidence available and recovers the running job", async t => {
@@ -907,7 +884,6 @@ test("changing dataset while Games reads are pending clears old rows and ignores
     "GET /api/context": () => response({
       status: "ready", dataset_id: changed ? "next-dataset" : "evidence-fixture", schema_version: 22,
     }),
-    "GET /api/games/job": () => changed ? response({ status: "idle" }) : failure("Fixture refresh unavailable"),
     "GET /api/games/model": () => response(model(modelState, changed ? "next-dataset" : "evidence-fixture")),
     "GET /api/games/backfill": ({ signal }) => {
       if (changed) return response(backfill("complete", "next-job", "next-dataset"));
@@ -928,7 +904,7 @@ test("changing dataset while Games reads are pending clears old rows and ignores
   assert.equal(oldHistorySignal.aborted, false);
   assert.equal(oldStatusSignal.aborted, false);
   changed = true;
-  await page.click("Reload Games");
+  await page.refreshContext();
   assert.equal(oldHistorySignal.aborted, true);
   assert.equal(oldStatusSignal.aborted, true);
   assert.doesNotMatch(page.text(), /old-dataset-game/);
@@ -1022,14 +998,15 @@ function refreshJob(status, commandId = refreshPayload.command_id, datasetId = r
   };
 }
 
-test("Games persists a new Refresh before delivery even when the first storage write fails", async t => {
+test("Games persists a manual PGN import before delivery even when the first storage write fails", async t => {
+  const importEndpoint = "POST /api/games/import";
   let failSave = true;
   let savedAtDelivery;
   let storage;
   const page = await openGames(t, {
-    [refreshEndpoint]: ({ payload }) => {
+    [importEndpoint]: () => {
       savedAtDelivery = storage.getItem(pendingKey);
-      return response(refreshJob("running", payload.command_id), 202);
+      return response(refreshReport());
     },
   }, {
     setup(window) {
@@ -1042,18 +1019,18 @@ test("Games persists a new Refresh before delivery even when the first storage w
       };
     },
   });
-  await page.submitRefresh();
-  assert.equal(page.count(refreshEndpoint), 0);
+  await page.submitImport("1. e4 1-0");
+  assert.equal(page.count(importEndpoint), 0);
   assert.equal(page.stored(), null);
   assert.match(page.text(), /could not save this Games request for recovery\. Nothing was sent/);
   assert.ok(page.button("Retry same request"));
 
   failSave = false;
   await page.click("Retry same request");
-  assert.equal(page.count(refreshEndpoint), 1);
-  const sent = page.calls.find(call => call.endpoint === refreshEndpoint);
-  assert.deepEqual(JSON.parse(savedAtDelivery), { kind: "refresh", payload: sent.payload });
-  assert.equal(page.stored(), savedAtDelivery);
+  assert.equal(page.count(importEndpoint), 1);
+  const sent = page.calls.find(call => call.endpoint === importEndpoint);
+  assert.deepEqual(JSON.parse(savedAtDelivery), { kind: "import", payload: sent.payload });
+  assert.equal(page.stored(), null);
 });
 
 test("Games rereads recovery storage after a corrupt envelope and blocks mutations until it succeeds", async t => {
@@ -1068,7 +1045,7 @@ test("Games rereads recovery storage after a corrupt envelope and blocks mutatio
     setup(window) { storage = window.sessionStorage; },
   });
   assert.match(page.text(), /could not read the pending Games request/);
-  await page.submitRefresh();
+  await page.submitImport("1. e4 1-0");
   assert.equal(page.count(refreshEndpoint), 0);
   await page.click("Retry recovery");
   assert.match(page.text(), /could not read the pending Games request/);
@@ -1169,7 +1146,7 @@ test("Games reloads a previous IndexedDB envelope after an unavailable recovery 
     },
   });
   assert.match(page.text(), /could not read the pending Games request/);
-  await page.submitRefresh();
+  await page.submitImport("1. e4 1-0");
   assert.equal(page.count(refreshEndpoint), 0);
   state.failOpen = false;
   await page.click("Retry recovery");
@@ -1208,47 +1185,39 @@ test("Games retries accepted cleanup without resending, then detaches a blob eve
   assert.match(page.text(), /Report for refresh-a/);
   assert.match(page.text(), /unused storage could not be removed/);
   assert.equal(page.button("Retry cleanup"), undefined);
-  assert.equal(page.button("Refresh games").closest("fieldset").disabled, false);
+  assert.equal(page.button("Import games").closest("fieldset").disabled, false);
   assert.equal(page.count(refreshEndpoint), 1);
 });
 
-test("addressed Refresh replay resolves A while the running B slot keeps polling", async t => {
-  let current = "running";
+test("accepted legacy Refresh recovers exactly, and Games reads no job status", async t => {
   const page = await openGames(t, {
-    "GET /api/games/job": () => response(refreshJob(current, "refresh-b")),
     [refreshEndpoint]: ({ body }) => {
       assert.equal(body, JSON.stringify(refreshPayload));
       return response(refreshJob("complete"), 202);
     },
   }, { pending: savedRefreshBytes });
-  assert.match(page.text(), /Refreshing games/);
-  assert.equal(page.button("Refresh games").closest("fieldset").disabled, true);
+  assert.equal(page.button("Import games").closest("fieldset").disabled, true);
   await page.click("Retry same request");
   assert.equal(page.stored(), null);
   assert.match(page.text(), /Recovered refresh results.*Report for refresh-a/);
-  assert.doesNotMatch(page.text(), /Import results|Report for refresh-b/);
-  assert.match(page.text(), /Refreshing games/);
-
-  current = "complete";
-  await page.advance(1000);
-  assert.match(page.text(), /Report for refresh-a/);
-  assert.match(page.text(), /Latest refresh.*Report for refresh-b/);
-  assert.doesNotMatch(page.text(), /Refreshing games/);
+  assert.equal(page.count("GET /api/games/job"), 0);
   assert.equal(page.count(refreshEndpoint), 1);
+  assert.equal(page.button("Import games").closest("fieldset").disabled, false);
 });
 
-for (const [fixture, acknowledgement, current] of [
-  ["foreign dataset", refreshJob("complete", "refresh-a", "other"), refreshJob("complete", "refresh-a", "other")],
-  ["unrelated command", refreshJob("complete", "refresh-b"), refreshJob("complete", "refresh-b")],
-  ["missing report", { ...refreshJob("complete"), report: undefined }, { status: "idle" }],
-  ["unaddressed", undefined, { status: "idle" }],
+for (const [fixture, acknowledgement, status] of [
+  ["foreign dataset", refreshJob("complete", "refresh-a", "other"), 202],
+  ["unrelated command", refreshJob("complete", "refresh-b"), 202],
+  ["missing report", { ...refreshJob("complete"), report: undefined }, 202],
+  ["unaddressed", undefined, 202],
+  ["obsolete acknowledgement", refreshJob("running"), 202],
+  ["foreign retirement", { ...refreshJob("complete", "other"), status: "error", code: "retired_feature", retryable: false }, 410],
+  ["temporary busy", { status: "error", code: "request_busy", retryable: true }, 503],
 ]) {
-  test(`invalid Refresh acknowledgement (${fixture}) cannot clear the pending request`, async t => {
+  test(`invalid Refresh recovery (${fixture}) preserves the pending request`, async t => {
     const page = await openGames(t, {
-      "GET /api/games/job": () => response(current),
-      [refreshEndpoint]: () => response(acknowledgement, 202),
+      [refreshEndpoint]: () => response(acknowledgement, status),
     }, { pending: savedRefreshBytes });
-    assert.equal(page.stored(), savedRefreshBytes);
     await page.click("Retry same request");
     assert.equal(page.count(refreshEndpoint), 1);
     assert.equal(page.stored(), savedRefreshBytes);
@@ -1256,25 +1225,21 @@ for (const [fixture, acknowledgement, current] of [
   });
 }
 
-test("the normal addressed running Refresh keeps its envelope until the matching terminal poll", async t => {
-  let current = { status: "idle" };
+test("known undelivered legacy Refresh retires after an addressed terminal response", async t => {
   const page = await openGames(t, {
-    "GET /api/games/job": () => response(current),
-    [refreshEndpoint]: () => {
-      current = refreshJob("running");
-      return response(current, 202);
+    [refreshEndpoint]: ({ body, payload }) => {
+      assert.equal(body, JSON.stringify(refreshPayload));
+      return response({
+        status: "error", code: "retired_feature", retryable: false, message: "Remote refresh retired.",
+        dataset_id: payload.dataset_id, command_id: payload.command_id,
+      }, 410);
     },
   }, { pending: savedRefreshBytes });
   await page.click("Retry same request");
-  assert.equal(page.stored(), savedRefreshBytes);
-  assert.equal(page.button("Retry same request"), undefined);
-  assert.match(page.text(), /Refreshing games/);
-
-  current = refreshJob("complete");
-  await page.advance(1000);
   assert.equal(page.stored(), null);
-  assert.match(page.text(), /Latest refresh.*Report for refresh-a/);
-  assert.equal(page.count(refreshEndpoint), 1);
+  assert.match(page.text(), /Remote refresh retired/);
+  assert.doesNotMatch(page.text(), /Recovered refresh results/);
+  assert.equal(page.count("GET /api/games/job"), 0);
 });
 
 test("a lost Maia start acknowledgement waits for current model status before another start", async t => {
@@ -1334,7 +1299,6 @@ test("plain library, replay and manual import do not request a repertoire catalo
   const page = await openGames(t, {
     "GET /api/context": () => response({ status: "ready", dataset_id: dataset, schema_version: 22 }),
     "POST /api/repertoires": () => failure("Repertoires are unavailable."),
-    "GET /api/games/job": () => failure("Legacy refresh status is unavailable."),
     "POST /api/games/library": ({ payload }) => {
       assert.equal(payload.dataset_id, dataset);
       return response({ dataset_id: dataset, through: 1, next_before: null, entries: [storedGame] });

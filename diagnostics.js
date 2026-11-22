@@ -10,7 +10,7 @@ const routes = new Set([
   "/api/study/analysis-context", "/api/study/analysis-line", "/api/study/review-mark",
   "/api/study/card-details", "/api/study/saved-reviews", "/api/repertoires", "/api/tactics", "/api/tactic-settings",
   "/api/tactics-collection", "/api/games", "/api/games/library", "/api/games/review",
-  "/api/games/job", "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
+  "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
   "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry", "/api/games/model",
   "/api/games/gaps", "/api/games/gap-draft",
 ]);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { importGamePgn, readGameHistory, readGameJob, refreshGames, utcDateRange } from "../game_commands.js";
+import { importGamePgn, readGameHistory, recoverGameRefresh, utcDateRange } from "../game_commands.js";
 
 const game = {
   source: "lichess",
@@ -26,13 +26,8 @@ test("date controls include both selected UTC dates across rollover and bound re
   assert.throws(() => utcDateRange("2026-01-01", "2026-02-01"), /31 UTC days/);
 });
 
-test("history and job replies project answer-safe result fields and preserve refresh failures", async t => {
-  const report = {
-    fetched: 2, new_games: 1, duplicates: 0, matches: 2, deviations: 1,
-    errors: ["One game could not be read."], results: [game],
-  };
+test("history projects answer-safe result fields and propagates typed import failures", async t => {
   t.mock.method(globalThis, "fetch", async path => {
-    if (path === "/api/games/job") return Response.json({ dataset_id: "dataset", command_id: "refresh", status: "failed", error: "Rate limited", report });
     if (path === "/api/games") return Response.json({
       results: [
         { ...game, comparison_id: "previous", url: "javascript:alert(1)" },
@@ -43,58 +38,46 @@ test("history and job replies project answer-safe result fields and preserve ref
     return Response.json({ status: "error", code: "invalid_game", retryable: false, message: "Choose a repertoire." }, { status: 400 });
   });
   const history = await readGameHistory();
-  assert.equal(history.lastSuccessfulRefresh, 1739754000000);
   assert.equal(history.results[0].url, null);
   assert.equal(history.results[0].game_id, history.results[1].game_id);
   assert.deepEqual(history.results.map(result => result.comparison_id), ["previous", "current"]);
   assert.equal(history.results[0].effect, "requested_review");
   assert.equal(history.results[0].repertoires, null);
   assert.equal(Object.hasOwn(history.results[0], "prescribed_move"), false);
-  const job = await readGameJob();
-  assert.equal(job.status, "failed");
-  assert.equal(job.datasetId, "dataset");
-  assert.equal(job.commandId, "refresh");
-  assert.equal(job.error, "Rate limited");
-  assert.deepEqual(job.report.errors, report.errors);
-  assert.equal(job.report.results[0].url, game.url);
-  assert.equal(job.report.results[0].comparison_id, null);
-  assert.equal(Object.hasOwn(job.report.results[0], "prescribed_move"), false);
   await assert.rejects(importGamePgn({ pgn: "" }), {
     message: "Choose a repertoire.", code: "invalid_game", retryable: false, status: 400,
   });
 });
 
-test("refresh starts only after an accepted response and sends explicit account and repertoire", async t => {
+test("refresh recovery reuses exact bytes and validates complete and retired addresses", async t => {
   const payload = {
     dataset_id: "dataset", command_id: "refresh",
     source: "chess_com", account: "learner", repertoire_id: "book",
     ...utcDateRange("2026-11-12", "2026-11-18"),
   };
-  const acknowledgement = { dataset_id: "dataset", command_id: "refresh", status: "running" };
-  const fetch = t.mock.method(globalThis, "fetch", async () => Response.json(acknowledgement, { status: 202 }));
-  assert.deepEqual(await refreshGames(payload), { status: "running", datasetId: "dataset", commandId: "refresh" });
+  const report = { fetched: 0, new_games: 0, duplicates: 0, matches: 0, deviations: 0,
+    errors: ["Chess.com 2009/10: Provider request timed out."], results: [] };
+  const receipt = { status: "complete", dataset_id: "dataset", command_id: "refresh", report };
+  const fetch = t.mock.method(globalThis, "fetch", async () => Response.json(receipt, { status: 202 }));
+  const recovered = await recoverGameRefresh(payload);
+  assert.equal(recovered.commandId, "refresh");
+  assert.equal(recovered.datasetId, "dataset");
+  assert.equal(recovered.report.fetched, 0);
+  assert.deepEqual(recovered.report.errors, report.errors);
   const [[path, options]] = fetch.mock.calls.map(call => call.arguments);
   assert.equal(path, "/api/games/refresh");
   assert.equal(options.method, "POST");
-  assert.deepEqual(JSON.parse(options.body), payload);
-  fetch.mock.mockImplementation(async () => Response.json(acknowledgement));
-  await assert.rejects(refreshGames(payload), { status: 200 });
+  assert.equal(options.body, JSON.stringify(payload));
+  fetch.mock.mockImplementation(async () => Response.json(receipt));
+  await assert.rejects(recoverGameRefresh(payload), { status: 200 });
   fetch.mock.mockImplementation(async () => new Response(null, { status: 202 }));
-  await assert.rejects(refreshGames(payload));
+  await assert.rejects(recoverGameRefresh(payload));
+  const retired = { ...receipt, status: "error", code: "retired_feature", retryable: false, message: "Retired" };
+  fetch.mock.mockImplementation(async () => Response.json(retired, { status: 410 }));
+  assert.deepEqual(await recoverGameRefresh(payload), { status: "retired", message: "Retired" });
+  fetch.mock.mockImplementation(async () => Response.json({ ...retired, command_id: "other" }, { status: 410 }));
+  await assert.rejects(recoverGameRefresh(payload), { status: 410 });
 });
-
-test("a failed archive with a diagnostic preserves zero games fetched", async t => {
-  t.mock.method(globalThis, "fetch", async () => Response.json({
-    dataset_id: "dataset", command_id: "refresh", status: "complete", report: {
-      fetched: 0, new_games: 0, duplicates: 0, matches: 0, deviations: 0,
-      errors: ["Chess.com 2009/10: Provider request timed out."], results: [],
-    },
-  }));
-  const { report } = await readGameJob();
-  assert.equal(report.fetched, 0);
-  assert.equal(report.errors.length, 1);
-});
-
 
 test("only an explicit null departure admits known compatible repertoire evidence", async t => {
   const known = { repertoire_id: "book", source_available: true, first_departure: null, reentry_ply: null };

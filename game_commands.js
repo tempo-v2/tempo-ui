@@ -168,42 +168,26 @@ export async function readGameHistory(signal) {
   const reply = await read("", signal);
   return {
     results: gameResults(reply.results),
-    lastSuccessfulRefresh: reply.last_successful_refresh_ms === null
-      ? null : count(reply.last_successful_refresh_ms, "last_successful_refresh_ms"),
   };
 }
 
-export async function readGameJob(signal) {
-  const reply = await read("/job", signal);
-  switch (reply.status) {
-    case "idle":
-      return { status: "idle" };
-    case "running":
-      return { status: "running", ...jobAddress(reply) };
-    case "complete":
-      return { status: "complete", ...jobAddress(reply), report: gameReport(reply.report) };
-    case "failed":
-      return {
-        status: "failed",
-        ...jobAddress(reply),
-        error: string(reply.error, "refresh error", true),
-        report: reply.report ? gameReport(reply.report) : null,
-      };
-    default:
-      throw new TypeError("Invalid game refresh status");
+export async function recoverGameRefresh(payload, signal) {
+  let reply;
+  try {
+    reply = await request("/refresh", payload, signal, {
+      expectedStatus: 202, timeoutMs: SHORT_ACK_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (error.status === 410 && error.code === "retired_feature" && error.retryable === false &&
+        error.details.dataset_id === payload.dataset_id && error.details.command_id === payload.command_id)
+      return { status: "retired", message: error.message };
+    throw error;
   }
-}
-
-export async function refreshGames(payload, signal) {
-  const reply = await request("/refresh", payload, signal, {
-    expectedStatus: 202, timeoutMs: SHORT_ACK_TIMEOUT_MS,
-  });
   const address = jobAddress(reply);
   if (address.commandId !== payload.command_id || address.datasetId !== payload.dataset_id)
     throw new Error("The Refresh reply belongs to a different request or dataset.");
-  if (reply.status === "running") return { status: "running", ...address };
   if (reply.status === "complete") return { status: "complete", ...address, report: gameReport(reply.report) };
-  throw new TypeError("Invalid Refresh acknowledgement.");
+  throw new TypeError("Invalid Refresh receipt.");
 }
 
 export async function importGamePgn(payload, signal) {

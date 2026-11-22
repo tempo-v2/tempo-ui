@@ -8,7 +8,7 @@ import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 
 import { Button, IconButton, PageHeader, SectionHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 import {
-  chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, readGameJob, refreshGames,
+  chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, recoverGameRefresh,
   sourceNames, utcDateRange, utcDayMs, gapDraft, historicalStatus, modelStatus,
   readGaps, retryHistorical, startHistorical, startModel,
 } from "./game_commands.js";
@@ -227,11 +227,6 @@ async function loadPendingGame() {
   return command;
 }
 
-function matchesRefresh(job, command) {
-  return command?.kind === "refresh" && job?.datasetId === command.payload.dataset_id &&
-    job.commandId === command.payload.command_id;
-}
-
 function evidenceFor(resource, dataset, offset) {
   return resource?.dataset === dataset && resource.offset === offset ? resource : undefined;
 }
@@ -340,7 +335,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     selectTab(selected);
     refreshHistory(); refreshEvidenceReads();
   }
-  const [source, setSource] = useState("lichess");
+  const [source, setSource] = useState("pgn");
   const [catalog, setCatalog] = useState(null);
   const repertoires = catalog?.dataset_id === dataset ? catalog.repertoires : null;
   const [pendingEntry, setPendingEntry] = useState(null);
@@ -349,8 +344,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [catalogError, setCatalogError] = useState("");
   const [history, setHistory] = useState(null);
   const [historyError, setHistoryError] = useState("");
-  const [observedJob, setJob] = useState(null);
-  const [jobError, setJobError] = useState("");
   const [evidence, setEvidence] = useState({});
   const [modelActionError, setModelActionError] = useState("");
   const [modelActionDataset, setModelActionDataset] = useState(null);
@@ -367,7 +360,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [busy, setBusy] = useState(false);
   const [reload, setReload] = useState(0);
   const [historyRevision, setHistoryRevision] = useState(0);
-  const [jobRevision, setJobRevision] = useState(0);
   const lifecycle = useRef(null);
   const evidenceOwner = useRef(null);
   const historyOwner = useRef(null);
@@ -381,26 +373,19 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const comparing = !!review?.repertoire_id;
   const needsCatalog = (comparing && !activeGap) ||
     (!review && !analysis && (tab === "coverage" || (tab === "import" && !importing)));
-  const job = observedJob?.datasetId && observedJob.datasetId !== dataset ? null : observedJob;
-  const refreshing = job?.status === "running";
   const pending = pendingEntry?.command;
-  const acceptedCleanup = pendingEntry?.phase === "accepted";
+  const settledCleanup = ["accepted", "retired"].includes(pendingEntry?.phase);
   const commandsBlocked = recoveryStatus !== "ready" || !!pending;
-  const sameRefreshRunning = refreshing && matchesRefresh(job, pending);
-  const canRetryPending = pending && !acceptedCleanup && !busy && !sameRefreshRunning &&
-    (!refreshing || pending.kind === "refresh");
+  const canRetryPending = pending && !settledCleanup && !busy;
   const recoverSavedImportWithoutContext = !dataset && !!contextIssue &&
     pendingEntry?.phase === "saved" && pending?.kind === "import" &&
     (previouslyIdentifiedDataset.current === null ||
       previouslyIdentifiedDataset.current === pending.payload.dataset_id);
-  const needsRecovery = canRetryPending || (!busy && (acceptedCleanup || recoveryStatus === "blocked"));
+  const needsRecovery = canRetryPending || (!busy && (settledCleanup || recoveryStatus === "blocked"));
   const currentReport = importResult?.datasetId === dataset ? importResult : null;
   const choiceReport = currentReport?.kind === "choose" ? currentReport.report : null;
   const importReport = currentReport?.kind !== "choose" ? currentReport?.report : null;
   const confirmedRefresh = refreshResult?.datasetId === dataset ? refreshResult : null;
-  const shownAsCurrent = job?.status === "complete" && confirmedRefresh?.commandId === job.commandId;
-  const report = importReport ?? job?.report;
-  const refreshFailed = !importReport && job?.status === "failed";
   const backfillRead = evidenceFor(evidence.backfill, dataset);
   const modelRead = evidenceFor(evidence.model, dataset);
   const gapRead = evidence.gaps?.forecastBook === forecastBook
@@ -481,7 +466,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
       setModelActionDataset(null);
       setModelActionError("");
       setHistory(null);
-      setJob(null);
       setHistoryError("");
       refreshHistory();
     }
@@ -513,36 +497,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     return () => request.abort();
   }, [reload, historyRevision]);
 
-  useEffect(() => {
-    if (!dataset) return;
-    const request = new AbortController();
-    let timer;
-    async function check() {
-      try {
-        const next = await readGameJob(request.signal);
-        if (request.signal.aborted || dataset !== activeDataset.current) return;
-        setJobError("");
-        // A physical worker from a replaced dataset can still be finishing.
-        // Its slot has no current-dataset result to display.
-        setJob(next.datasetId && next.datasetId !== dataset ? { status: "idle" } : next);
-        if (next.status === "running") timer = setTimeout(check, 1000);
-        else if (next.datasetId === dataset) {
-          refreshHistory();
-          refreshEvidenceReads();
-        }
-      } catch (error) {
-        if (!request.signal.aborted && dataset === activeDataset.current) {
-          setJobError(error.message || "Could not check the refresh.");
-          timer = setTimeout(check, 1500);
-        }
-      }
-    }
-    void check();
-    return () => {
-      request.abort();
-      clearTimeout(timer);
-    };
-  }, [dataset, jobRevision]);
+
 
   useEffect(() => {
     if (!dataset) return;
@@ -799,35 +754,27 @@ export function GamesPage({ onStudy, onRepertoires }) {
       }
       await settle(command);
     } else {
-      const reply = await refreshGames(command.payload, signal);
+      const reply = await recoverGameRefresh(command.payload, signal);
       if (!owns(command, signal)) return;
-      if (reply.status === "complete") {
+      if (reply.status === "retired") {
+        setPendingEntry({ command, phase: "retired" });
+        await clearPending();
+        setIssue(reply.message);
+      } else {
         refreshHistory();
         refreshEvidenceReads();
         await settle(command, reply);
-      } else setJobRevision(revision => revision + 1);
+      }
     }
   }
 
-  useEffect(() => {
-    if (pendingEntry?.phase !== "saved" || inFlight.current ||
-        job?.status !== "complete" || !matchesRefresh(job, pending) ||
-        job.datasetId !== activeDataset.current) return;
-    inFlight.current = true;
-    setBusy(true);
-    void settle(pending, job).finally(() => {
-      inFlight.current = false;
-      setBusy(false);
-    });
-  }, [job, pendingEntry, busy]);
-
-  async function run(build, { recovering = false, needsRefreshStatus = true } = {}) {
+  async function run(build, { recovering = false } = {}) {
     if (recoveryStatus !== "ready" || inFlight.current) return;
     const recoveryWithoutContext = recovering && recoverSavedImportWithoutContext;
     if (recovering) {
-      if (!pending || acceptedCleanup ||
+      if (!pending || settledCleanup ||
           (!recoveryWithoutContext && (!dataset || pending.payload.dataset_id !== dataset))) return;
-    } else if (!dataset || pending || refreshing || (needsRefreshStatus && (!job || jobError))) return;
+    } else if (!dataset || pending) return;
     const signal = lifecycle.current.signal;
     inFlight.current = true;
     setBusy(true);
@@ -859,7 +806,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
         if (command && owns(command, signal)) {
           refreshHistory();
           refreshEvidenceReads();
-          setJobRevision(revision => revision + 1);
         }
       }
     } finally {
@@ -870,7 +816,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
 
   function submit(event) {
     event.preventDefault();
-    if (pending || refreshing) return;
+    if (pending) return;
     const form = new FormData(event.currentTarget);
     void run(async () => {
       if (!dataset) throw new Error("Tempo could not identify the dataset.");
@@ -886,13 +832,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
         return { kind: "import", payload: { ...identity, learner, pgn } };
       }
       const range = utcDateRange(form.get("from"), form.get("to"));
-      if (source === "stored") return { kind: "reprocess", payload: { ...identity, learner, ...range } };
-      return { kind: "refresh", payload: { ...identity, source, account: learner, ...range } };
-    }, { needsRefreshStatus: !importing });
+      return { kind: "reprocess", payload: { ...identity, learner, ...range } };
+    });
   }
 
   function choose(result, choice, candidate) {
-    if (pending || refreshing || !dataset) return;
+    if (pending || !dataset) return;
     void run(() => ({ kind: "choose", payload: {
       command_id: crypto.randomUUID(), dataset_id: dataset, learner: result.learner,
       source: result.source, game_id: result.game_id, comparison_id: result.comparison_id,
@@ -958,13 +903,13 @@ export function GamesPage({ onStudy, onRepertoires }) {
             <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
           )}
           <form className="repertoire-form" onSubmit={submit}>
-            <fieldset disabled={busy || commandsBlocked || refreshing || !dataset}>
+            <fieldset disabled={busy || commandsBlocked || !dataset}>
               <div className="repertoire-fields">
                 <label>Source <select value={source} onChange={event => setSource(event.target.value)}>
-                  {Object.entries(sourceNames).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                  <option value="pgn">PGN</option>
                   <option value="stored">Saved games</option>
                 </select></label>
-                <label>{importing || source === "stored" ? "Learner name" : "Account name"}
+                <label>Learner name
                   <input ref={learnerInput} key={source} name="learner" required autoComplete="off" maxLength={128} />
                 </label>
               </div>
@@ -979,11 +924,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
                   <label>Last day (UTC) <input type="date" name="to" defaultValue={lastDate} max={lastDate} required /></label>
                 </div>
               )}
-              {source === "chess_com" && <p className="game-source-note">Chess.com archives may take up to 12 hours to update.</p>}
               <div className="actions">
-                <Button type="submit" pending={busy && !refreshing}
-                  disabled={busy || refreshing || (!importing && (!job || !!jobError))}>
-                  {importing ? "Import games" : source === "stored" ? "Reprocess saved games" : "Refresh games"}
+                <Button type="submit" pending={busy} disabled={busy}>
+                  {importing ? "Import games" : "Reprocess saved games"}
                 </Button>
               </div>
             </fieldset>
@@ -998,8 +941,8 @@ export function GamesPage({ onStudy, onRepertoires }) {
               <Button disabled={busy} onClick={() => void cleanup()}>Dismiss pending request</Button>
             </div>
           )}
-          {acceptedCleanup && !busy && (
-            <Button onClick={() => void cleanup({ accepted: true })}>Retry cleanup</Button>
+          {settledCleanup && !busy && (
+            <Button onClick={() => void cleanup({ accepted: pendingEntry.phase === "accepted" })}>Retry cleanup</Button>
           )}
           {canRetryPending && (
             <div className="actions">
@@ -1011,34 +954,31 @@ export function GamesPage({ onStudy, onRepertoires }) {
               <Button onClick={() => void cleanup({ unsaved: pendingEntry.phase === "unsaved" })}>Dismiss pending request</Button>
             </div>
           )}
-          {jobError && <StatusNotice kind="error">{jobError}</StatusNotice>}
-          {refreshing && !jobError && <p role="status">Refreshing games. You can return to Study while this runs.</p>}
-          {(contextIssue || (!importing && catalogError) || jobError) && (
+          {(contextIssue || (!importing && catalogError)) && (
             <Button onClick={() => {
               refreshContext();
-              setJob(null);
               historyOwner.current?.abort();
               setReload(value => value + 1);
             }}>Reload Games</Button>
           )}
         </Surface>
-        {confirmedRefresh && (!shownAsCurrent || importReport) && (
+        {confirmedRefresh && (
           <Surface>
             <h2>Recovered refresh results</h2>
             <GameReport report={confirmedRefresh.report} importing={false} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />
           </Surface>
         )}
-        {(refreshFailed || report) && (
-          <details className="game-import" key={importReport ? "import" : "refresh"} open={!!importReport || refreshFailed}><summary>{importReport ? "Import results" : "Latest refresh"}</summary><Surface>
-            <h2>{importReport ? "Import results" : "Latest refresh"}</h2>
-            {refreshFailed && <StatusNotice kind="error">{job.error}</StatusNotice>}
-            {report && <GameReport report={report} importing={!!importReport} dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />}
+        {importReport && (
+          <details className="game-import" open><summary>Import results</summary><Surface>
+            <h2>Import results</h2>
+            <GameReport report={importReport} importing dataset={dataset} onOpen={openReview}
+              history={history} repertoires={repertoires ?? []} />
           </Surface></details>
         )}
         <details className="game-import">
           <summary>Historical backfill{backfill && backfill.status !== "idle" ? ` · ${backfill.status}` : ""}</summary>
           <HistoricalImport key={backfill?.job_id ?? "idle"} job={backfill}
-            disabled={!dataset || busy || commandsBlocked || refreshing} onStart={beginBackfill}
+            disabled={!dataset || busy || commandsBlocked} onStart={beginBackfill}
             onRetry={() => void run(() => ({ kind: "backfill-retry", payload: {
               command_id: crypto.randomUUID(), dataset_id: dataset, job_id: backfill.job_id,
             } }))} />
@@ -1057,9 +997,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
             <summary>Corrective choice results</summary>
             <GameReport report={choiceReport} importing dataset={dataset} onOpen={openReview} history={history} repertoires={repertoires ?? []} />
           </details>}
-          {history?.lastSuccessfulRefresh != null ? (
-            <p>Last successful provider refresh · {new Date(history.lastSuccessfulRefresh).toLocaleString()}</p>
-          ) : null}
           {!history && !historyError && <p role="status">Loading game evidence…</p>}
           {historyError && (
             <>
@@ -1072,9 +1009,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
             : <p>No games recorded yet.</p>)}
           {dataset && <GameLibrary key={dataset} dataset={dataset} refresh={historyRevision} recent={history?.results}
             renderRecent={results=><GameResults history results={results} dataset={dataset} onOpen={openReview}
-              onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
+              onChoose={commandsBlocked || busy ? undefined : choose} repertoires={repertoires ?? []} />}
             renderResults={groups=><GameResults groups={groups} dataset={dataset} history onOpen={openReview}
-              onChoose={commandsBlocked || busy || refreshing ? undefined : choose} repertoires={repertoires ?? []} />}
+              onChoose={commandsBlocked || busy ? undefined : choose} repertoires={repertoires ?? []} />}
             empty={<div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>} />}
         </Surface>
       </GamesPanel>
