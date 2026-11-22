@@ -1,7 +1,6 @@
 import { Chess } from "chess.js";
 
 const buckets = ["white", "draws", "black"];
-const groups = ["current", "other"];
 const uci = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const count = value => Number.isSafeInteger(value) && value >= 0;
@@ -40,80 +39,6 @@ export function checkedExplorer(data, legal) {
     }
   }
   return data;
-}
-
-export function checkedStockfish(data, legal) {
-  if (!record(data) || !text(data.engine) || !uniqueMoves(data.candidates, legal, row =>
-    (Number.isSafeInteger(row.centipawns) && row.mate == null) ||
-    (Number.isSafeInteger(row.mate) && row.centipawns == null))) invalid();
-  return data;
-}
-
-function nearbyPositions(positions, legal) {
-  return Array.isArray(positions) && positions.every(position => {
-    if (!record(position) || !text(position.fen) || !Array.isArray(position.responses) ||
-        (position.distance !== undefined && !count(position.distance))) return false;
-    const example = new Chess(position.fen);
-    const moves = new Set(example.moves({ verbose: true })
-      .map(move => move.from + move.to + (move.promotion ?? "")));
-    return position.responses.every(response =>
-      record(response) && text(response.repertoire_id) && text(response.san) &&
-      legalMove(response.uci, moves) && typeof response.reusable === "boolean" &&
-      (!response.reusable || legal.has(response.uci)));
-  });
-}
-
-function checkedNearby(data, legal) {
-  if (!record(data) || !record(data.repertoire_names) ||
-      !Object.values(data.repertoire_names).every(name => typeof name === "string") ||
-      !record(data.nearby) || !record(data.similar_responses) ||
-      !groups.every(group => nearbyPositions(data.nearby[group], legal) &&
-        uniqueMoves(data.similar_responses[group], legal, row =>
-          count(row.position_count) && row.position_count > 0))) invalid();
-  return data;
-}
-
-function checkedRecommendation(value, legal) {
-  if (!record(value) || !legalMove(value.uci, legal)) invalid();
-  if (value.basis === "similar" && groups.includes(value.scope) && count(value.position_count) &&
-      value.position_count > 0 && count(value.loss_centipawns)) return value;
-  if (value.basis === "stockfish" && count(value.nearest_loss_centipawns)) return value;
-  return invalid();
-}
-
-export function checkedGapAnalysis(result, legal) {
-  if (result.status !== "running" && result.status !== "complete") invalid();
-  const checked = { status: result.status };
-  if (result.nearby != null) {
-    try {
-      const { nearby, similar_responses, repertoire_names } = checkedNearby(result, legal);
-      Object.assign(checked, { nearby, similar_responses, repertoire_names });
-    } catch {
-      checked.neighbors_error = "Tempo could not read the nearby repertoire positions.";
-    }
-  } else if (result.neighbors_error != null) {
-    checked.neighbors_error = text(result.neighbors_error)
-      ? result.neighbors_error : "Nearby repertoire positions are unavailable.";
-  }
-  if (result.stockfish != null) {
-    try {
-      checked.stockfish = checkedStockfish(result.stockfish, legal);
-    } catch {
-      checked.stockfish_error = "Tempo could not read the Stockfish candidates.";
-    }
-  } else if (result.stockfish_error != null || result.status === "complete") {
-    checked.stockfish_error = text(result.stockfish_error)
-      ? result.stockfish_error : "Stockfish is unavailable.";
-  }
-  if (result.status === "complete" && checked.stockfish && checked.nearby &&
-      result.recommendation != null) {
-    try {
-      checked.recommendation = checkedRecommendation(result.recommendation, legal);
-    } catch {
-      // An invalid recommendation does not invalidate either underlying source.
-    }
-  }
-  return checked;
 }
 
 export function checkedGapExplorer(result, legal) {

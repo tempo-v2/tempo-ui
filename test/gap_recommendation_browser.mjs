@@ -83,27 +83,6 @@ try {
   assert(invalidCache.draft.legal_moves.length > 0);
   assert.deepEqual(durable(), beforeDraft);
 
-  if (process.env.TEMPO_MAIA) {
-    const old = durable();
-    const { gaps } = await (await fetch(origin + "/api/games/gaps")).json();
-    const { repertoire_id, position, actual_move, document_revision } = gaps[0];
-    const id = "real-engine-recommendation";
-    await post("games/gap-analysis", {
-      request_id: id, gap: { dataset_id, repertoire_id, position, actual_move, document_revision },
-    });
-    let state;
-    for (let i = 0; i < 100; i++) {
-      state = await (await fetch(origin + "/api/games/gap-analysis")).json();
-      if (state.status === "complete") break;
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    assert.equal(state.status, "complete");
-    assert.equal(state.request_id, id);
-    assert(state.similar_responses.current.some(move => move.uci === "g1f3"));
-    assert.match(state.stockfish.engine, /Stockfish/);
-    assert.equal(state.stockfish.candidates.length, 3);
-    assert.deepEqual(durable(), old);
-  }
   browser = await chromium.launch({ channel: "chrome", headless: true });
   page = await browser.newPage({ viewport: { width: 1320, height: 900 } });
   const errors = [];
@@ -111,52 +90,12 @@ try {
   const button = name => page.getByRole("button", { name, exact: true });
   const heading = name => page.getByRole("heading", { name, exact: true });
   const board = () => page.getByLabel("Repertoire response board", { exact: true });
-  const similar = page.getByRole("region", { name: "Similar repertoire positions" });
-  const engine = page.getByRole("region", { name: "Stockfish" });
-  const explorer = page.getByRole("region", { name: "Lichess Explorer" });
-
-  let lookup;
-  let ready = false;
-  let staleNext = false;
-  let engineFailure = false;
+  const requests = [];
+  page.on("request", request => {
+    if (/\/api\/games\/gap-analysis(?:\/status)?$/.test(request.url())) requests.push(request.url());
+  });
   let loseSave = false;
   const saves = [];
-  const neighbor = {
-    fen: "rnbqkbnr/ppp1pppp/8/3p4/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 1",
-    distance: 2,
-    responses: [{ repertoire_id: "example", uci: "e4d5", san: "exd5", reusable: true }],
-  };
-  await page.route("**/api/games/gap-analysis", async route => {
-    const request = route.request();
-    if (request.method() === "POST") {
-      const submitted = request.postDataJSON();
-      const draft = await fetch(origin + "/api/games/gap-draft", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(submitted.gap),
-      });
-      const details = await draft.json();
-      if (!draft.ok) return route.fulfill({ status: draft.status, json: details });
-      lookup = { request_id: submitted.request_id, content_revision: details.content_revision };
-      return route.fulfill({ status: 202, json: { ...lookup, status: "running" } });
-    }
-    const json = {
-      ...lookup,
-      status: ready ? "complete" : "running",
-      nearby: { current: [neighbor], other: [] },
-      similar_responses: { current: [{ uci: "e4d5", position_count: 2 }], other: [] },
-      repertoire_names: { example: "Italian" },
-    };
-    if (ready && engineFailure) {
-      json.stockfish_error = "Fixture Stockfish unavailable.";
-    } else if (ready) {
-      json.stockfish = { engine: "Stockfish fixture", candidates: [{ uci: "d2d4", san: "d4", centipawns: 38 }] };
-      json.recommendation = { uci: "e4d5", basis: "similar", scope: "current", position_count: 2, loss_centipawns: 50 };
-    }
-    if (ready && staleNext) {
-      staleNext = false;
-      json.request_id = "previous-gap";
-    }
-    return route.fulfill({ json });
-  });
   await page.route("**/api/repertoires", async route => {
     if (route.request().postDataJSON().command === "save") {
       saves.push(route.request().postData());
@@ -194,35 +133,10 @@ try {
     await page.mouse.move(...await square(...to), { steps: 12 });
     await page.mouse.up();
   }
-  const green = () => page.locator(".gap-board svg line[stroke='#4f8a59']");
-  const blue = () => page.locator(".gap-board svg line[stroke='#4e7ca8']");
-
-  engineFailure = true;
   await open();
-  await similar.getByText("2 positions", { exact: true }).waitFor();
-  ready = true;
-  await engine.getByText("Fixture Stockfish unavailable.").waitFor();
-  await similar.getByText("2 positions", { exact: true }).waitFor();
-  assert.equal(await button("Save response").isEnabled(), false);
-  assert.deepEqual(durable(), before);
-  await button("Close").click();
-  engineFailure = false;
-  ready = false;
-
-  await open();
-  const startingFen = await board().getAttribute("data-fen");
-  await similar.getByText("2 positions", { exact: true }).waitFor();
   await checkDesktopBoardResize(page, "Repertoire response board");
   assert.equal(await button("Save response").isEnabled(), false);
-  ready = true;
-  await page.getByText("Suggested exd5", { exact: true }).waitFor();
-  await green().waitFor({ state: "attached" });
-  assert.equal(await board().getAttribute("data-fen"), startingFen);
-  assert.equal(await button("Save response").isEnabled(), true);
-  const [left, right, below] = await Promise.all([similar.boundingBox(), engine.boundingBox(), explorer.boundingBox()]);
-  assert(left.x < right.x && Math.abs(left.y - right.y) < 2 && below.y > left.y);
-  await engine.getByRole("button", { name: /d4/ }).hover();
-  await blue().waitFor({ state: "attached" });
+  assert.equal(await page.getByRole("region", { name: "Stockfish" }).count(), 0);
   await dragStart(["e", 4]);
   await dragEnd(["e", 5]);
   await page.getByText("Selected e5", { exact: true }).waitFor();
@@ -231,20 +145,8 @@ try {
   await button("Return").click();
   await page.getByText("Selected e5", { exact: true }).waitFor();
   await button("Clear response").click();
-  await page.getByText("Play a move on the board.", { exact: true }).waitFor();
   assert.equal(await button("Save response").isEnabled(), false);
   assert.deepEqual(durable(), before);
-  await button("Close").click();
-
-  ready = false;
-  await open();
-  await similar.getByText("2 positions", { exact: true }).waitFor();
-  await dragStart(["e", 4]);
-  ready = true;
-  await engine.getByText(/Stockfish fixture/).waitFor();
-  assert.equal(await button("Save response").isEnabled(), false);
-  await dragEnd(["d", 5]);
-  await page.getByText("Selected exd5", { exact: true }).waitFor();
   await button("Close").click();
 
   await open();
@@ -266,22 +168,16 @@ try {
   await page.setViewportSize({ width: 390, height: 800 });
   await open();
   assert.equal(await board().locator(".tempo-board-resize-handle").count(), 0);
-  await page.getByText("Suggested exd5", { exact: true }).waitFor();
-  const [mobileLeft, mobileRight, mobileBelow] = await Promise.all([similar.boundingBox(), engine.boundingBox(), explorer.boundingBox()]);
-  assert(Math.abs(mobileLeft.x - mobileRight.x) < 2 && mobileRight.y > mobileLeft.y && mobileBelow.y > mobileRight.y);
-  await engine.getByRole("button", { name: /d4/ }).focus();
-  await blue().waitFor({ state: "attached" });
-  await similar.getByRole("button", { name: /exd5/ }).click();
+  await dragStart(["e", 4]);
+  await dragEnd(["d", 5]);
   await page.getByText("Selected exd5", { exact: true }).waitFor();
   assert.deepEqual(durable(), before);
 
   loseSave = true;
   await button("Save response").click();
   await button("Retry save").waitFor();
-  staleNext = true;
   await page.reload();
   await heading("Respond to 1…c6").waitFor();
-  await page.getByText("The result belongs to a different position. Try again.", { exact: true }).waitFor();
   assert.equal(await button("Save response").isEnabled(), false);
   assert.equal(saves.length, 2);
   assert.equal(saves[0], saves[1]);
@@ -295,7 +191,8 @@ try {
   });
   assert.match(document.document.pgn, /e4 d5 exd5/);
   assert.deepEqual(errors, []);
-  console.log("Passed desktop and mobile layout, recommendation arrows, override, pending drag, stale results, unchanged learning, and exact Save recovery.");
+  assert.deepEqual(requests, []);
+  console.log("Passed board sizing, manual reply selection, local board navigation and exact Save recovery without standalone gap analysis.");
 } finally {
   sql?.close();
   await browser?.close();

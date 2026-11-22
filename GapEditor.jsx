@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MainBoard } from "./MainBoard.jsx";
 import { Chess } from "chess.js";
 import { Button, Dialog, IconButton, StatusNotice } from "@tempo-v2/core-components";
@@ -6,7 +6,7 @@ import { CloseIcon } from "./ControlIcons.jsx";
 import { closeDialogShortcut } from "./shortcuts.js";
 import { playBoardMove } from "./board_move.js";
 import { GapLine, useGapLine } from "./GapLine.jsx";
-import { GapAnalysis, GapExplorer } from "./GapAnalysis.jsx";
+import { GapExplorer } from "./GapAnalysis.jsx";
 import { previewGapResponse, repertoireError, staleGapCodes, writeGapContinuation } from "./gap_save.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { LichessControl } from "./LichessControl.jsx";
@@ -28,8 +28,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   const viewing = view?.line === line ? view?.index : null;
   const viewedFen = viewing != null ? line?.positions?.[viewing] : null;
   const savedLabel = useRef(recovery?.savedLabel);
-  const [suggestion, setSuggestion] = useState(null);
-  const recommendationSettled = useRef(!!recovery);
   const [hover, setHover] = useState("");
   const [focus, setFocus] = useState("");
   const [promotion, setPromotion] = useState(null);
@@ -61,11 +59,11 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   const selectedLabel = labels[selected] ?? "response";
   const preview = hover || focus;
   const stagedBoard = useMemo(() => {
-    if (!selected || suggestion) return null;
+    if (!selected) return null;
     const current = new Chess(draft.fen);
     playBoardMove(current, selected);
     return current;
-  }, [draft.fen, selected, suggestion]);
+  }, [draft.fen, selected]);
   const compare = preview && preview !== selected;
   const fen = viewedFen ?? (!compare && stagedBoard ? stagedBoard.fen() : draft.fen);
   const exportLine = useMemo(() => {
@@ -91,24 +89,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   const moveNumber = Number(draft.fen.split(" ")[5]) - (color === "white" ? 1 : 0);
   const opponentLabel = `${moveNumber}${color === "white" ? "…" : "."}${actual_san}`;
 
-  const offerRecommendation = useCallback(next => {
-    if (recommendationSettled.current || !moveOptions.legal.has(next.uci) ||
-        !["similar", "stockfish"].includes(next.basis)) return;
-    recommendationSettled.current = true;
-    setSuggestion(next);
-    setSelected(next.uci);
-  }, [moveOptions]);
-
-  const stagedManually = selected && !suggestion;
-  const recommendationReason = suggestion?.basis === "similar"
-    ? `Used in ${suggestion.position_count} nearby ${suggestion.position_count === 1 ? "position" : "positions"} in ${suggestion.scope === "current" ? "this repertoire" : "other repertoires"} · ${suggestion.loss_centipawns} cp behind Stockfish`
-    : suggestion?.basis === "stockfish"
-      ? `Best Stockfish move · nearest repertoire response was ${suggestion.nearest_loss_centipawns} cp behind`
-      : null;
-
   function select(move) {
-    recommendationSettled.current = true;
-    setSuggestion(null);
     setView(null);
     setHover("");
     setFocus("");
@@ -118,7 +99,7 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   }
 
   function onMove(event) {
-    if (locked || stagedManually || promotion || event.positionIdentity !== position || event.positionRevision !== revision) return;
+    if (locked || selected || promotion || event.positionIdentity !== position || event.positionRevision !== revision) return;
     const base = event.from + event.to;
     const options = moveOptions.bySquare.get(base);
     if (!options?.length) return;
@@ -227,8 +208,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
   if (suspended) return null;
   const linePanel = line && <GapLine line={line} depth={gap.forecast.through_move} locked={locked}
     viewing={viewing} onView={index => setView({ line, index })} onRetry={retryLine} />;
-  const localAnalysis = <GapAnalysis gap={gap} color={color} moveButton={moveButton}
-    onRecommendation={offerRecommendation} phoneBuild={phoneBuild} />;
   const closeButton = (
     <IconButton label="Close" shortcut={closeDialogShortcut}
       disabled={busy || !!pending || !!loadPending} onClick={close}><CloseIcon /></IconButton>
@@ -260,11 +239,8 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               <div className="gap-board desktop-board-frame">
                 <MainBoard ref={board} fen={fen} orientation={color} turn={turn} check={check}
                   mode="legal" destinations={moveOptions.destinations}
-                  onSurfacePointerDown={() => {
-                    if (!locked) recommendationSettled.current = true;
-                  }}
                   positionIdentity={position} positionRevision={revision}
-                  locked={locked || !!stagedManually || !!promotion || !!viewedFen}
+                  locked={locked || !!selected || !!promotion || !!viewedFen}
                   lastMove={viewedFen
                     ? [line.steps[viewing].uci.slice(0, 2), line.steps[viewing].uci.slice(2, 4)]
                     : [gap.address.actual_move.slice(0, 2), gap.address.actual_move.slice(2, 4)]}
@@ -272,7 +248,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               </div>
               {!phoneBuild && <div className="gap-statistics">
                 <h3>Your response</h3>
-                {localAnalysis}
                 <GapExplorer gap={gap} color={color} moveButton={moveButton} />
                 <details>
                   <summary>Before the opponent’s move</summary>
@@ -285,14 +260,9 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               </div>}
             </div>
             {linePanel}
-            {phoneBuild && <details className="gap-phone-evidence">
-              <summary>Reply evidence</summary>
-              {localAnalysis}
-            </details>}
             <div className="actions gap-editor-actions">
               <div className="gap-selection" role="status">
-                <span>{selected ? `${suggestion ? "Suggested" : "Selected"} ${selectedLabel}` : "Play a move on the board."}</span>
-                {recommendationReason && <small>{recommendationReason}</small>}
+                <span>{selected ? `Selected ${selectedLabel}` : "Play a move on the board."}</span>
               </div>
               {onAnalyze && <Button disabled={locked} onClick={() => onAnalyze({
                 datasetId: gap.address.dataset_id, repertoireId: gap.address.repertoire_id,

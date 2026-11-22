@@ -12,7 +12,7 @@ const routes = new Set([
   "/api/tactics-collection", "/api/games", "/api/games/library", "/api/games/review",
   "/api/games/job", "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
   "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry", "/api/games/model",
-  "/api/games/gaps", "/api/games/gap-draft", "/api/games/gap-line", "/api/games/gap-line/status", "/api/games/gap-analysis",
+  "/api/games/gaps", "/api/games/gap-draft", "/api/games/gap-line", "/api/games/gap-line/status",
   "/api/games/gap-explorer", "/api/games/detectors", "/api/games/detection",
   "/api/games/detection-result", "/api/games/tactics", "/api/games/tactics/command",
 ]);
