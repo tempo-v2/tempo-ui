@@ -1,3 +1,4 @@
+import { setIntroductionLimits } from "./study_settings_fixture.js";
 // Exercise the desktop list and the real SQLite/Study server on disposable data.
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -47,9 +48,10 @@ try {
     }],
   }));
   execFileSync(binary, ["init", database]);
-  execFileSync(binary, ["configure", database, "0", "1"]);
+
   execFileSync(binary, ["import-tactics", database, transfer]);
   let url = await start();
+  await setIntroductionLimits(url, 0, 1);
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const desktop = await browser.newContext();
   const page = await desktop.newPage();
@@ -355,9 +357,10 @@ try {
     await stop();
     database = join(directory, leave + ".sqlite");
     execFileSync(binary, ["init", database]);
-    execFileSync(binary, ["configure", database, "0", "1"]);
+
     execFileSync(binary, ["import-tactics", database, transfer]);
     url = await start();
+    await setIntroductionLimits(url, 0, 1);
     const study = input => post("/api/study", input);
     let startView = await study({ command: "next" });
     const commandFor = (view, command, submission_id) => ({
@@ -416,9 +419,10 @@ try {
   await stop();
   database = join(directory, "remove-from-study.sqlite");
   execFileSync(binary, ["init", database]);
-  execFileSync(binary, ["configure", database, "0", "1"]);
+
   execFileSync(binary, ["import-tactics", database, transfer]);
   url = await start();
+  await setIntroductionLimits(url, 0, 1);
   sql = new DatabaseSync(database, { readOnly: true });
   const removeNext = page.waitForResponse(reply => reply.url().endsWith("/api/study"));
   await page.goto(url);
@@ -497,8 +501,9 @@ try {
 
   database = join(directory, "analysis-save-review.sqlite");
   execFileSync(binary, ["init", database]);
-  execFileSync(binary, ["configure", database, "1", "0"]);
+
   url = await start();
+  await setIntroductionLimits(url, 1, 0);
   const repertoire = input => post("/api/repertoires", input);
   const catalog = await repertoire({ command: "list" });
   const book = { dataset_id: catalog.dataset_id, name: "Save while interrupted",
@@ -552,10 +557,10 @@ try {
   await openingTab.close();
   await button("Back to Study").click();
   await button("Tactics").click();
-  await button("Tactics settings").click();
+  await button("Study settings").click();
   await page.getByLabel("New tactics per day").fill("3");
   await button("Save settings").click();
-  const settingsToast = page.locator(".ui-toast").getByText("Tactics settings saved.", { exact: true });
+  const settingsToast = page.locator(".ui-toast").getByText("Study settings saved.", { exact: true });
   await settingsToast.waitFor();
   await button("Study").click();
   await page.getByRole("navigation", { name: "Tempo sections" }).waitFor();

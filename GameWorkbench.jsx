@@ -10,9 +10,7 @@ import { readGameReview } from "./game_commands.js";
 import { deliverDurableRepertoireCommand, previewMarkedLines, recoveryCleanupNotice, sendRepertoireCommand } from "./repertoire_commands.js";
 import { playBoardMove } from "./board_move.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
-import { useReviewRepertoireEvidence } from "./position_evidence.js";
 import { moveArrow } from "./move_evidence.js";
-import { ReviewMoveTable } from "./ReviewMoveTable.jsx";
 import { loadBoardPreferences } from "./BoardPreferences.jsx";
 import { createBoardSounds, learnerCue } from "./board_sounds.js";
 import { promotionRoles } from "./promotion_roles.js";
@@ -129,7 +127,7 @@ export function GameWorkbench({ address, dataset, books, recordedComparisons, on
     <div className="review-header"><Button size="compact" className="return-link" disabled={locked} onClick={onClose}>← Games</Button>
       <PageHeader title={current.review ? current.review.white + " vs " + current.review.black : "Game review"}
         subtitle={current.review && address.learner+" as "+current.review.learner_color+" · "+current.review.result}
-        actions={<label>Destination repertoire
+        actions={books.length > 0 && <label>Destination repertoire
       <select value={book?.id ?? ""} disabled={locked}
         onChange={e => switchBook(e.target.value || null)}>
         <option value="">Select a repertoire</option>
@@ -167,14 +165,11 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
     try { lineText(positions[ply].fen, moves); return moves; } catch { return []; }
   });
   const [choice, setChoice] = useState(null);
-  const [candidates, setCandidates] = useState(false);
   const [preview, setPreview] = useState(null);
   const [issue, setIssue] = useState("");
   const [pending, setPending] = useState(null);
   const [marker, setMarker] = useState(() => readReviewMark(address));
   const [arrows,setArrows] = useState(true);
-  const [circle,setCircle] = useState(null);
-  const [engineMarks,setEngineMarks] = useState(null);
   const [prefs] = useState(loadBoardPreferences);
   const [sounds] = useState(() => createBoardSounds(prefs.volume));
   useEffect(() => { void sounds.prepare(); return () => sounds.cancel(); }, [sounds]);
@@ -212,10 +207,7 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
     [sheet[recordedDeparture.ply-1], departures[recordedDeparture.kind]].filter(Boolean).join(" · ");
   const decision = decisionPly(comparison);
   const inBranch = branch.length > 0;
-  const [evidenceRetry,setEvidenceRetry] = useState(0);
-  const branchEvidence = useReviewRepertoireEvidence(fen,review,legal,evidenceRetry,!!book && (inBranch || candidates));
-  useEffect(() => { if (branchEvidence.stale) markStale(); }, [branchEvidence.stale, markStale]);
-  const prepared = inBranch ? (branchEvidence.prepared ?? []) : current.prepared_uci;
+  const prepared = current.prepared_uci;
   const lastBranchMove = board.history({verbose:true}).at(-1);
   const endpoint = lastBranchMove ? notation(lastBranchMove.before, lastBranchMove.lan) : ply > 0 ? sheet[ply - 1] : "Starting position";
   const draftBoard = new Chess(positions[selected.ply].fen);
@@ -229,8 +221,8 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
   const transpositionPly = positions.findIndex(p => p.other_route !== null);
   const lastMove = branch.at(-1) || positions[ply - 1]?.played_uci;
   const exactLearner = book && board.turn() === review.learner_color[0];
-  const shapes = candidates && engineMarks?.fen === fen ? [...engineMarks.shapes] : [];
-  if (arrows && exactLearner && prepared.length) {
+  const shapes = [];
+  if (arrows && !inBranch && exactLearner && prepared.length) {
     const played = !inBranch && current.played_uci;
     const arrows = prepared.map(move => ({move, brush:"green"}));
     if (played && !prepared.includes(played)) arrows.push({move:played, brush:"red"});
@@ -239,12 +231,10 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
     arrows.sort((a,b) => length(b)-length(a));
     for (const {move, brush} of arrows) shapes.push(moveArrow(move,brush));
   }
-  if (circle && legal.has(circle)) shapes.push({orig:circle.slice(2,4),brush:"blue"});
   const hasSelection = selected.branch.length || selected.ply > selected.start;
   function navigate(next, variation = [], nextStart = Math.min(start,next)) {
     if (flight.current || pending) return;
     setStart(nextStart); setPly(next); setBranch(variation); setChoice(null); if (!draft) setPreview(null); setIssue("");
-    setCircle(null);
     const location = { ...address, ply: next, branch: variation, start:nextStart };
     replaceDesktopEntry(window.history.state, reviewUrl(location));
     rememberVisit(location);
@@ -392,12 +382,7 @@ function ReviewBoard({ stale, markStale, address, review, sheet, recorded, book,
         {prepared.length > 0 && <div className="move-choices">{prepared.map(m => <button key={m} disabled={locked} onClick={() => play(m)}>{stale ? "Previously prepared" : "Prepared"} · {san(current.fen,m)}</button>)}</div>}
         {alternate && <p className="transposition"><strong>Same position by another move order</strong><br/>{lineText(positions[0].fen,alternate)}</p>}
       </> : <p>Exploring a variation from the played game.</p>)}
-      {inBranch && !stale && !branchEvidence.stale && branchEvidence.error && <p role="status">{branchEvidence.error} <Button disabled={locked} onClick={()=>setEvidenceRetry(n=>n+1)}>Retry preparation</Button></p>}
-      {exactLearner && prepared.length > 0 && <small>{stale ? "Green shows earlier preparation." : "Green shows preparation."} Red shows a different played move.</small>}
-      <button className="inline-link candidate-toggle" aria-expanded={candidates} onClick={() => {setCandidates(value => !value);setCircle(null);setEngineMarks(null);}}>
-        {candidates ? "Hide candidate moves" : "Compare candidate moves"}</button>
-      {candidates && <ReviewMoveTable fen={fen} review={review} book={book} legal={legal} prepared={prepared} repertoireEvidence={stale ? {stale:true,error:"Earlier comparison. Reload to check saved moves."} : branchEvidence} retryRepertoire={()=>setEvidenceRetry(n=>n+1)}
-        played={!inBranch ? current.played_uci : null} onPlayedLine={!inBranch} play={play} locked={locked} circle={circle} setCircle={setCircle} onEngineMarks={setEngineMarks}/>}
+      {!inBranch && exactLearner && prepared.length > 0 && <small>{stale ? "Green shows earlier preparation." : "Green shows preparation."} Red shows a different played move.</small>}
       {draftError && <div role="alert">{draftError} <Button disabled={locked} onClick={()=>writeDraft(null)}>Discard draft</Button></div>}
       {!draftError && (draft || (book && hasSelection)) && <div className="preview-line">
         <h3>{draft ? "Candidate line" : savedSelection===selection ? "Saved line" : "Selected line"}</h3>

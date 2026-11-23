@@ -28,7 +28,7 @@ export function studyActionButtons({ view, state, actions, reproduced, stopped, 
       others: <>
         {!teaching && <Button disabled={disabled || view.assessment !== null} onClick={actions.giveUp}>Show move</Button>}
         <Button disabled={disabled} onClick={actions.skip}>
-          {view.repertoire_context === "warmup" ? "Skip warm-up" : "Skip"}
+          Skip
         </Button>
         {stop}
       </>,
@@ -38,20 +38,9 @@ export function studyActionButtons({ view, state, actions, reproduced, stopped, 
     continuation: <Button variant="primary" disabled={disabled} onClick={actions.resumeSkipped}>Resume skipped</Button>,
     others: stop,
   };
-  if (view?.status === "empty") {
-    const moreTactics = view.learn_more_count ?? 10;
-    return {
-      others: <>
-        {view.can_practice_tactics && <Button disabled={disabled} onClick={actions.practiceTactics}>Practice tactics</Button>}
-        {view.can_learn_more_tactics && (
-          <Button disabled={disabled} onClick={actions.learnMoreTactics}>
-            Learn up to {moreTactics} more {moreTactics === 1 ? "tactic" : "tactics"} today
-          </Button>
-        )}
-        <Button disabled={disabled} onClick={actions.next}>Check again</Button>
-      </>,
-    };
-  }
+  if (view?.status === "empty") return {
+    others: <Button disabled={disabled} onClick={actions.next}>Check again</Button>,
+  };
   return {
     continuation: (
       <Button variant="primary" disabled={disabled} onClick={actions.next}

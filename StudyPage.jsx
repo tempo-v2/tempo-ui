@@ -166,9 +166,6 @@ export function StudyPage({
             </>
           ) : (
             <>
-              {view?.status === "ready" && view.repertoire_context === "warmup" && (
-                <h2>Repertoire warm-up</h2>
-              )}
               {view?.corrective_repair && (
                 <h2 className="correction-heading">
                   Repertoire correction{repairsRemaining !== null && ` (${repairsRemaining} remaining)`}

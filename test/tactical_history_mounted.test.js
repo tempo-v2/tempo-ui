@@ -42,8 +42,7 @@ async function mounted(t, handler) {
   window.fetch = async (url, options) => {
     const call = { url, payload: JSON.parse(options.body), headers: options.headers, signal: options.signal };
     calls.push(call);
-    assert.ok(["/api/games/tactics", "/api/games/tactics/command", "/api/games/tactics/report",
-      "/api/games/tactics/position"].includes(url));
+    assert.ok(["/api/games/tactics", "/api/games/tactics/command"].includes(url));
     assert.equal(options.method, "POST");
     return handler(call, calls.length);
   };
@@ -230,157 +229,15 @@ test("analysis controls pause, resume and retry through addressed commands", asy
     ["pause", "resume", "retry"]);
 });
 
-function personalStatus(dataset, completed) {
-  const status = tacticalReport({dataset, observations: []});
-  status.report_schema = 2;
-  status.statistics.completed_games = completed;
-  status.statistics.decisions_scanned = completed;
-  return status;
-}
-
-function personalSnapshot(dataset, analyzed, nextBefore = null) {
-  const results = {wins: 0, draws: 0, losses: 0};
-  const pattern = {
-    bands: [0, 1, 3, 5].map(min => ({min, results, opportunities: 0, misses: 0, days: 0})),
-    possible_break: null,
-  };
-  return {
-    schema_version: 2, dataset_id: dataset, archive_games: 10, filtered_games: 10,
-    loss_comparison: {with_miss: results, without_miss: results, analyzed,
-      opportunity_counts: Array.from({length: 3}, () => [results, results])},
-    prior_today: pattern, prior_hour: pattern,
-    games: nextBefore === null ? [] : [{
-      id: nextBefore, ply: 0, motifs: ["fork"],
-      game: {source: "pgn", learner: "white", id: "game-1", result: "win"},
-    }],
-    next_before: nextBefore, detail: null,
-    clocks: [], sources: [], learner_bands: [], opponent_bands: [],
-  };
-}
-
-test("personal report flags newer analysis but only reads another snapshot on refresh", async t => {
-  let completed = 0;
-  const page = await mounted(t, ({url, payload}) => response(url.endsWith("/report")
-    ? personalSnapshot(payload.dataset_id, completed) : personalStatus(payload.dataset_id, completed)));
-  const reportReads = () => page.calls.filter(call => call.url.endsWith("/report")).length;
-  await page.advance(120);
-  assert.match(page.text(), /Report snapshot/);
-  assert.match(page.text(), /0 of 10 matching games fully analyzed/);
-  assert.equal(reportReads(), 1);
-  completed = 1;
-  await page.advance(6100);
-  assert.match(page.text(), /1 games checked/);
-  assert.match(page.text(), /Newer analysis may be available/);
-  assert.match(page.text(), /0 of 10 matching games fully analyzed/);
-  assert.equal(reportReads(), 1);
-  await page.click("Refresh report");
-  assert.match(page.text(), /Reading your games/);
-  await page.advance(120);
-  assert.match(page.text(), /1 of 10 matching games fully analyzed/);
-  assert.doesNotMatch(page.text(), /Newer analysis may be available/);
-  assert.equal(reportReads(), 2);
-});
-
-test("personal report fences old filter, cursor and dataset results and exposes failed reads", async t => {
-  const request = [];
-  const page = await mounted(t, call => {
-    if (!call.url.endsWith("/report")) return response(personalStatus(call.payload.dataset_id, 0));
-    return new Promise((resolve, reject) => request.push({...call, resolve, reject}));
-  });
-  async function finish(index, analyzed, nextBefore) {
-    const {resolve, payload} = request[index];
-    await page.window.runBrowser(() => resolve(response(personalSnapshot(payload.dataset_id, analyzed, nextBefore))));
-  }
-  async function choose(value) {
-    await page.window.runBrowser(() => {
-      const select = page.window.document.querySelector(".tactical-filters select");
-      select.value = value;
-      select.dispatchEvent(new page.window.Event("change", {bubbles: true}));
-    });
-  }
-  await page.advance(120);
-  await finish(0, 2, 50);
-  assert.match(page.text(), /2 of 10 matching games fully analyzed/);
-
-  await page.click("Older");
-  assert.match(page.text(), /Reading your games/);
-  assert.doesNotMatch(page.text(), /matching games fully analyzed/);
-  await page.advance(120);
-  assert.equal(request[1].payload.before, 50);
-  await choose("fork");
-  assert.equal(request[1].signal.aborted, true);
-  assert.match(page.text(), /Reading your games/);
-  await page.advance(120);
-  assert.deepEqual(request[2].payload, {dataset_id: "tactics-fixture", filters: {motif: "fork"}});
-  await page.window.runBrowser(() => request[2].reject(new Error("Report unavailable")));
-  assert.match(page.text(), /Unable to read the personal tactics report/);
-  assert.doesNotMatch(page.text(), /matching games fully analyzed|No analyzed positions match/);
-  await finish(1, 3);
-  assert.match(page.text(), /Unable to read the personal tactics report/);
-
-  await page.click("Refresh report");
-  await page.advance(120);
-  assert.deepEqual(request[3].payload, request[2].payload);
-  await finish(3, 4);
-  assert.match(page.text(), /4 of 10 matching games fully analyzed/);
-  assert.match(page.text(), /No analyzed positions match these filters/);
-  assert.doesNotMatch(page.text(), /Unable to read the personal tactics report/);
-
-  await page.click("Refresh report");
-  await page.advance(120);
-  await page.window.renderTactics("replacement");
-  assert.equal(request[4].signal.aborted, true);
-  await page.advance(120);
-  assert.deepEqual(request[5].payload, {dataset_id: "replacement", filters: {}});
-  await finish(5, 5);
-  await finish(4, 6);
-  assert.match(page.text(), /5 of 10 matching games fully analyzed/);
-  assert.doesNotMatch(page.text(), /6 of 10 matching games fully analyzed/);
-});
-
-
-test("same-count generation changes mark the snapshot stale and fence its page and detail requests", async t => {
-  let generation = "personal:v2:7";
-  let available = "personal:v2:6";
-  const stale = {
-    ok: false, status: 409, json: async () => ({status: "error", code: "report_changed"}),
-  };
-  const page = await mounted(t, ({url, payload, headers}) => {
-    if (url === "/api/games/tactics") {
-      assert.equal(headers["X-Tempo-Tactics-Report-Generation"], "1");
-      return response({...personalStatus(payload.dataset_id, 10), report_generation: available});
-    }
-    if (payload.report_generation !== undefined && payload.report_generation !== generation) return stale;
-    assert.equal(url, "/api/games/tactics/report");
-    return response({...personalSnapshot(payload.dataset_id, 10, payload.before ? null : 50),
-      report_generation: generation});
-  });
-  await page.advance(120);
-  assert.match(page.text(), /10 of 10 matching games fully analyzed/);
-  assert.doesNotMatch(page.text(), /Newer analysis may be available/);
-  generation = available = "personal:v2:8";
-  await page.advance(3000);
-  assert.match(page.text(), /Newer analysis may be available/);
-  assert.equal(page.calls.filter(call => call.url.endsWith("/report")).length, 1);
-
-  await page.click("Fork / double attack · win");
-  assert.deepEqual(page.calls.at(-1).payload, {
-    dataset_id: "tactics-fixture", id: 50, report_generation: "personal:v2:7",
-  });
-  assert.match(page.text(), /Refresh the report to read the selected position/);
-  assert.match(page.text(), /10 of 10 matching games fully analyzed/);
-
-  await page.click("Older");
-  await page.advance(120);
-  assert.deepEqual(page.calls.at(-1).payload, {
-    dataset_id: "tactics-fixture", filters: {}, before: 50, report_generation: "personal:v2:7",
-  });
-  assert.match(page.text(), /Refresh the report to continue/);
-  assert.doesNotMatch(page.text(), /matching games fully analyzed/);
-
-  await page.click("Refresh report");
-  await page.advance(120);
-  assert.deepEqual(page.calls.at(-1).payload, {dataset_id: "tactics-fixture", filters: {}, before: 50});
-  assert.match(page.text(), /10 of 10 matching games fully analyzed/);
-  assert.doesNotMatch(page.text(), /Newer analysis may be available|Refresh the report to continue/);
+test("retired personal analysis stops shared polling without requesting a report", async t => {
+  const page = await mounted(t, ({ payload }) => response({
+    schema_version: 1, dataset_id: payload.dataset_id, status: "unavailable",
+    message: "The personal tactics report has been retired.",
+  }));
+  assert.match(page.text(), /The personal tactics report has been retired/);
+  await page.advance(9000);
+  assert.deepEqual(page.calls.map(call => call.url), ["/api/games/tactics"]);
+  const headers = page.calls[0].headers;
+  assert.equal(headers["X-Tempo-Analysis-Wait-Reason"], "1");
+  assert.equal(Object.keys(headers).some(name => name.startsWith("X-Tempo-Tactics-Report")), false);
 });

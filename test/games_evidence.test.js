@@ -3,6 +3,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { JSDOM } from "jsdom";
+import { Chess } from "chess.js";
 
 const pendingKey = "tempo.games.pending.v1";
 const bundle = await build({
@@ -11,9 +12,16 @@ const bundle = await build({
       import React, { act } from "react";
       import { createRoot } from "react-dom/client";
       import { GamesPage } from "./GamesPage.jsx";
+      import { ApplicationContext, useApplicationContextReader } from "./application_context.js";
+      function GamesFixture() {
+        const context = useApplicationContextReader();
+        return <ApplicationContext.Provider value={context}>
+          <GamesPage onStudy={() => {}} onRepertoires={() => {}} />
+        </ApplicationContext.Provider>;
+      }
       const root = createRoot(document.getElementById("root"));
       globalThis.mountGames = () => act(() => {
-        root.render(<GamesPage onStudy={() => {}} onRepertoires={() => {}} onGap={() => {}} />);
+        root.render(<GamesFixture />);
       });
       globalThis.unmountGames = () => act(() => root.unmount());
       globalThis.runBrowser = callback => act(async () => { callback(); });
@@ -150,6 +158,7 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
     assert.deepEqual(errors, []);
   });
   const defaults = {
+    "GET /api/context": () => response({ status: "ready", dataset_id: "evidence-fixture", schema_version: 22 }),
     "POST /api/repertoires": catalog,
     "GET /api/games": () => response({ results: [], last_successful_refresh_ms: null }),
     "POST /api/games/library": ({payload}) => response({dataset_id:payload.dataset_id, through:0, next_before:null, entries:[]}),
@@ -193,6 +202,11 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
     submitRefresh: () => window.runBrowser(() => {
       window.document.querySelector('input[name="learner"]').value = "learner";
       button("Refresh games").click();
+    }),
+    submitImport: pgn => window.runBrowser(() => {
+      window.document.querySelector('input[name="learner"]').value = "learner";
+      window.document.querySelector('textarea[name="pgn"]').value = pgn;
+      button("Import games").click();
     }),
     unmount,
   };
@@ -292,7 +306,7 @@ test("a current backfill that finishes between acknowledgement and status read r
   const historyReads = page.count("GET /api/games");
   await page.click("Retry same request");
   assert.match(page.text(), /1 complete · 0 incomplete · 0 pending/);
-  assert.match(page.text(), /fast-game · Book/);
+  assert.match(page.text(), /fast-game · [Bb]ook/);
   assert.equal(page.stored(), null);
   await page.advance(6000);
   assert.equal(page.count("GET /api/games"), historyReads + 1);
@@ -331,12 +345,12 @@ test("historical Retry clears only an acknowledgement for the pending job and pr
   assert.equal(page.count("GET /api/games"), historyReads);
 });
 
-test("catalog timeout leaves history available and reload enables dataset-dependent actions", async t => {
+test("context timeout leaves history available and reload enables dataset-dependent actions", async t => {
   let stalled = true;
   const page = await openGames(t, {
-    "POST /api/repertoires": ({ payload, signal }) => {
-      assert.deepEqual(payload, { command: "list" });
-      return stalled ? hang(signal) : catalog();
+    "GET /api/context": ({ payload, signal }) => {
+      assert.equal(payload, undefined);
+      return stalled ? hang(signal) : response({ status: "ready", dataset_id: "evidence-fixture", schema_version: 22 });
     },
   });
   assert.match(page.text(), /No games recorded yet/);
@@ -345,8 +359,8 @@ test("catalog timeout leaves history available and reload enables dataset-depend
   await page.advance(4999);
   assert.equal(page.button("Reload Games"), undefined);
   await page.advance(1);
-  assert.match(page.text(), /Tempo did not respond before the wait ended/);
-  assert.equal(page.calls[0].signal.reason.name, "TimeoutError");
+  assert.match(page.text(), /Could not identify the current Tempo data/);
+  assert.equal(page.calls.find(call => call.endpoint === "GET /api/context").signal.reason.name, "TimeoutError");
   stalled = false;
   await page.click("Reload Games");
   assert.equal(page.button(analyzeLabel).disabled, false);
@@ -377,7 +391,7 @@ test("history deadline includes response body consumption and recovery publishes
   stalled = false;
   await page.click("Reload game evidence");
   assert.match(page.text(), /Last successful provider refresh/);
-  assert.match(page.text(), /restored-player · Book/);
+  assert.match(page.text(), /restored-player · [Bb]ook/);
   assert.match(page.text(), /5 matched · 0 learner misses/);
   assert.equal(page.button("Reload game evidence"), undefined);
 });
@@ -397,7 +411,6 @@ test("ordinary refresh status read times out and reload recovers without replayi
   assert.equal(page.button("Reload Games"), undefined);
   const retryPosts = page.calls.slice(retryStart).filter(call => call.endpoint.startsWith("POST"));
   assert.deepEqual(retryPosts.map(call => [call.endpoint, call.payload]), [
-    ["POST /api/repertoires", { command: "list" }],
     ["POST /api/games/library", { dataset_id:"evidence-fixture" }],
   ]);
 });
@@ -654,7 +667,7 @@ for (const replay of [true, false]) {
     assert.equal(page.stored(), null);
     assert.match(page.text(), /Lichess · job-b/);
     assert.doesNotMatch(page.text(), /job-a/);
-    assert.match(page.text(), /game-from-B · Book/, JSON.stringify({
+    assert.match(page.text(), /game-from-B · [Bb]ook/, JSON.stringify({
       historyBefore: reads, historyAfter: page.count("GET /api/games"),
       status: page.count("GET /api/games/backfill"), gaps: page.count("GET /api/games/gaps"),
       pending: page.stored(), text: page.text(),
@@ -677,7 +690,7 @@ test("foreign historical status is a recoverable read error scoped to Games", as
   }, { pending });
   assert.doesNotMatch(page.text(), /foreign-job/);
   assert.match(page.text(), /Historical backfill status · .*different dataset/);
-  assert.match(page.text(), /local-game · Book/);
+  assert.match(page.text(), /local-game · [Bb]ook/);
   assert.match(page.text(), /h6 · 1 game/);
   assert.equal(page.stored(), pending);
   const reads = page.count("GET /api/games");
@@ -710,7 +723,7 @@ test("accepted old Retry leaves the current running job polling until its histor
   settled = true;
   await page.advance(2000);
   assert.ok(page.count("GET /api/games/backfill") >= statusReads + 2);
-  assert.match(page.text(), /job-b-game · Book/);
+  assert.match(page.text(), /job-b-game · [Bb]ook/);
   assert.doesNotMatch(page.text(), /job-a/);
   await page.advance(10000);
   assert.equal(page.count("GET /api/games"), reads + 1);
@@ -740,7 +753,7 @@ test("same historical job settles again when another window retries below the ma
       return response(job());
     },
   });
-  assert.match(page.text(), /first-batch · Book/);
+  assert.match(page.text(), /first-batch · [Bb]ook/);
   const reads = page.count("GET /api/games");
   const statusReads = page.count("GET /api/games/backfill");
   notes = ["Changed display note"];
@@ -748,7 +761,7 @@ test("same historical job settles again when another window retries below the ma
   assert.ok(page.count("GET /api/games/backfill") > statusReads);
   assert.equal(page.count("GET /api/games"), reads);
   await page.click("Retry remaining windows");
-  assert.match(page.text(), /second-batch · Book/);
+  assert.match(page.text(), /second-batch · [Bb]ook/);
   assert.equal(page.count("GET /api/games"), reads + 1);
   await page.advance(10000);
   assert.equal(page.count("GET /api/games"), reads + 1);
@@ -780,7 +793,7 @@ test("settled history supersedes a late response and a timed-out replacement rem
   assert.match(page.text(), /Tempo did not respond before the wait ended/);
   phase = "recovered";
   await page.click("Reload game evidence");
-  assert.match(page.text(), /current-game · Book/);
+  assert.match(page.text(), /current-game · [Bb]ook/);
   assert.doesNotMatch(page.text(), /obsolete-game|Tempo did not respond before the wait ended/);
   assert.equal(page.count("POST /api/games/backfill/retry"), 0);
 });
@@ -799,7 +812,7 @@ test("paused historical work may expose durable rows before a window completes",
     "GET /api/games/model": () => response(model("running")),
     "GET /api/games": () => gameHistory(later ? "after-resume" : "before-resume"),
   });
-  assert.match(page.text(), /before-resume · Book/);
+  assert.match(page.text(), /before-resume · [Bb]ook/);
   const reads = page.count("GET /api/games");
   await page.advance(2000);
   assert.equal(page.count("GET /api/games"), reads);
@@ -808,7 +821,7 @@ test("paused historical work may expose durable rows before a window completes",
   later = true;
   state = "paused";
   await page.advance(2000);
-  assert.match(page.text(), /after-resume · Book/);
+  assert.match(page.text(), /after-resume · [Bb]ook/);
   await page.advance(4000);
   assert.equal(page.count("GET /api/games"), reads + 1);
 });
@@ -852,14 +865,14 @@ for (const interruptedRead of ["none", "failed", "timed out", "foreign", "cancel
         return response({ ...paused, status: "running", error: undefined });
       },
     });
-    assert.match(page.text(), /first-24-games · Book/);
+    assert.match(page.text(), /first-24-games · [Bb]ook/);
     const reads = page.count("GET /api/games");
     const statusReads = page.count("GET /api/games/backfill");
     await page.click("Retry remaining windows");
     assert.equal(page.stored(), null);
     if (interruptedRead !== "none") {
       if (interruptedRead === "timed out") await page.advance(5000);
-      assert.match(page.text(), /first-24-games · Book/);
+      assert.match(page.text(), /first-24-games · [Bb]ook/);
       assert.equal(page.count("GET /api/games"), reads);
       recover = true;
       if (interruptedRead === "cancelled") {
@@ -872,7 +885,7 @@ for (const interruptedRead of ["none", "failed", "timed out", "foreign", "cancel
         await page.advance(2000);
       }
     }
-    assert.match(page.text(), /later-48-games · Book/);
+    assert.match(page.text(), /later-48-games · [Bb]ook/);
     assert.doesNotMatch(page.text(), /first-24-games/);
     assert.ok(page.button("Retry remaining windows"));
     await page.advance(10000);
@@ -892,9 +905,9 @@ test("changing dataset while Games reads are pending clears old rows and ignores
   let oldStatusSignal;
   let historyReads = 0;
   const page = await openGames(t, {
-    "POST /api/repertoires": () => changed
-      ? response({ schema_version: 4, status: "repertoires", dataset_id: "next-dataset", repertoires: [] })
-      : catalog(),
+    "GET /api/context": () => response({
+      status: "ready", dataset_id: changed ? "next-dataset" : "evidence-fixture", schema_version: 22,
+    }),
     "GET /api/games/job": () => changed ? response({ status: "idle" }) : failure("Fixture refresh unavailable"),
     "GET /api/games/model": () => response(model(modelState, changed ? "next-dataset" : "evidence-fixture")),
     "GET /api/games/backfill": ({ signal }) => {
@@ -910,7 +923,7 @@ test("changing dataset while Games reads are pending clears old rows and ignores
       return oldHistory.promise;
     },
   });
-  assert.match(page.text(), /old-dataset-game · Book/);
+  assert.match(page.text(), /old-dataset-game · book/);
   modelState = "complete";
   await page.advance(2000);
   assert.equal(oldHistorySignal.aborted, false);
@@ -1310,3 +1323,121 @@ test("a foreign Maia run never takes ownership of current Games evidence", async
   assert.doesNotMatch(page.text(), /running · 1 of 2 positions/);
   assert.equal(page.button(analyzeLabel).disabled, false);
 });
+
+test("plain library, replay and manual import do not request a repertoire catalog", async t => {
+  const dataset = "games-context";
+  const storedGame = {
+    white: "White", black: "Black", learner: "learner", game_id: "one-game", source: "pgn",
+    color: "white", opening: null, eco: null, moves: [], played_ms: null, repertoires: [
+      { repertoire_id: "old-book", source_available: true, first_departure: null, reentry_ply: null },
+    ],
+  };
+  const page = await openGames(t, {
+    "GET /api/context": () => response({ status: "ready", dataset_id: dataset, schema_version: 22 }),
+    "POST /api/repertoires": () => failure("Repertoires are unavailable."),
+    "GET /api/games/job": () => failure("Legacy refresh status is unavailable."),
+    "POST /api/games/library": ({ payload }) => {
+      assert.equal(payload.dataset_id, dataset);
+      return response({ dataset_id: dataset, through: 1, next_before: null, entries: [storedGame] });
+    },
+    "POST /api/games/review": ({ payload }) => {
+      assert.deepEqual(payload, {
+        dataset_id: dataset, learner: "learner", game_id: "one-game", source: "pgn", repertoire_id: null,
+      });
+      return response({
+        ...payload, status: "review", white: "White", black: "Black", result: "1-0", learner_color: "white",
+        comparison: null, document_id: null, revision: null, line: [],
+        positions: [{ fen: new Chess().fen(), played_uci: null, prepared_uci: [],
+          book_state: "unavailable", introduced: null, other_route: null }],
+      });
+    },
+    "POST /api/games/import": ({ body, payload }) => {
+      assert.equal(payload.dataset_id, dataset);
+      assert.equal(payload.pgn, "1. e4 1-0");
+      assert.equal(JSON.stringify(JSON.parse(page.stored()).payload), body);
+      return response(refreshReport());
+    },
+  }, { setup: window => {
+    window.sessionStorage.setItem("tempo.game-library.v1." + dataset, JSON.stringify({
+      book: "missing-book", reason: "opponent_gap",
+    }));
+  } });
+  assert.match(page.text(), /1 game/);
+  await page.click("Review game");
+  assert.match(page.text(), /White vs Black/);
+  assert.equal(page.count("POST /api/games/review"), 1);
+  await page.click("← Games");
+  await page.click("Import PGN");
+  assert.equal(page.button("Import games").disabled, false);
+  await page.submitImport("1. e4 1-0");
+  assert.equal(page.count("POST /api/games/import"), 1);
+  assert.equal(page.stored(), null);
+  assert.equal(page.count("POST /api/repertoires"), 0);
+  assert.equal(page.count("POST /api/study"), 0);
+  assert.doesNotMatch(page.text(), /Open tactics detector/);
+  for (const route of ["GET /api/games/detectors", "POST /api/games/detection", "POST /api/games/detection-result"]) {
+    assert.equal(page.count(route), 0);
+  }
+});
+
+test("an import for a different dataset stays pending and is never retargeted", async t => {
+  const pending = JSON.stringify({ kind: "import", payload: {
+    command_id: "older-upload", dataset_id: "other-dataset", learner: "learner", pgn: "1. e4 1-0",
+  } });
+  const page = await openGames(t, {}, { pending });
+  await page.click("Review Games request");
+  assert.equal(page.button("Retry same request").disabled, true);
+  assert.equal(page.stored(), pending);
+  assert.equal(page.count("POST /api/games/import"), 0);
+  assert.equal(page.count("POST /api/repertoires"), 0);
+});
+
+test("a transitional Coverage visit owns and cancels its catalog lookup", async t => {
+  let catalogSignal;
+  const page = await openGames(t, {
+    "POST /api/repertoires": ({ signal }) => {
+      catalogSignal = signal;
+      return hang(signal);
+    },
+  });
+  assert.equal(page.count("POST /api/repertoires"), 0);
+  await page.click("Coverage");
+  assert.equal(page.count("POST /api/repertoires"), 1);
+  assert.equal(catalogSignal.aborted, false);
+  await page.click("Library");
+  assert.equal(catalogSignal.aborted, true);
+  assert.equal(page.count("GET /api/context"), 1);
+});
+
+for (const unavailable of ["failure", "deadline"]) {
+  test(`a saved import retries its exact request after context ${unavailable}`, async t => {
+    const payload = {
+      command_id: "saved-import", dataset_id: "saved-dataset", learner: "learner", pgn: "1. e4 1-0",
+    };
+    const pending = JSON.stringify({ kind: "import", payload });
+    let attempts = 0;
+    const page = await openGames(t, {
+      "GET /api/context": ({ signal }) => unavailable === "deadline" ? hang(signal) : failure("Unavailable"),
+      "POST /api/games/import": ({ body }) => {
+        assert.equal(body, JSON.stringify(payload));
+        if (++attempts === 1) throw new TypeError("Delivery interrupted.");
+        return response(refreshReport());
+      },
+    }, { pending });
+    await page.click("Review Games request");
+    if (unavailable === "deadline") {
+      assert.equal(page.button("Retry same request").disabled, true);
+      await page.advance(5000);
+    }
+    assert.equal(page.button("Retry same request").disabled, false);
+    await page.click("Retry same request");
+    assert.equal(page.stored(), pending);
+    assert.match(page.text(), /Delivery interrupted/);
+    await page.click("Retry same request");
+    assert.equal(page.stored(), null);
+    assert.match(page.text(), /Games import confirmed/);
+    assert.equal(page.count("POST /api/games/import"), 2);
+    assert.equal(page.button("Import games").closest("fieldset").disabled, true);
+    assert.equal(page.count("POST /api/repertoires"), 0);
+  });
+}

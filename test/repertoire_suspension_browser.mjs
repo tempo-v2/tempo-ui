@@ -47,7 +47,7 @@ async function stop() {
 }
 
 try {
-  execFileSync(binary, ["init-practice", database]);
+  execFileSync(binary, ["init", database]);
   const origin = await start();
   const post = async (path, command) => {
     const response = await fetch(origin + "/api/" + path, {
@@ -132,13 +132,17 @@ try {
 
   await page.getByRole("tab", { name: "Coverage" }).click();
   await button("Fix response").click();
-  await page.route("**/api/analysis/evidence", route =>
-    route.request().postDataJSON().source === "repertoire" ? route.continue() : route.abort());
-  const evidence = page.waitForRequest(request => request.url().endsWith("/api/analysis/evidence")
-    && request.postDataJSON().source === "repertoire");
+  const retiredCalls = [];
+  const recordRetiredCall = request => {
+    if (/\/api\/analysis\/(evidence|result)$/.test(request.url())) retiredCalls.push(request.url());
+  };
+  page.on("request", recordRetiredCall);
   await button("Analyze lines").click();
-  assert.equal((await evidence).postDataJSON().repertoire_scope, "game");
-  console.log("Chrome passed suspension recovery, resume, stale game choices and the Games analysis scope.");
+  await page.getByRole("group", { name: "Analysis board" }).waitFor();
+  assert.deepEqual(retiredCalls, []);
+  page.off("request", recordRetiredCall);
+  console.log("Chrome passed suspension recovery, stale game choices and local variation analysis.");
+
 } finally {
   await browser?.close();
   await stop();

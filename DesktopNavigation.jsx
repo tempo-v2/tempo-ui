@@ -8,7 +8,7 @@ const sections = [
   { page: "repertoires", label: "Repertoires", shortcuts: [{ page: "coverage-settings", label: "Coverage settings" }] },
   { page: "tactics", label: "Tactics", shortcuts: [
     { page: "capture", label: "Capture tactics" },
-    { page: "tactic-settings", label: "Tactics settings" },
+    { page: "tactic-settings", label: "Study settings" },
   ] },
 ];
 

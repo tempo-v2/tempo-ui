@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
+import { ApplicationContext, useApplicationContextReader } from "./application_context.js";
 import { createStudyController } from "./study_controller.js";
 import { Notifications } from "./Notifications.jsx";
 import { StudyPage } from "./StudyPage.jsx";
@@ -38,7 +39,12 @@ export function hasPendingStudyCommand() {
 }
 
 export function App(props) {
-  return <Notifications><StudyApp {...props} /></Notifications>;
+  const context = useApplicationContextReader();
+  return <Notifications>
+    <ApplicationContext.Provider value={context}>
+      <StudyApp {...props} />
+    </ApplicationContext.Provider>
+  </Notifications>;
 }
 
 function StudyApp({ initialPage = "study", renderSection, renderAnalysis, renderNavigation, studyPresenceSurface,
@@ -237,8 +243,6 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
     }),
     giveUp: run(() => controller.current.giveUp()),
     resumeSkipped: run(() => controller.current.resumeSkipped()),
-    practiceTactics: run(() => controller.current.practiceTactics()),
-    learnMoreTactics: run(() => controller.current.learnMoreTactics()),
     acknowledge: run(() => controller.current.acknowledge(guided?.uci)),
     retry: run(async () => {
       const retryingNext = controller.current.getState().retryingNext;

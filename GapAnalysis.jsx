@@ -1,12 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Board, Button } from "@tempo-v2/core-components";
-import { LichessControl } from "./LichessControl.jsx";
-import { readGapAnalysis, readGapExplorer, readPhoneGapAnalysis, startGapAnalysis, startGapExplorer } from "./game_commands.js";
+import { Button } from "@tempo-v2/core-components";
+import { readGapExplorer, startGapExplorer } from "./game_commands.js";
 
-import { checkedGapAnalysis, checkedGapExplorer } from "./source_evidence.js";
+import { checkedGapExplorer } from "./source_evidence.js";
 
-const localAnalysis = { start: startGapAnalysis, read: readGapAnalysis, busy: "analysis_busy", check: checkedGapAnalysis };
-const phoneAnalysis = { ...localAnalysis, read: readPhoneGapAnalysis };
 const explorer = { start: startGapExplorer, read: readGapExplorer, busy: "explorer_busy", check: checkedGapExplorer };
 
 function useGapRead(gap, service, ratings) {
@@ -72,97 +69,6 @@ function useGapRead(gap, service, ratings) {
     state?.gap === gap && state.ratings === ratings && state?.attempt === attempt ? state.value : { status: "running" },
     () => setAttempt(value => value + 1),
   ];
-}
-
-function evaluation(candidate) {
-  if (candidate.mate != null) {
-    if (candidate.mate === 0) return "Checkmate";
-    return candidate.mate > 0 ? `Mate in ${candidate.mate}` : `Mated in ${-candidate.mate}`;
-  }
-  const value = candidate.centipawns / 100;
-  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
-}
-
-function NearbyExample({ position, names, color }) {
-  const [open, setOpen] = useState(false);
-  const summary = [...new Set(position.responses.map(move =>
-    `${move.san} · ${names[move.repertoire_id] ?? "Saved repertoire"}`))].join(" / ");
-  return (
-    <details onToggle={event => setOpen(event.currentTarget.open)}>
-      <summary>{summary}</summary>
-      {open && <div className="gap-neighbor-board">
-        <Board fen={position.fen} orientation={color} turn={color}
-          readOnly coordinates="edges" positionIdentity={position.fen} positionRevision={0} />
-        <LichessControl fen={position.fen} orientation={color} />
-      </div>}
-    </details>
-  );
-}
-
-function SimilarResponses({ state, color, moveButton }) {
-  if (state.neighbors_error) return <p role="status">{state.neighbors_error}</p>;
-  if (!state.nearby) return state.status === "running" ? <p role="status">Finding similar positions…</p> : null;
-  const groups = [
-    ["current", "Current repertoire"],
-    ["other", "Other same-side repertoires"],
-  ];
-  if (groups.every(([key]) => !state.nearby[key].length)) return <p>No similar saved positions found.</p>;
-  return groups.map(([key, label]) => {
-    const positions = state.nearby[key];
-    const moves = state.similar_responses[key];
-    if (!positions.length) return null;
-    return (
-      <div className="gap-similar-group" key={key}>
-        <h5>{label}</h5>
-        {moves.length ? <ul className="gap-moves">{moves.map(move => (
-          <li key={move.uci}>{moveButton(move.uci,
-            `${move.position_count} ${move.position_count === 1 ? "position" : "positions"}`)}</li>
-        ))}</ul> : <p>No reusable responses.</p>}
-        <details>
-          <summary>Nearby examples</summary>
-          {positions.map(position => (
-            <NearbyExample key={position.fen} position={position} names={state.repertoire_names} color={color} />
-          ))}
-        </details>
-      </div>
-    );
-  });
-}
-
-export function GapAnalysis({ gap, color, moveButton, onRecommendation, phoneBuild }) {
-  const [state, retry] = useGapRead(gap, phoneBuild ? phoneAnalysis : localAnalysis);
-  useEffect(() => {
-    if (state.status === "complete" && state.recommendation) onRecommendation(state.recommendation);
-  }, [state, onRecommendation]);
-
-  return (
-    <>
-      <div className="gap-analysis-columns">
-        <section className="gap-analysis-panel" aria-label="Similar repertoire positions">
-          <h4>Similar repertoire positions</h4>
-          <SimilarResponses state={state} color={color} moveButton={moveButton} />
-        </section>
-        <section className="gap-analysis-panel" aria-label="Stockfish">
-          <h4>Stockfish</h4>
-          {state.status === "running" && <p role="status">Evaluating responses…</p>}
-          {state.status === "error" && <p role="status">{state.message}</p>}
-          {state.stockfish_error && <p>{state.stockfish_error}</p>}
-          {state.stockfish && (
-            <>
-              <p>{state.stockfish.engine} · Evaluation for the side to move</p>
-              {state.stockfish.candidates.length
-                ? <ul className="gap-moves">{state.stockfish.candidates.map(candidate => (
-                    <li key={candidate.uci}>{moveButton(candidate.uci, evaluation(candidate))}</li>
-                  ))}</ul>
-                : <p>No legal response.</p>}
-            </>
-          )}
-        </section>
-      </div>
-      {(state.status === "error" || state.stockfish_error || state.neighbors_error) &&
-        <Button onClick={retry}>Retry local analysis</Button>}
-    </>
-  );
 }
 
 const explorerMessages = {

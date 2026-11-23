@@ -32,31 +32,3 @@
   .tactical-list ol { max-height: 13rem; }
   .tactical-observation { border-top: 1px solid #d8ddd3; padding-top: 1rem; }
 }
-
-.tactical-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: .75rem;
-  margin-block: .75rem 1.25rem;
-}
-
-.tactical-filters label {
-  display: grid;
-  align-content: start;
-  gap: .25rem;
-}
-
-.tactical-filters fieldset {
-  margin: 0;
-  padding: .3rem .5rem .5rem;
-  min-width: 0;
-}
-
-.tactical-filters input {
-  max-width: 4.25rem;
-}
-
-.tactical-captures meter {
-  width: 4rem;
-  vertical-align: middle;
-}

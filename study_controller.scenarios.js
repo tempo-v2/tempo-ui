@@ -245,13 +245,16 @@ test("lesson acknowledgement replays the reproduced move with no recall grade", 
   assert.equal(controller.getState().view.status, "ready");
 });
 
-test("an uncertain extra tactics allowance replays its exact command before asking for Next", async () => {
+test("a saved legacy allowance replays its exact command before asking for Next", async () => {
   const done = {
     schema_version: 5, status: "empty", dataset_id: "dataset-1", done: true,
     outstanding: 0, repertoire_remaining: 0, tactics_remaining: 0,
     can_practice_tactics: true, can_learn_more_tactics: true, learn_more_count: 4,
   };
-  let saved;
+  const legacy = {
+    command: "learn_more_tactics", dataset_id: "dataset-1", submission_id: "extra-allowance",
+  };
+  let saved = { pending: legacy };
   let lost = true;
   const requests = [];
   const create = () => createStudyController({
@@ -262,9 +265,8 @@ test("an uncertain extra tactics allowance replays its exact command before aski
     transport: {
       async send(command) {
         requests.push(command);
-        if (command.command === "next") return requests.length === 1 ? done : ready();
-        assert.equal(command.command, "learn_more_tactics");
-        assert.deepEqual(command, saved.pending);
+        if (command.command === "next") return ready();
+        assert.deepEqual(command, legacy);
         if (lost) {
           lost = false;
           throw new Error("allowance reply lost");
@@ -273,19 +275,16 @@ test("an uncertain extra tactics allowance replays its exact command before aski
       },
     },
     render() {},
-    makeSubmissionId: () => "extra-allowance",
+    makeSubmissionId: () => assert.fail("legacy allowance replay must preserve its identity"),
   });
   const first = create();
-  await first.start();
-  await assert.rejects(first.learnMoreTactics(), /reply lost/);
+  await assert.rejects(first.start(), /reply lost/);
   const reopened = create();
   await reopened.start();
-  assert.deepEqual(requests[1], requests[2]);
-  assert.deepEqual(requests[3], { command: "next" });
+  assert.deepEqual(requests, [legacy, legacy, { command: "next" }]);
   assert.equal(reopened.getState().view.status, "ready");
   assert.equal(saved.pending, null);
 });
-
 
 test("analysis recovery replays an uncertain concession once and reopens the accepted position without Next", async () => {
   let saved, drop = true;
@@ -442,4 +441,43 @@ test("returning to guided Study selects Next if the resumed ID is closed or belo
     assert.ok(rendered.every(view => view.status === "ready" && view.dataset_id === initial.dataset_id &&
       view.content_version === initial.content_version));
   }
+});
+
+test("retired warm-up resolves the old command before refreshing Study", async () => {
+  const sent = [];
+  const pending = {
+    command: "answer",
+    dataset_id: "dataset-1",
+    attempt_id: "warm-up",
+    expected_revision: 0,
+    submission_id: "prior-answer",
+    answer: { uci: "e2e4" },
+  };
+  const controller = createStudyController({
+    storage: { load: () => ({ pending }), save() {} },
+    transport: {
+      async send(command) {
+        sent.push(command);
+        if (command.command === "answer") {
+          return {
+            schema_version: 5,
+            status: "error",
+            code: "retired_activity",
+            message: "Connected repertoire warm-ups have been retired.",
+            retryable: false,
+          };
+        }
+        return ready();
+      },
+    },
+    render() {},
+    makeSubmissionId: () => assert.fail("Refreshing does not allocate an answer"),
+  });
+
+  await controller.start();
+  assert.equal(controller.getState().canRetry, false);
+  assert.equal(controller.getState().refreshRequired, true);
+  await controller.refresh();
+  assert.deepEqual(sent, [pending, { command: "next" }]);
+  assert.equal(controller.getState().view.status, "ready");
 });

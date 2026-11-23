@@ -68,7 +68,7 @@ export function createStudyController({
       }
       if (analysisVisit?.phase === "return") {
         const unavailable = command.command === "resume" && (response.status === "error"
-          ? ["stale_content", "stale_dataset", "stale_activity", "suspended_repertoire", "unknown_attempt"].includes(response.code)
+          ? ["stale_content", "stale_dataset", "stale_activity", "retired_activity", "suspended_repertoire", "unknown_attempt"].includes(response.code)
           : response.status !== "ready" || response.dataset_id !== analysisVisit.dataset_id ||
             response.attempt_id !== analysisVisit.attempt_id || response.content_version !== analysisVisit.content_version);
         nextVisit = unavailable ? { ...analysisVisit, returnTo: "next" } : null;
@@ -85,6 +85,7 @@ export function createStudyController({
           "stale_content",
           "stale_dataset",
           "stale_activity",
+          "retired_activity",
           "suspended_repertoire",
           "unknown_attempt",
         ].includes(response.code);
@@ -108,6 +109,7 @@ export function createStudyController({
     if (command.command === "resume" && analysisVisit?.phase === "return" &&
         analysisVisit.returnTo === "next")
       return begin(() => ({ command: "next" }));
+    // A saved legacy allowance can still finish its Next-only continuation.
     if (
       (command.command === "acknowledge" && reply.status === "complete" && reply.activity === "teach") ||
       (command.command === "learn_more_tactics" && reply.status === "empty" && !reply.done)
@@ -243,16 +245,6 @@ export function createStudyController({
     skip: () => begin(() => attemptCommand("skip"), true),
     resumeSkipped: () => begin(() => ({ command: "resume_skipped" })),
     studyStatus: () => begin(() => ({ command: "study_status" })),
-    practiceTactics: () => begin(() => ({ command: "practice_tactics" })),
-    learnMoreTactics: () => begin(() => {
-      if (view?.status !== "empty" || !view.done || !view.can_learn_more_tactics)
-        throw new Error("Complete the required study before increasing today's tactics allowance");
-      return {
-        command: "learn_more_tactics",
-        dataset_id: view.dataset_id,
-        submission_id: string(makeSubmissionId(), "submission_id", true),
-      };
-    }, true),
     abandon: () => begin(() => attemptCommand("abandon"), true),
     retry: () =>
       busy
