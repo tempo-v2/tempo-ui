@@ -8,9 +8,8 @@ import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 
 import { Button, IconButton, PageHeader, SectionHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 import {
-  chooseGameCorrection, gameEffects, importGamePgn, reprocessGames, readGameHistory, recoverGameRefresh,
-  sourceNames, utcDateRange, utcDayMs, gapDraft, modelStatus,
-  readGaps, recoverHistorical, startModel,
+  chooseGameCorrection, gameEffects, importGamePgn, recoverReprocessGames, readGameHistory, recoverGameRefresh,
+  sourceNames, gapDraft, readGaps, recoverHistorical,
 } from "./game_commands.js";
 import { ApplicationContext } from "./application_context.js";
 import { readRepertoireCatalog } from "./repertoire_commands.js";
@@ -165,7 +164,6 @@ function GameReport({ report, importing, repertoires, dataset, onOpen, history }
 }
 
 const gameRecovery = commandRecovery("tempo.games.pending.v1");
-const evidencePollMs = 2000;
 const gapDraftTimeoutMs = 5000;
 
 const recoverableGameKinds = new Set(["import", "refresh", "choose", "reprocess", "backfill", "backfill-retry"]);
@@ -196,7 +194,7 @@ function GamesPanel({ id, tab, children }) {
   </section>;
 }
 
-export function GamesPage({ onStudy, onRepertoires }) {
+export function GamesPage({ onStudy }) {
   const { datasetId: dataset, issue: contextIssue, refresh: refreshContext } = useContext(ApplicationContext);
   const [review, setReview] = useState(reviewAddress);
   const [analysis, setAnalysis] = useState(null);
@@ -288,7 +286,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
     selectTab(selected);
     refreshHistory(); refreshEvidenceReads();
   }
-  const [source, setSource] = useState("pgn");
   const [catalog, setCatalog] = useState(null);
   const repertoires = catalog?.dataset_id === dataset ? catalog.repertoires : null;
   const [pendingEntry, setPendingEntry] = useState(null);
@@ -298,8 +295,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const [history, setHistory] = useState(null);
   const [historyError, setHistoryError] = useState("");
   const [evidence, setEvidence] = useState({});
-  const [modelActionError, setModelActionError] = useState("");
-  const [modelActionDataset, setModelActionDataset] = useState(null);
   const [gapActionError, setGapActionError] = useState("");
   const [workingGap, setWorkingGap] = useState(false);
   const [forecastBook, setForecastBook] = useState(() => recovery?.gap.forecastBook ?? null);
@@ -319,13 +314,10 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const historyOwner = useRef(null);
   const activeDataset = useRef(null);
   const previouslyIdentifiedDataset = useRef(null);
-  const observedRunning = useRef({ dataset: null });
-  const modelAction = useRef(null);
   const inFlight = useRef(false);
-  const importing = source === "pgn";
   const comparing = !!review?.repertoire_id;
   const needsCatalog = (comparing && !activeGap) ||
-    (!review && !analysis && (tab === "coverage" || (tab === "import" && !importing)));
+    (!review && !analysis && tab === "coverage");
   const pending = pendingEntry?.command;
   const settledCleanup = ["accepted", "retired"].includes(pendingEntry?.phase);
   const commandsBlocked = recoveryStatus !== "ready" || !!pending;
@@ -338,37 +330,17 @@ export function GamesPage({ onStudy, onRepertoires }) {
   const currentReport = importResult?.datasetId === dataset ? importResult : null;
   const choiceReport = currentReport?.kind === "choose" ? currentReport.report : null;
   const importReport = currentReport?.kind !== "choose" ? currentReport?.report : null;
+  const importReportTitle = currentReport?.kind === "reprocess" ? "Recovered reprocess results" : "Import results";
   const confirmedRefresh = refreshResult?.datasetId === dataset ? refreshResult : null;
-  const modelRead = evidenceFor(evidence.model, dataset);
-  const gapRead = evidence.gaps?.forecastBook === forecastBook
-    ? evidenceFor(evidence.gaps, dataset, gapOffset) : undefined;
-  const model = modelRead?.value;
-  const projection = modelRead?.projection;
+  const gapRead = evidence.forecastBook === forecastBook
+    ? evidenceFor(evidence, dataset, gapOffset) : undefined;
   const gapPage = gapRead?.value;
-  const evidenceErrors = [
-    ["Maia run status", modelRead?.error],
-    ["Opponent gaps", gapRead?.error],
-  ].filter(([, message]) => message);
 
-  function updateEvidence(name, changes, offset) {
+  function updateGapEvidence(changes, offset) {
     setEvidence(current => ({
-      ...current,
-      [name]: {
-        ...evidenceFor(current[name]?.forecastBook === forecastBook ? current[name] : undefined, dataset, offset),
-        dataset, offset, forecastBook, ...changes,
-      },
+      ...evidenceFor(current.forecastBook === forecastBook ? current : undefined, dataset, offset),
+      dataset, offset, forecastBook, ...changes,
     }));
-  }
-
-  function recordJobStatus(name, value, readChanges) {
-    if (observedRunning.current.dataset !== dataset) observedRunning.current = { dataset };
-    const activity = observedRunning.current;
-    const running = value.status === "running";
-    const settled = activity[name] && !running;
-    activity[name] = running;
-    updateEvidence(name, { value, ...readChanges });
-    if (settled) refreshHistory();
-    return settled;
   }
 
   function refreshHistory() {
@@ -392,9 +364,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
     if (previouslyIdentifiedDataset.current !== null && previouslyIdentifiedDataset.current !== dataset) {
       evidenceOwner.current?.abort();
       historyOwner.current?.abort();
-      modelAction.current = null;
-      setModelActionDataset(null);
-      setModelActionError("");
       setHistory(null);
       setHistoryError("");
       refreshHistory();
@@ -433,119 +402,15 @@ export function GamesPage({ onStudy, onRepertoires }) {
     if (!dataset) return;
     const owner = new AbortController();
     evidenceOwner.current = owner;
-    let pendingProjection = false;
-    let refreshGaps = false;
-
-    function observeStatus(name, value, readChanges) {
-      if (recordJobStatus(name, value, { error: "", ...readChanges })) {
-        refreshGaps = true;
-      }
-    }
-
-    const resources = [
-      {
-        name: "model",
-        read: modelStatus,
-        apply(value) {
-          if (value.status !== "idle" && value.dataset_id !== dataset)
-            throw new Error("Maia run status belongs to a different dataset.");
-          const summary = value.projection?.dataset_id === dataset ? value.projection : undefined;
-          pendingProjection = summary?.pending > 0;
-          observeStatus("model", value, { projection: summary });
-          const action = modelAction.current;
-          if (action?.dataset === dataset && action.reconciling) {
-            modelAction.current = null;
-            setModelActionDataset(null);
-          }
-        },
-      },
-      {
-        name: "gaps",
-        offset: gapOffset,
-        read(signal) {
-          refreshGaps = false;
-          return readGaps(signal, gapOffset, forecastBook);
-        },
-        apply(value) {
-          if (value.dataset_id !== dataset) throw new Error("Opponent gaps belong to a different dataset.");
-          updateEvidence("gaps", { value, error: "" }, gapOffset);
-        },
-      },
-    ];
-
-    function shouldPoll(resource) {
-      const activity = observedRunning.current;
-      const running = activity.dataset === dataset && activity.model;
-      return resource.failed || running || pendingProjection || (resource.name === "gaps" && refreshGaps);
-    }
-
-    function schedule() {
+    readGaps(owner.signal, gapOffset, forecastBook).then(value => {
       if (owner.signal.aborted) return;
-      for (const resource of resources) {
-        if (resource.reading || resource.timer !== undefined || !shouldPoll(resource)) continue;
-        resource.timer = setTimeout(() => {
-          resource.timer = undefined;
-          if (!owner.signal.aborted && shouldPoll(resource)) void check(resource);
-        }, evidencePollMs);
-      }
-    }
-
-    // Each resource publishes and reschedules as soon as its own request settles.
-    async function check(resource) {
-      resource.reading = true;
-      try {
-        const next = await resource.read(owner.signal);
-        if (!owner.signal.aborted) {
-          resource.apply(next);
-          resource.failed = false;
-        }
-      } catch (error) {
-        if (!owner.signal.aborted) {
-          resource.failed = true;
-          updateEvidence(resource.name, { error: error.message || "Could not load this evidence." }, resource.offset);
-        }
-      } finally {
-        resource.reading = false;
-        schedule();
-      }
-    }
-
-    for (const resource of resources) void check(resource);
-    return () => {
-      owner.abort();
-      for (const resource of resources) clearTimeout(resource.timer);
-    };
+      if (value.dataset_id !== dataset) throw new Error("Opponent gaps belong to a different dataset.");
+      updateGapEvidence({ value, error: "" }, gapOffset);
+    }).catch(error => {
+      if (!owner.signal.aborted) updateGapEvidence({ error: error.message || "Could not load opponent gaps." }, gapOffset);
+    });
+    return () => owner.abort();
   }, [dataset, evidenceRevision, gapOffset, forecastBook]);
-
-  async function analyze() {
-    if (!dataset || modelAction.current || model?.status === "running") return;
-    const signal = lifecycle.current.signal;
-    const action = { dataset, reconciling: false };
-    modelAction.current = action;
-    setModelActionDataset(dataset);
-    setModelActionError("");
-    const current = () => !signal.aborted && modelAction.current === action && dataset === activeDataset.current;
-    try {
-      const status = await startModel({ dataset_id: dataset }, signal);
-      if (current()) {
-        refreshEvidenceReads();
-        recordJobStatus("model", status);
-      }
-    } catch (error) {
-      if (current()) {
-        // The run may have started. Reconcile its status before permitting
-        // another explicit start, even if the original reply arrives late.
-        action.reconciling = true;
-        setModelActionError(`Tempo could not confirm the Maia start. ${error.message}`);
-        refreshEvidenceReads();
-      }
-    } finally {
-      if (current() && !action.reconciling) {
-        modelAction.current = null;
-        setModelActionDataset(null);
-      }
-    }
-  }
 
   async function loadGap(gap, offset, signal, datasetId = dataset) {
     const address = gapAddress(datasetId, gap);
@@ -583,7 +448,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     if (signal.aborted) return;
     const next = page.gaps.find(gap => gapKey(gap) !== gapKey(address));
     refreshEvidenceReads();
-    updateEvidence("gaps", { value: page, error: "" }, 0);
+    updateGapEvidence({ value: page, error: "" }, 0);
     setGapOffset(0);
     if (next) await loadGap(next, 0, signal, address.dataset_id);
     else setActiveGap(null);
@@ -653,8 +518,21 @@ export function GamesPage({ onStudy, onRepertoires }) {
         await settle(command);
       }
     } else if (command.kind !== "refresh") {
-      const submitGame = { import: importGamePgn, choose: chooseGameCorrection, reprocess: reprocessGames }[command.kind];
-      const result = await submitGame(command.payload, signal);
+      let result;
+      if (command.kind === "reprocess") {
+        const reply = await recoverReprocessGames(command.payload, signal);
+        if (!owns(command, signal)) return;
+        if (reply.status === "retired") {
+          setPendingEntry({ command, phase: "retired" });
+          await clearPending();
+          setIssue(reply.message);
+          return;
+        }
+        result = reply.report;
+      } else {
+        const submitGame = { import: importGamePgn, choose: chooseGameCorrection }[command.kind];
+        result = await submitGame(command.payload, signal);
+      }
       if (signal.aborted || (!recoveryWithoutContext && !owns(command, signal))) return;
       setImportResult({ datasetId: command.payload.dataset_id, kind: command.kind, report: result });
       if (owns(command, signal)) {
@@ -732,16 +610,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
       const learner = form.get("learner").trim();
       if (!learner) throw new Error("Enter the learner’s account name.");
       const identity = { command_id: crypto.randomUUID(), dataset_id: dataset };
-      if (importing) {
-        const file = form.get("file");
-        const pgn = file.size ? await file.text() : form.get("pgn");
-        if (!pgn.trim()) throw new Error("Choose a PGN file or paste a completed game.");
-        if (file.size && form.get("pgn").trim())
-          throw new Error("Choose either a PGN file or pasted PGN.");
-        return { kind: "import", payload: { ...identity, learner, pgn } };
-      }
-      const range = utcDateRange(form.get("from"), form.get("to"));
-      return { kind: "reprocess", payload: { ...identity, learner, ...range } };
+      const file = form.get("file");
+      const pgn = file.size ? await file.text() : form.get("pgn");
+      if (!pgn.trim()) throw new Error("Choose a PGN file or paste a completed game.");
+      if (file.size && form.get("pgn").trim())
+        throw new Error("Choose either a PGN file or pasted PGN.");
+      return { kind: "import", payload: { ...identity, learner, pgn } };
     });
   }
 
@@ -754,9 +628,6 @@ export function GamesPage({ onStudy, onRepertoires }) {
     } }));
   }
 
-  const now = new Date();
-  const lastDate = now.toISOString().slice(0, 10);
-  const firstDate = new Date(now.getTime() - 6 * utcDayMs).toISOString().slice(0, 10);
   function returnFromAnalysis(saved) {
     setAnalysis(null);
     if (saved) {
@@ -786,7 +657,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
     <main className="tempo-core repertoire-page games-page" hidden={panelsHidden}>
       <Button size="compact" variant="quiet" onClick={onStudy}>← Study</Button>
       <PageHeader title="Games"
-        actions={<><DiagnosticsButton /><Button onClick={() => { setSource("pgn"); selectTab("import", { learner: true }); }}>Import PGN</Button></>} />
+        actions={<><DiagnosticsButton /><Button onClick={() => selectTab("import", { learner: true })}>Import PGN</Button></>} />
       {contextIssue && <StatusNotice kind="error">{contextIssue}</StatusNotice>}
       <div className="games-tabs" role="tablist" aria-label="Games views" onBlur={event => {
         if (!event.currentTarget.contains(event.relatedTarget)) setFocusedTab(null);
@@ -800,43 +671,23 @@ export function GamesPage({ onStudy, onRepertoires }) {
       </div>
       {tab !== "import" && needsRecovery && (
         <div role="status"><Button size="compact" variant="quiet" onClick={() => {
-          if (pending?.kind === "import") setSource("pgn");
           selectTab("import");
         }}>Review Games request</Button></div>
       )}
       <GamesPanel id="import" tab={tab}>
         <Surface>
-          <h2>{importing ? "Import a PGN" : "Compare completed games"}</h2>
-          {!importing && catalogError && <StatusNotice kind="error">{catalogError}</StatusNotice>}
-          {!importing && repertoires?.length === 0 && (
-            <p>Save a repertoire before comparing games. <Button onClick={onRepertoires}>Repertoires</Button></p>
-          )}
+          <h2>Import a PGN</h2>
           <form className="repertoire-form" onSubmit={submit}>
             <fieldset disabled={busy || commandsBlocked || !dataset}>
               <div className="repertoire-fields">
-                <label>Source <select value={source} onChange={event => setSource(event.target.value)}>
-                  <option value="pgn">PGN</option>
-                  <option value="stored">Saved games</option>
-                </select></label>
                 <label>Learner name
-                  <input ref={learnerInput} key={source} name="learner" required autoComplete="off" maxLength={128} />
+                  <input ref={learnerInput} name="learner" required autoComplete="off" maxLength={128} />
                 </label>
               </div>
-              {importing ? (
-                <>
-                  <label>PGN file <input type="file" name="file" accept=".pgn,.txt,application/x-chess-pgn,text/plain" /></label>
-                  <label>Or paste PGN <textarea name="pgn" rows={5} /></label>
-                </>
-              ) : (
-                <div className="repertoire-fields">
-                  <label>First day (UTC) <input type="date" name="from" defaultValue={firstDate} max={lastDate} required /></label>
-                  <label>Last day (UTC) <input type="date" name="to" defaultValue={lastDate} max={lastDate} required /></label>
-                </div>
-              )}
+              <label>PGN file <input type="file" name="file" accept=".pgn,.txt,application/x-chess-pgn,text/plain" /></label>
+              <label>Or paste PGN <textarea name="pgn" rows={5} /></label>
               <div className="actions">
-                <Button type="submit" pending={busy} disabled={busy}>
-                  {importing ? "Import games" : "Reprocess saved games"}
-                </Button>
+                <Button type="submit" pending={busy} disabled={busy}>Import games</Button>
               </div>
             </fieldset>
           </form>
@@ -863,7 +714,7 @@ export function GamesPage({ onStudy, onRepertoires }) {
               <Button onClick={() => void cleanup({ unsaved: pendingEntry.phase === "unsaved" })}>Dismiss pending request</Button>
             </div>
           )}
-          {(contextIssue || (!importing && catalogError)) && (
+          {contextIssue && (
             <Button onClick={() => {
               refreshContext();
               historyOwner.current?.abort();
@@ -878,9 +729,9 @@ export function GamesPage({ onStudy, onRepertoires }) {
           </Surface>
         )}
         {importReport && (
-          <details className="game-import" open><summary>Import results</summary><Surface>
-            <h2>Import results</h2>
-            <GameReport report={importReport} importing dataset={dataset} onOpen={openReview}
+          <details className="game-import" open><summary>{importReportTitle}</summary><Surface>
+            <h2>{importReportTitle}</h2>
+            <GameReport report={importReport} importing={currentReport.kind === "import"} dataset={dataset} onOpen={openReview}
               history={history} repertoires={repertoires ?? []} />
           </Surface></details>
         )}
@@ -924,27 +775,12 @@ export function GamesPage({ onStudy, onRepertoires }) {
           <RepertoireCoverage key={dataset} dataset={dataset} repertoires={repertoires ?? []}
             forecastBook={forecastBook} onFilter={book => { setForecastBook(book); setGapOffset(0); }}
             onStartingLineSaved={refreshEvidenceReads} />
-          <div className="actions">
-            <Button disabled={!dataset || modelActionDataset === dataset || model?.status === "running"}
-              onClick={() => void analyze()}>
-              Analyze Maia probabilities
-            </Button>
-          </div>
-          {model && model.status !== "idle" && (
-            <p role="status">{model.profile} · {model.status} · {model.completed} of {model.total} positions
-              {model.error && ` · ${model.error}`}</p>
-          )}
-          {projection && (
-            <p role="status">Modeled reach · {projection.complete_current} complete · {projection.partial_current} partial
-              {" · "}{projection.unavailable} unavailable · {projection.pending} pending</p>
-          )}
-          {modelActionError && <StatusNotice kind="error">{modelActionError}</StatusNotice>}
           {gapNotice && !activeGap && <StatusNotice>{gapNotice}</StatusNotice>}
           {gapActionError && <StatusNotice kind="error">{gapActionError}</StatusNotice>}
-          {evidenceErrors.map(([label, message]) => (
-            <StatusNotice key={label} kind="error">{label} · {message}</StatusNotice>
-          ))}
-          {evidenceErrors.length > 0 && <Button onClick={refreshEvidenceReads}>Retry evidence reads</Button>}
+          {gapRead?.error && <>
+            <StatusNotice kind="error">Opponent gaps · {gapRead.error}</StatusNotice>
+            <Button onClick={refreshEvidenceReads}>Retry evidence reads</Button>
+          </>}
           {(gapPage?.more || gapOffset > 0) && <nav className="actions compact-controls" aria-label="Coverage pages">
             <IconButton label="Previous gaps" disabled={gapOffset === 0 || workingGap}
               onClick={() => setGapOffset(offset => offset - 100)}><PreviousIcon /></IconButton>

@@ -4,7 +4,6 @@ import { requestJson } from "./content_transport.js";
 import { string } from "./wire_values.js";
 
 const endpoint = "/api/games";
-export const utcDayMs = 86_400_000;
 
 export const sourceNames = Object.freeze({
   lichess: "Lichess",
@@ -198,8 +197,17 @@ export async function chooseGameCorrection(payload, signal) {
   return gameReport(await request("/choose", payload, signal));
 }
 
-export async function reprocessGames(payload, signal) {
-  return gameReport(await request("/reprocess", payload, signal));
+export async function recoverReprocessGames(payload, signal) {
+  let reply;
+  try {
+    reply = await request("/reprocess", payload, signal);
+  } catch (error) {
+    if (error.status === 410 && error.code === "retired_feature" && error.retryable === false &&
+        error.details.dataset_id === payload.dataset_id && error.details.command_id === payload.command_id)
+      return { status: "retired", message: error.message };
+    throw error;
+  }
+  return { status: "complete", report: gameReport(reply) };
 }
 
 export async function recoverHistorical(payload, retry, signal) {
@@ -231,34 +239,6 @@ export async function recoverHistorical(payload, retry, signal) {
   };
 }
 
-function modelReply(reply) {
-  if (!["idle", "running", "complete", "incomplete"].includes(reply?.status))
-    throw new TypeError("Invalid Maia status.");
-  if (reply.status !== "idle") string(reply.dataset_id, "model dataset", true);
-  if (reply.projection == null) return reply;
-  const projection = reply.projection;
-  return {
-    ...reply,
-    projection: {
-      dataset_id: string(projection.dataset_id, "projection dataset", true),
-      complete_current: count(projection.complete_current, "complete projections"),
-      partial_current: count(projection.partial_current, "partial projections"),
-      unavailable: count(projection.unavailable, "unavailable projections"),
-      pending: count(projection.pending, "pending projections"),
-    },
-  };
-}
-
-export async function modelStatus(signal) {
-  return modelReply(await read("/model", signal));
-}
-
-export async function startModel(payload, signal) {
-  const reply = modelReply(await request("/model", payload, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS }));
-  if (reply.dataset_id !== payload.dataset_id)
-    throw new Error("The Maia acknowledgement belongs to a different dataset.");
-  return reply;
-}
 export async function readGaps(signal, offset = 0, forecastRepertoire = null) {
   const reply = await read("/gaps", signal, offset || forecastRepertoire
     ? { offset, ...(forecastRepertoire ? { forecast_repertoire: forecastRepertoire } : {}) }
@@ -297,20 +277,6 @@ function coverageLineReply(reply) {
 }
 
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
-
-export function utcDateRange(first, last, limit = 31) {
-  const day = value => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN;
-    const time = Date.parse(`${value}T00:00:00Z`);
-    return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value
-      ? time : NaN;
-  };
-  const from_ms = day(first);
-  const to_ms = day(last) + utcDayMs;
-  if (!(from_ms >= 0 && to_ms > from_ms)) throw new Error("Enter a valid date range.");
-  if (to_ms - from_ms > limit * utcDayMs) throw new Error(`Choose a range of up to ${limit} UTC days.`);
-  return { from_ms, to_ms };
-}
 
 export async function readGameReview(address, signal) {
   const reply = await read("/review", signal, address);

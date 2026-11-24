@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { importGamePgn, readGameHistory, recoverGameRefresh, utcDateRange } from "../game_commands.js";
+import { importGamePgn, readGameHistory, recoverGameRefresh } from "../game_commands.js";
 
 const game = {
   source: "lichess",
@@ -16,15 +16,6 @@ const game = {
   effect: "requested_review",
   prescribed_move: "d2d4",
 };
-
-test("date controls include both selected UTC dates across rollover and bound requests", () => {
-  const range = utcDateRange("2026-10-31", "2026-11-01");
-  assert.equal(range.from_ms, Date.parse("2026-10-31T00:00:00Z"));
-  assert.equal(range.to_ms, Date.parse("2026-11-02T00:00:00Z"));
-  assert.throws(() => utcDateRange("2026-11-02", "2026-11-01"));
-  assert.throws(() => utcDateRange("2026-02-30", "2026-03-01"));
-  assert.throws(() => utcDateRange("2026-01-01", "2026-02-01"), /31 UTC days/);
-});
 
 test("history projects answer-safe result fields and propagates typed import failures", async t => {
   t.mock.method(globalThis, "fetch", async path => {
@@ -53,7 +44,7 @@ test("refresh recovery reuses exact bytes and validates complete and retired add
   const payload = {
     dataset_id: "dataset", command_id: "refresh",
     source: "chess_com", account: "learner", repertoire_id: "book",
-    ...utcDateRange("2026-11-12", "2026-11-18"),
+    from_ms: Date.UTC(2026, 10, 12), to_ms: Date.UTC(2026, 10, 19),
   };
   const report = { fetched: 0, new_games: 0, duplicates: 0, matches: 0, deviations: 0,
     errors: ["Chess.com 2009/10: Provider request timed out."], results: [] };

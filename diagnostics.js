@@ -11,7 +11,7 @@ const routes = new Set([
   "/api/study/card-details", "/api/study/saved-reviews", "/api/repertoires", "/api/tactics", "/api/tactic-settings",
   "/api/tactics-collection", "/api/games", "/api/games/library", "/api/games/review",
   "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
-  "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry", "/api/games/model",
+  "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry",
   "/api/games/gaps", "/api/games/gap-draft",
 ]);
 const choices = {

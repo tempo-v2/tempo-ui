@@ -49,8 +49,7 @@ function renderSection(page, goTo, datasetId, onTacticExcluded) {
   const onStudy = () => goTo("study");
   if (page === "saved-reviews") return <SavedReviewsPage datasetId={datasetId} onStudy={onStudy}
     onTacticExcluded={onTacticExcluded} />;
-  if (page === "games") return <GamesPage onStudy={onStudy}
-    onRepertoires={() => goTo("repertoires")} />;
+  if (page === "games") return <GamesPage onStudy={onStudy} />;
   if (page === "coverage-settings") return <CoverageSettingsPage onStudy={onStudy} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={onStudy} />;
   if (page === "tactics") return <TacticsCollectionPage onStudy={onStudy}

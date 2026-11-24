@@ -17,7 +17,7 @@ const bundle = await build({
         const context = useApplicationContextReader();
         globalThis.refreshGamesContext = context.refresh;
         return <ApplicationContext.Provider value={context}>
-          <GamesPage onStudy={() => {}} onRepertoires={() => {}} />
+          <GamesPage onStudy={() => {}} />
         </ApplicationContext.Provider>;
       }
       const root = createRoot(document.getElementById("root"));
@@ -81,13 +81,9 @@ function clockFor(window, simulateRecovery = false) {
   }
   return {
     advance,
-    pollTimers: () => [...timers.values()].filter(timer => timer.kind === "poll").length,
   };
 }
 
-const model = (status, dataset = "evidence-fixture") => ({
-  status, ...(status === "idle" ? {} : { dataset_id: dataset }), profile: "Maia Rapid 1500", completed: status === "running" ? 1 : 2, total: 2,
-});
 
 const gapPage = (move, more = false) => ({
   dataset_id: "evidence-fixture",
@@ -98,7 +94,6 @@ const gapPage = (move, more = false) => ({
 });
 
 const retryLabel = "Retry evidence reads";
-const analyzeLabel = "Analyze Maia probabilities";
 const gapLabel = "Fix response";
 const emptyGaps = "No confirmed opponent gaps";
 const response = (body, status = 200) => ({ status, ok: status < 400, json: async () => body });
@@ -142,7 +137,6 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
     "POST /api/repertoires": catalog,
     "GET /api/games": () => response({ results: [], last_successful_refresh_ms: null }),
     "POST /api/games/library": ({payload}) => response({dataset_id:payload.dataset_id, through:0, next_before:null, entries:[]}),
-    "GET /api/games/model": () => response(model("idle")),
     "GET /api/games/gaps": () => response(gapPage()),
   };
   window.fetch = async (url, { method = "GET", body, signal } = {}) => {
@@ -186,40 +180,18 @@ async function openGames(t, handlers, { pending, gapContinuation, setup } = {}) 
   };
 }
 
-test("model completion survives a failed gaps refresh and gaps retry after two seconds", async t => {
-  let phase = "running";
+test("Games has no model polling or new reprocess admission", async t => {
   const page = await openGames(t, {
-    "GET /api/games/model": () => response(model(phase === "running" ? "running" : "complete")),
-    "GET /api/games/gaps": () => {
-      if (phase === "failure") return failure("Temporary gap read failure");
-      return response(gapPage(phase === "running" ? "a7a6" : "c7c6"));
-    },
+    "GET /api/games/gaps": () => failure("Temporary gap read failure"),
   });
-  const gapReads = page.count("GET /api/games/gaps");
-  const historyReads = page.count("GET /api/games");
-  assert.match(page.text(), /running · 1 of 2 positions/);
-  assert.equal(page.button(analyzeLabel).disabled, true);
-  assert.match(page.text(), /a6 · 1 game/);
-
-  phase = "failure";
-  await page.advance(2000);
-  assert.match(page.text(), /complete · 2 of 2 positions/);
-  assert.equal(page.button(analyzeLabel).disabled, false);
   assert.match(page.text(), /Temporary gap read failure/);
-  assert.match(page.text(), /a6 · 1 game/);
-  assert.ok(page.button(retryLabel));
-  assert.equal(page.count("GET /api/games"), historyReads + 1);
-
-  phase = "recovered";
-  await page.advance(1999);
-  assert.equal(page.count("GET /api/games/gaps"), gapReads + 1);
-  await page.advance(1);
-  assert.match(page.text(), /c6 · 1 game/);
-  assert.doesNotMatch(page.text(), /Temporary gap read failure|a7a6/);
-  assert.equal(page.button(retryLabel), undefined);
-  const settledReads = page.calls.length;
+  assert.doesNotMatch(page.text(), /Analyze Maia probabilities|Reprocess saved games|Compare completed games/);
+  const reads = page.calls.length;
   await page.advance(6000);
-  assert.equal(page.calls.length, settledReads);
+  assert.equal(page.calls.length, reads);
+  assert.equal(page.count("GET /api/games/model"), 0);
+  assert.equal(page.count("POST /api/games/model"), 0);
+  assert.equal(page.count("POST /api/games/reprocess"), 0);
 });
 
 test("context timeout leaves history available and reload enables dataset-dependent actions", async t => {
@@ -231,7 +203,6 @@ test("context timeout leaves history available and reload enables dataset-depend
     },
   });
   assert.match(page.text(), /No games recorded yet/);
-  assert.equal(page.button(analyzeLabel).disabled, true);
   assert.equal(page.button("Import games").closest("fieldset").disabled, true);
   await page.advance(4999);
   assert.equal(page.button("Reload Games"), undefined);
@@ -240,10 +211,8 @@ test("context timeout leaves history available and reload enables dataset-depend
   assert.equal(page.calls.find(call => call.endpoint === "GET /api/context").signal.reason.name, "TimeoutError");
   stalled = false;
   await page.click("Reload Games");
-  assert.equal(page.button(analyzeLabel).disabled, false);
   assert.equal(page.button("Import games").closest("fieldset").disabled, false);
   assert.equal(page.button("Reload Games"), undefined);
-  assert.equal(page.pollTimers(), 0);
 });
 
 test("history deadline includes response body consumption and recovery publishes actual history", async t => {
@@ -261,7 +230,6 @@ test("history deadline includes response body consumption and recovery publishes
         }),
   });
   assert.match(page.text(), /Loading game evidence/);
-  assert.equal(page.button(analyzeLabel).disabled, false);
   await page.advance(5000);
   assert.match(page.text(), /Tempo did not respond before the wait ended/);
   assert.doesNotMatch(page.text(), /Loading game evidence|Unexpected Games response/);
@@ -272,33 +240,6 @@ test("history deadline includes response body consumption and recovery publishes
   assert.equal(page.button("Reload game evidence"), undefined);
 });
 
-test("a hung Maia read leaves other resources live and times out at five seconds", async t => {
-  let hungSignal;
-  const page = await openGames(t, {
-    "GET /api/games/gaps": () => response(gapPage("h7h6")),
-    "GET /api/games/model": ({ signal }) => {
-      if (hungSignal) return response(model("complete"));
-      hungSignal = signal;
-      return hang(signal);
-    },
-  });
-  assert.match(page.text(), /h6 · 1 game/);
-  await page.advance(2000);
-  assert.equal(page.count("GET /api/games/model"), 1);
-  await page.advance(2999);
-  assert.equal(hungSignal.aborted, false);
-  assert.equal(page.button(retryLabel), undefined);
-  await page.advance(1);
-  assert.equal(hungSignal.aborted, true);
-  assert.match(page.text(), /Maia run status · Tempo did not respond before the wait ended/);
-  assert.ok(page.button(retryLabel));
-  await page.advance(1999);
-  assert.equal(page.count("GET /api/games/model"), 1);
-  await page.advance(1);
-  assert.equal(page.count("GET /api/games/model"), 2);
-  assert.match(page.text(), /complete · 2 of 2 positions/);
-  assert.equal(page.button(retryLabel), undefined);
-});
 
 test("Games rejects an explicit unknown gap kind and accepts a legacy row without one", async t => {
   let legacy = false;
@@ -320,34 +261,21 @@ test("Games rejects an explicit unknown gap kind and accepts a legacy row withou
 
 test("initial gaps failure stays unknown and manual read retry preserves pending command bytes", async t => {
   let failGaps = true;
-  let failModel = true;
   const pending = '{ "kind":"choose","payload":{"command_id":"saved-command","dataset_id":"evidence-fixture","ply":3} }';
   const page = await openGames(t, {
     "GET /api/games/gaps": () => failGaps ? failure("Gaps temporarily unavailable") : response(gapPage()),
-    "GET /api/games/model": () => failModel ? failure("Maia temporarily unavailable") : response(model("idle")),
-    "POST /api/games/model": () => failure("Could not start analysis"),
   }, { pending });
   assert.match(page.text(), /Gaps temporarily unavailable/);
   assert.doesNotMatch(page.text(), new RegExp(emptyGaps));
   assert.ok(page.button("Retry same request"));
-  await page.click(analyzeLabel);
-  assert.match(page.text(), /Could not start analysis/);
   const beforeRetry = page.calls.length;
   failGaps = false;
   await page.click(retryLabel);
   assert.match(page.text(), new RegExp(emptyGaps));
   assert.doesNotMatch(page.text(), /Gaps temporarily unavailable/);
-  assert.match(page.text(), /Maia temporarily unavailable/);
-  assert.deepEqual(page.calls.slice(beforeRetry).map(call => call.endpoint).sort(), [
-    "GET /api/games/gaps", "GET /api/games/model",
-  ]);
-  failModel = false;
-  const beforePoll = page.calls.length;
-  await page.advance(2000);
-  assert.deepEqual(page.calls.slice(beforePoll).map(call => call.endpoint), ["GET /api/games/model"]);
+  assert.deepEqual(page.calls.slice(beforeRetry).map(call => call.endpoint), ["GET /api/games/gaps"]);
   assert.equal(page.button(retryLabel), undefined);
   assert.equal(page.stored(), pending);
-  assert.match(page.text(), /Could not start analysis/);
 });
 
 test("paginated gaps timeout ignores a noncooperative result and retries the same offset", async t => {
@@ -374,88 +302,38 @@ test("paginated gaps timeout ignores a noncooperative result and retries the sam
   assert.equal(page.button(retryLabel), undefined);
 });
 
-test("paging aborts an old gap read and retry only reads the new page", async t => {
+test("retry reads only the current gap page and unmount aborts an outstanding read", async t => {
+  let initialSignal;
   let initialReads = 0;
   let pageReads = 0;
-  let resolveOldPage;
-  let unresolvedPage;
   const page = await openGames(t, {
-    "GET /api/games/model": () => response(model("running")),
-    "GET /api/games/gaps": () => {
+    "GET /api/games/gaps": ({ signal }) => {
       if (initialReads++ === 0) return response(gapPage("a7a6", true));
-      // Resolve an old response after abort to verify the component also rejects late publication.
-      return new Promise(resolve => { resolveOldPage = resolve; });
-    },
-    "POST /api/games/gaps": ({ payload, signal }) => {
-      assert.deepEqual(payload, { offset: 100 });
-      pageReads++;
-      if (pageReads === 1) return failure("Next gap page unavailable");
-      if (pageReads === 2) return response(gapPage("b7b6"));
-      unresolvedPage = signal;
+      initialSignal = signal;
       return hang(signal);
     },
+    "POST /api/games/gaps": ({ payload }) => {
+      assert.deepEqual(payload, { offset: 100 });
+      if (pageReads++ === 0) return failure("Next gap page unavailable");
+      return response(gapPage("b7b6"));
+    },
   });
-  await page.advance(2000);
-  const oldRequest = page.calls.findLast(call => call.endpoint === "GET /api/games/gaps");
-  assert.equal(oldRequest.signal.aborted, false);
-  assert.equal(initialReads, 2);
   const historyReads = page.count("GET /api/games");
   await page.click("Next gaps");
-  assert.equal(oldRequest.signal.aborted, true);
-  assert.equal(oldRequest.signal.reason.name, "AbortError");
-  assert.match(page.text(), /Maia Rapid 1500 · running/);
   assert.equal(page.count("GET /api/games"), historyReads);
   assert.match(page.text(), /Next gap page unavailable/);
   assert.doesNotMatch(page.text(), /a6|No confirmed opponent gaps/);
   const beforeRetry = page.calls.length;
   await page.click(retryLabel);
-  assert.deepEqual(page.calls.slice(beforeRetry).map(call => call.endpoint).sort(), [
-    "GET /api/games/model", "POST /api/games/gaps",
-  ]);
+  assert.deepEqual(page.calls.slice(beforeRetry).map(call => call.endpoint), ["POST /api/games/gaps"]);
   assert.match(page.text(), /b6 · 1 game/);
-  await page.flush(() => resolveOldPage(response(gapPage("a7a5"))));
-  assert.match(page.text(), /b6 · 1 game/);
-  assert.doesNotMatch(page.text(), /a5/);
-  await page.advance(2000);
-  assert.equal(unresolvedPage.aborted, false);
-  assert.ok(page.pollTimers() > 0);
-  const beforeUnmount = page.calls.length;
+  await page.click("Previous gaps");
+  assert.equal(initialSignal.aborted, false);
   await page.unmount();
-  assert.equal(unresolvedPage.aborted, true);
-  assert.equal(unresolvedPage.reason.name, "AbortError");
-  assert.equal(page.pollTimers(), 0);
-  await page.advance(10000);
-  assert.equal(page.calls.length, beforeUnmount);
+  assert.equal(initialSignal.aborted, true);
+  assert.equal(initialSignal.reason.name, "AbortError");
 });
 
-test("successful background reads retain gap action errors and show optional projection freshness", async t => {
-  let modelReply = model("running");
-  const page = await openGames(t, {
-    "GET /api/games/model": () => response(modelReply),
-    "GET /api/games/gaps": () => response(gapPage("e7e6")),
-    "POST /api/games/gap-draft": () => response({ status: "error", code: "stale_document", message: "The repertoire document changed." }, 409),
-  });
-  assert.match(page.text(), /Maia Rapid 1500 · running/);
-  assert.doesNotMatch(page.text(), /Modeled reach/);
-  await page.click(gapLabel);
-  assert.match(page.text(), /The repertoire document changed/);
-
-  const projection = {
-    dataset_id: "evidence-fixture", complete_current: 2, partial_current: 1, unavailable: 3, pending: 1,
-  };
-  modelReply = { ...model("complete"), projection };
-  await page.advance(2000);
-  assert.match(page.text(), /The repertoire document changed/);
-  assert.match(page.text(), /Maia Rapid 1500 · complete/);
-  assert.match(page.text(), /Modeled reach · 2 complete · 1 partial · 3 unavailable · 1 pending/);
-  assert.equal(page.button(retryLabel), undefined);
-
-  modelReply = { ...model("idle"), projection: { ...projection, partial_current: 2, pending: 0 } };
-  await page.advance(2000);
-  assert.doesNotMatch(page.text(), /Maia Rapid 1500/);
-  assert.match(page.text(), /Modeled reach · 2 complete · 2 partial · 3 unavailable · 0 pending/);
-  assert.match(page.text(), /The repertoire document changed/);
-});
 
 function deferred() {
   let resolve;
@@ -474,51 +352,40 @@ function gameHistory(...learners) {
   });
 }
 
-test("changing dataset while Games reads are pending clears old rows and ignores late replies", async t => {
+test("changing dataset aborts pending Games reads and ignores late replies", async t => {
   const oldHistory = deferred();
-  const oldStatus = deferred();
-  const newHistory = deferred();
+  const oldGaps = deferred();
   let changed = false;
-  let modelState = "running";
   let oldHistorySignal;
-  let oldStatusSignal;
-  let historyReads = 0;
+  let oldGapSignal;
   const page = await openGames(t, {
     "GET /api/context": () => response({
       status: "ready", dataset_id: changed ? "next-dataset" : "evidence-fixture", schema_version: 22,
     }),
-    "GET /api/games/model": () => response(model(modelState, changed ? "next-dataset" : "evidence-fixture")),
     "GET /api/games/gaps": ({ signal }) => {
       if (changed) return response({ ...gapPage("h7h6"), dataset_id: "next-dataset" });
-      if (!oldStatusSignal && modelState === "running") return response(gapPage());
-      oldStatusSignal = signal;
-      return oldStatus.promise;
+      oldGapSignal = signal;
+      return oldGaps.promise;
     },
     "GET /api/games": ({ signal }) => {
-      if (changed) return newHistory.promise;
-      if (++historyReads === 1) return gameHistory("old-dataset-game");
+      if (changed) return gameHistory("new-dataset-game");
       oldHistorySignal = signal;
       return oldHistory.promise;
     },
   });
-  assert.match(page.text(), /old-dataset-game · book/);
-  modelState = "complete";
-  await page.advance(2000);
   assert.equal(oldHistorySignal.aborted, false);
-  assert.equal(oldStatusSignal.aborted, false);
+  assert.equal(oldGapSignal.aborted, false);
   changed = true;
   await page.refreshContext();
   assert.equal(oldHistorySignal.aborted, true);
-  assert.equal(oldStatusSignal.aborted, true);
-  assert.doesNotMatch(page.text(), /old-dataset-game/);
+  assert.equal(oldGapSignal.aborted, true);
   await page.flush(() => {
     oldHistory.resolve(gameHistory("obsolete-game"));
-    oldStatus.resolve(response(gapPage("a7a6")));
-    newHistory.resolve(gameHistory("new-dataset-game"));
+    oldGaps.resolve(response(gapPage("a7a6")));
   });
   assert.match(page.text(), /new-dataset-game · book/);
   assert.match(page.text(), /h6 · 1 game/);
-  assert.doesNotMatch(page.text(), /old-dataset-game|obsolete-game|a6 · 1 game|different dataset/);
+  assert.doesNotMatch(page.text(), /obsolete-game|a6 · 1 game|different dataset/);
 });
 
 for (const stall of ["fetch", "body"]) {
@@ -845,51 +712,36 @@ test("known undelivered legacy Refresh retires after an addressed terminal respo
   assert.equal(page.count("GET /api/games/job"), 0);
 });
 
-test("a lost Maia start acknowledgement waits for current model status before another start", async t => {
-  const acknowledgement = deferred();
-  const reconciliation = deferred();
-  let state = "idle";
-  const page = await openGames(t, {
-    "GET /api/games/model": () => state === "unreadable" ? reconciliation.promise : response(model(state)),
-    "POST /api/games/model": () => acknowledgement.promise,
-  });
-  await page.click(analyzeLabel);
-  assert.equal(page.button(analyzeLabel).disabled, true);
-  state = "unreadable";
-  await page.advance(10000);
-  assert.match(page.text(), /could not confirm the Maia start/);
-  assert.equal(page.button(analyzeLabel).disabled, true);
-  await page.click(analyzeLabel);
-  assert.equal(page.count("POST /api/games/model"), 1);
-
-  state = "running";
-  await page.flush(() => reconciliation.resolve(response(model(state))));
-  assert.match(page.text(), /Maia Rapid 1500 · running/);
-  assert.equal(page.button(analyzeLabel).disabled, true);
-  await page.flush(() => acknowledgement.resolve(response(model("complete"))));
-  assert.match(page.text(), /Maia Rapid 1500 · running/);
-  state = "complete";
-  await page.advance(2000);
-  assert.match(page.text(), /Maia Rapid 1500 · complete/);
-  assert.equal(page.button(analyzeLabel).disabled, false);
-  assert.equal(page.count("POST /api/games/model"), 1);
-});
 
 
-test("a foreign Maia run never takes ownership of current Games evidence", async t => {
-  const page = await openGames(t, {
-    "GET /api/games/model": () => response({
-      ...model("running", "old-dataset"),
-      projection: {
-        dataset_id: "evidence-fixture", complete_current: 1,
-        partial_current: 0, unavailable: 0, pending: 0,
+
+for (const outcome of ["accepted", "retired", "foreign retirement"]) {
+  test(`historical reprocess recovery handles ${outcome} without new admission`, async t => {
+    const payload = {
+      command_id: "reprocess-a", dataset_id: refreshDataset, learner: "learner",
+      from_ms: Date.UTC(2026, 10, 9), to_ms: Date.UTC(2026, 10, 10),
+    };
+    const pending = JSON.stringify({ kind: "reprocess", payload });
+    const route = "POST /api/games/reprocess";
+    const page = await openGames(t, {
+      [route]: ({ body }) => {
+        assert.equal(body, JSON.stringify(payload));
+        if (outcome === "accepted") return response(refreshReport());
+        return response({
+          status: "error", code: "retired_feature", retryable: false, message: "Reprocessing retired.",
+          dataset_id: payload.dataset_id,
+          command_id: outcome === "retired" ? payload.command_id : "other",
+        }, 410);
       },
-    }),
+    }, { pending });
+    assert.equal(page.count(route), 0);
+    await page.click("Retry same request");
+    assert.equal(page.count(route), 1);
+    assert.equal(page.stored(), outcome === "foreign retirement" ? pending : null);
+    if (outcome === "accepted") assert.match(page.text(), /Recovered reprocess results/);
+    if (outcome === "retired") assert.match(page.text(), /Reprocessing retired/);
   });
-  assert.match(page.text(), /Maia run status belongs to a different dataset/);
-  assert.doesNotMatch(page.text(), /running · 1 of 2 positions/);
-  assert.equal(page.button(analyzeLabel).disabled, false);
-});
+}
 
 test("plain library, replay and manual import do not request a repertoire catalog", async t => {
   const dataset = "games-context";
