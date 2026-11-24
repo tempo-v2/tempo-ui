@@ -8,7 +8,7 @@ import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 
 import { Button, IconButton, PageHeader, SectionHeader, StatusNotice, Surface } from "@tempo-v2/core-components";
 import { NextIcon, PreviousIcon } from "./ControlIcons.jsx";
 import {
-  chooseGameCorrection, gameEffects, importGamePgn, recoverReprocessGames, readGameHistory, recoverGameRefresh,
+  recoverGameChoice, gameEffects, importGamePgn, recoverReprocessGames, readGameHistory, recoverGameRefresh,
   sourceNames, gapDraft, readGaps, recoverHistorical,
 } from "./game_commands.js";
 import { ApplicationContext } from "./application_context.js";
@@ -32,7 +32,7 @@ function groupGames(results, history) {
   return [...rowsByGame].map(([key, rows]) => ({key, rows}));
 }
 
-function GameResults({ groups, results, repertoires, history = false, onChoose, dataset, onOpen }) {
+function GameResults({ groups, results, repertoires, history = false, dataset, onOpen }) {
   return (
     <ul className="game-results">
       {(groups ?? groupGames(results, history)).map(({rows, key, game, comparisons}) => {
@@ -106,19 +106,6 @@ function GameResults({ groups, results, repertoires, history = false, onChoose, 
                 ))}</ul>
               </details>
             )}
-            {onChoose && result.correction_choice_status === "compare_again" && (
-              <p>Compare the game again to refresh these corrective choices.</p>
-            )}
-            {onChoose && result.correction_choice_status !== "compare_again" && result.choices.map(choice => (
-              <div className="actions" key={choice.ply}>
-                <span>Corrective target for half-move {choice.ply}</span>
-                {choice.candidates.map(candidate => (
-                  <Button key={candidate.target_id} onClick={() => onChoose(result, choice, candidate)}>
-                    {repertoires.find(book => book.id === candidate.repertoire_id)?.name ?? candidate.repertoire_id}
-                  </Button>
-                ))}
-              </div>
-            ))}
             <p>{result.matches} matched · {result.deviations} learner misses · {result.opponent_deviations} opponent deviations · {result.coverage_gaps} outside coverage</p>
             </div>; })}
             </details>
@@ -519,8 +506,9 @@ export function GamesPage({ onStudy }) {
       }
     } else if (command.kind !== "refresh") {
       let result;
-      if (command.kind === "reprocess") {
-        const reply = await recoverReprocessGames(command.payload, signal);
+      if (command.kind === "reprocess" || command.kind === "choose") {
+        const recover = command.kind === "choose" ? recoverGameChoice : recoverReprocessGames;
+        const reply = await recover(command.payload, signal);
         if (!owns(command, signal)) return;
         if (reply.status === "retired") {
           setPendingEntry({ command, phase: "retired" });
@@ -530,8 +518,7 @@ export function GamesPage({ onStudy }) {
         }
         result = reply.report;
       } else {
-        const submitGame = { import: importGamePgn, choose: chooseGameCorrection }[command.kind];
-        result = await submitGame(command.payload, signal);
+        result = await importGamePgn(command.payload, signal);
       }
       if (signal.aborted || (!recoveryWithoutContext && !owns(command, signal))) return;
       setImportResult({ datasetId: command.payload.dataset_id, kind: command.kind, report: result });
@@ -617,15 +604,6 @@ export function GamesPage({ onStudy }) {
         throw new Error("Choose either a PGN file or pasted PGN.");
       return { kind: "import", payload: { ...identity, learner, pgn } };
     });
-  }
-
-  function choose(result, choice, candidate) {
-    if (pending || !dataset) return;
-    void run(() => ({ kind: "choose", payload: {
-      command_id: crypto.randomUUID(), dataset_id: dataset, learner: result.learner,
-      source: result.source, game_id: result.game_id, comparison_id: result.comparison_id,
-      ply: choice.ply, target_id: candidate.target_id,
-    } }));
   }
 
   function returnFromAnalysis(saved) {
@@ -763,9 +741,9 @@ export function GamesPage({ onStudy }) {
             : <p>No games recorded yet.</p>)}
           {dataset && <GameLibrary key={dataset} dataset={dataset} refresh={historyRevision} recent={history?.results}
             renderRecent={results=><GameResults history results={results} dataset={dataset} onOpen={openReview}
-              onChoose={commandsBlocked || busy ? undefined : choose} repertoires={repertoires ?? []} />}
+              repertoires={repertoires ?? []} />}
             renderResults={groups=><GameResults groups={groups} dataset={dataset} history onOpen={openReview}
-              onChoose={commandsBlocked || busy ? undefined : choose} repertoires={repertoires ?? []} />}
+              repertoires={repertoires ?? []} />}
             empty={<div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>} />}
         </Surface>
       </GamesPanel>

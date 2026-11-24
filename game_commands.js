@@ -13,7 +13,7 @@ export const sourceNames = Object.freeze({
 
 export const gameEffects = Object.freeze({
   again_applied: "Game Again recorded. Repair is ready in Study.",
-  choice_required: "Choose a repertoire for the correction",
+  choice_required: "Multiple corrective targets",
   recorded_only: "Recorded only",
   requested_review: "Study Test requested",
   already_addressed: "Already addressed in Study",
@@ -193,8 +193,15 @@ export async function importGamePgn(payload, signal) {
   return gameReport(await request("/import", payload, signal));
 }
 
-export async function chooseGameCorrection(payload, signal) {
-  return gameReport(await request("/choose", payload, signal));
+export async function recoverGameChoice(payload, signal) {
+  try {
+    return { status: "complete", report: gameReport(await request("/choose", payload, signal)) };
+  } catch (error) {
+    if (error.status === 410 && error.code === "retired_feature" && error.retryable === false &&
+        error.details?.dataset_id === payload.dataset_id && error.details?.command_id === payload.command_id)
+      return { status: "retired", message: error.message };
+    throw error;
+  }
 }
 
 export async function recoverReprocessGames(payload, signal) {

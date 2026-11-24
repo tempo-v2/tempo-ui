@@ -363,3 +363,47 @@ test("a pending Games import keeps its original address through Study navigation
   assert.equal(calls.filter(call => call.path === "/api/context").length, 1);
   assert.equal(calls.filter(call => call.path === "/api/repertoires").length, 0);
 });
+
+test("Games shows historical choices without offering a new corrective choice", async t => {
+  const { window, calls } = await shell(t, false, { responses: {
+    "/api/games": { results: [{
+      comparison_id: "historical-comparison", source: "pgn", game_id: "old-game", url: null,
+      repertoire_id: "", learner: "learner", matches: 0, deviations: 1, first_deviation_ply: 1,
+      coverage_gaps: 0, opponent_deviations: 0, effect: "choice_required",
+      choices: [{ ply: 1, candidates: [{ repertoire_id: "first-book", target_id: "first-target" }] }],
+    }] },
+  } });
+  assert.match(window.document.body.textContent, /Multiple corrective targets/);
+  assert.doesNotMatch(window.document.body.textContent, /Corrective target for half-move|Compare the game again/);
+  assert(![...window.document.querySelectorAll("button")].some(button => button.textContent === "first-book"));
+  assert.equal(calls.some(call => call.path === "/api/games/choose"), false);
+});
+
+for (const retired of [false, true]) {
+  test(`Games recovers a pending Choose with exact bytes and handles ${retired ? "retirement" : "the saved report"}`, async t => {
+    const key = "tempo.games.pending.v1";
+    const payload = {
+      command_id: "old-choice", dataset_id: "shell-fixture", learner: "learner", source: "pgn",
+      game_id: "old-game", comparison_id: "historical-comparison", ply: 1, target_id: "old-target",
+    };
+    const pending = { kind: "choose", payload };
+    const { window, calls } = await shell(t, false, { stored: { [key]: pending }, responses: {
+      "/api/games/choose": () => retired
+        ? { ok: false, status: 410, json: async () => ({
+          status: "error", code: "retired_feature", message: "Choose was retired.", retryable: false,
+          dataset_id: payload.dataset_id, command_id: payload.command_id,
+        }) }
+        : { ok: true, status: 200, json: async () => ({
+          fetched: 1, new_games: 0, duplicates: 1, matches: 0, deviations: 1, errors: [], results: [],
+        }) },
+    } });
+    const button = label => [...window.document.querySelectorAll("button")].find(item => item.textContent === label);
+    const choices = () => calls.filter(call => call.path === "/api/games/choose").map(call => call.raw);
+    assert.deepEqual(choices(), []);
+    await window.runShell(() => button("Review Games request").click());
+    await window.runShell(() => button("Retry same request").click());
+    assert.deepEqual(choices(), [JSON.stringify(payload)]);
+    assert.equal(window.sessionStorage.getItem(key), null);
+    assert.match(window.document.body.textContent, retired ? /Choose was retired/ : /Corrective choice results/);
+  });
+}
