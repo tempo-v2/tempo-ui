@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Button, Dialog, IconButton, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
+import { Button, IconButton, PageHeader, Surface, StatusNotice } from "@tempo-v2/core-components";
 import { BookmarkIcon, FlipIcon, KeyboardIcon, MutedIcon, SlidersIcon, VolumeIcon } from "./ControlIcons.jsx";
-import { StudyBoard, studyOrientation, turnFromFen } from "./StudyBoard.jsx";
-import { LichessControl } from "./LichessControl.jsx";
-import { StudyCardDetails } from "./StudyCardDetails.jsx";
+import { StudyBoard, turnFromFen } from "./StudyBoard.jsx";
 import { MoveTrail } from "./MoveTrail.jsx";
 import { StudyProgress, useStudyProgress } from "./StudyProgress.jsx";
 import { StudyOutcome } from "./StudyOutcome.jsx";
@@ -31,7 +29,6 @@ export function StudyPage({
   boardContinuation,
   reviewMark,
   reviewAddresses,
-  onOpenCardDetails,
   showOriginalGameLink,
   boardRef,
   choice,
@@ -67,9 +64,6 @@ export function StudyPage({
     index === 0 ? notation : notation.replace(/^\d+\.\.\. /, ""));
   const { summary, unavailable, repairsRemaining } = useStudyProgress(view, stopped);
   const replayBlocked = state.busy || state.canRetry || !!choice || !!dialog;
-  const canAnalyze = !!actions.analyze && attempt &&
-    (view.status !== "abandoned" || (view.activity === "test" && view.assessment === "again"));
-  const analysisBlocked = replayBlocked || advancing || state.refreshRequired || state.storageUnavailable;
   const title = attempt
     ? view.exercise_name ?? (view.corrective_repair ? "Opening move" :
       ({ teach: "Learn the move", test: "Find the move", practice: "Practice" })[view.activity])
@@ -77,17 +71,14 @@ export function StudyPage({
   const [selectionReason, setSelectionReason] = useState(null);
   const attemptId = attempt ? view.attempt_id : null;
   const datasetId = view?.dataset_id;
-  const showCardDetails = attempt && (view.status === "complete" || view.assessment === "again" ||
-    view.feedback?.correct === false);
   const currentReview = attempt && reviewAddresses?.current;
   const previousReview = !stopped && reviewAddresses?.previous;
 
-  function renderActionRow(details) {
+  function renderActionRow() {
     const showReviewActions = reviewMark && (reviewMark.pending || currentReview || previousReview);
-    if (!details && !showReviewActions && !others) return null;
+    if (!showReviewActions && !others) return null;
     return (
       <div className="actions compact-controls" role="group" aria-label="Study actions">
-        {details}
         {showReviewActions && (reviewMark.pending ? (
           <Button size="compact" disabled={reviewMark.busy} onClick={reviewMark.retry}>Retry saving for review</Button>
         ) : (
@@ -237,21 +228,8 @@ export function StudyPage({
           )}
           {(state.issue || view?.status === "error") && <div className="actions"><DiagnosticsButton /></div>}
           {panelContinuation && <div className="actions">{panelContinuation}</div>}
-          {showCardDetails
-            ? <StudyCardDetails key={JSON.stringify([view.dataset_id, view.attempt_id, view.revision])}
-                view={view} onOpen={onOpenCardDetails} renderActions={renderActionRow} />
-            : renderActionRow()}
+          {renderActionRow()}
           {reviewMark?.message && <StatusNotice kind="error">{reviewMark.message}</StatusNotice>}
-          {canAnalyze && (
-            <div className="actions study-analysis-actions">
-              {historyIndex === null &&
-                <Button size="compact" disabled={analysisBlocked} onClick={actions.analyze}>Analyze</Button>}
-              {inGameReplay
-                ? <LichessControl fen={gameContext.line.start_fen} line={gameContext.line}
-                    orientation={studyOrientation(view.learner_color, flipped)} />
-                : <LichessControl disabled={analysisBlocked} onClick={actions.analyzeInLichess} />}
-            </div>
-          )}
           {gameContext && (
             <div className="actions game-replay-links">
               {!inGameReplay &&
@@ -276,20 +254,7 @@ export function StudyPage({
             onClick={() => setDialog("help")}><KeyboardIcon /></IconButton>
         </div>
       </aside>
-      {dialog?.kind === "analysis" && (
-        <Dialog open title="Analyze this review?" onClose={() => setDialog(null)}>
-          <p>{dialog.assessment === "again"
-            ? "Again is already recorded for this review. Opening analysis will end the attempt."
-            : "Opening analysis will end this review and record it as Again."}</p>
-          <div className="actions">
-            <Button onClick={() => setDialog(null)}>Cancel</Button>
-            <Button variant="primary" onClick={actions.confirmAnalysis}>
-              {dialog.assessment === "again" ? "End review and analyze" : "Record Again and analyze"}
-            </Button>
-          </div>
-        </Dialog>
-      )}
-      <BoardPreferences dialog={dialog?.kind === "analysis" ? null : dialog} onClose={() => setDialog(null)} prefs={prefs}
+      <BoardPreferences dialog={dialog} onClose={() => setDialog(null)} prefs={prefs}
         onChange={onPrefsChange} soundEnabled={soundEnabled} onSoundChange={onSoundChange} />
       <PromotionChooser
         choice={choice}

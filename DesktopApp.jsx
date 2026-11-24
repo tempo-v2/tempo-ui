@@ -2,7 +2,6 @@ import React from "react";
 import { App } from "./App.jsx";
 import { DesktopBoardLayout } from "./MainBoard.jsx";
 import { DesktopNavigation } from "./DesktopNavigation.jsx";
-import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
 import { GamesPage } from "./GamesPage.jsx";
 import { SavedReviewsPage } from "./SavedReviewsPage.jsx";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
@@ -61,10 +60,6 @@ function renderSection(page, goTo, datasetId, onTacticExcluded) {
     onTactics={() => goTo("tactics")} />;
 }
 
-function renderAnalysis(visit, issue, onClose, launch) {
-  return <StudyAnalysisEntry visit={visit} issue={issue} onClose={onClose} launch={launch} />;
-}
-
 function renderNavigation(page, onNavigate, navigationLocked) {
   return <DesktopNavigation page={page} onNavigate={onNavigate} navigationLocked={navigationLocked} />;
 }
@@ -72,7 +67,7 @@ function renderNavigation(page, onNavigate, navigationLocked) {
 export function DesktopApp() {
   return <div className="tempo-desktop">
     <DesktopBoardLayout>
-      <App initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
+      <App initialPage={initialPage} renderSection={renderSection}
         navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} renderNavigation={renderNavigation}
         studyCompanionSection="saved-reviews" showOriginalGameLink />
     </DesktopBoardLayout>

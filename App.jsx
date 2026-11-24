@@ -1,9 +1,10 @@
+import { Button } from "@tempo-v2/core-components";
 import React, { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import { ApplicationContext, useApplicationContextReader } from "./application_context.js";
 import { createStudyController } from "./study_controller.js";
 import { Notifications } from "./Notifications.jsx";
 import { StudyPage } from "./StudyPage.jsx";
-import { identity, studyOrientation } from "./StudyBoard.jsx";
+import { identity } from "./StudyBoard.jsx";
 import { promotionRoles } from "./promotion_roles.js";
 import { completedReviewAddress, studyReviewAddresses, useReviewMark } from "./saved_review_commands.js";
 import { createBoardSounds, learnerCue, opponentCue, replyCue } from "./board_sounds.js";
@@ -13,7 +14,6 @@ import { useStudyGameContext } from "./study_game_context.js";
 import { useStudyLeadIn } from "./use_study_lead_in.js";
 import { canAutoAdvance } from "./StudyOutcome.jsx";
 import { loadBoardPreferences, saveBoardPreferences } from "./BoardPreferences.jsx";
-import { closeReservedLichessTab, reserveLichessTab } from "./lichess_analysis.js";
 import { PageExitGuardContext } from "./page_exit_guard.js";
 import { studyShortcuts } from "./shortcuts.js";
 
@@ -46,7 +46,7 @@ export function App(props) {
   </Notifications>;
 }
 
-function StudyApp({ initialPage = "study", renderSection, renderAnalysis, renderNavigation,
+function StudyApp({ initialPage = "study", renderSection, renderNavigation,
   transport = studyTransport, boardContinuation, navigateSection, subscribeNavigation,
   showOriginalGameLink = false, studyCompanionSection }) {
   const [model, setModel] = useState({ view: null, state: { busy: true } }),
@@ -64,21 +64,6 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
   const [flipped, setFlipped] = useState(false);
   const [history, setHistory] = useState(null);
   const [dialog, setDialog] = useState(null);
-  const [lichessLaunch, setLichessLaunch] = useState(null);
-  const lichessReservation = useRef(null);
-  const cancelLichessLaunch = useCallback(() => {
-    closeReservedLichessTab(lichessReservation.current?.tab);
-    lichessReservation.current = null;
-    setLichessLaunch(null);
-  }, []);
-  useEffect(() => {
-    window.addEventListener("pagehide", cancelLichessLaunch);
-    return () => {
-      window.removeEventListener("pagehide", cancelLichessLaunch);
-      closeReservedLichessTab(lichessReservation.current?.tab);
-      lichessReservation.current = null;
-    };
-  }, [cancelLichessLaunch]);
   const [sounds] = useState(() => createBoardSounds(prefs.volume));
   const [soundEnabled, setSoundEnabled] = useState(sounds.enabled);
   const studyVisit = useRef(0);
@@ -180,46 +165,7 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
     setChoice(null);
     fn().catch(() => {});
   };
-  function openInLichess(address, enter) {
-    const study = controller.current;
-    const current = study.getState();
-    if (current.busy || current.canRetry || current.refreshRequired || current.storageUnavailable ||
-        current.analysis || !Object.entries(address).every(([key, value]) => current.view?.[key] === value)) return;
-    const orientation = studyOrientation(current.view.learner_color, flipped);
-    cancelLichessLaunch();
-    const reservation = { tab: reserveLichessTab(), orientation };
-    lichessReservation.current = reservation;
-    const cancelReservation = () => {
-      if (lichessReservation.current === reservation) cancelLichessLaunch();
-    };
-    void enter(address).then(() => {
-      if (lichessReservation.current !== reservation) return;
-      const visit = study.getState().analysis;
-      if (visit && visit.dataset_id === address.dataset_id && visit.attempt_id === address.attempt_id &&
-          visit.content_version === address.content_version) {
-        setLichessLaunch({ ...reservation, visit });
-      } else cancelReservation();
-    }).catch(cancelReservation);
-  }
-  function analyze(inLichess) {
-    pausedAdvance.current = view;
-    board.current?.clearInput();
-    const { dataset_id, attempt_id, content_version, revision } = view;
-    const address = { dataset_id, attempt_id, content_version, revision };
-    if (view.status === "ready" && view.activity === "test")
-      openDialog({ kind: "analysis", address, assessment: view.assessment, inLichess });
-    else if (inLichess) openInLichess(address, controller.current.openAnalysis);
-    else void controller.current.openAnalysis(address).catch(() => {});
-  }
   const actions = {
-    analyze: renderAnalysis ? () => analyze(false) : undefined,
-    analyzeInLichess: renderAnalysis ? () => analyze(true) : undefined,
-    confirmAnalysis: () => {
-      if (dialog?.kind !== "analysis") return;
-      setDialog(null);
-      if (dialog.inLichess) openInLichess(dialog.address, controller.current.concedeForAnalysis);
-      else void controller.current.concedeForAnalysis(dialog.address).catch(() => {});
-    },
     next: run(() => {
       pausedAdvance.current = view;
       return controller.current.next();
@@ -407,7 +353,6 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
   function changePage(nextPage) {
     if (page === nextPage) return true;
 
-    cancelLichessLaunch();
     const openingCompanion = page === "study" && nextPage === studyCompanionSection;
     const returningToStudy = page === studyCompanionSection && nextPage === "study" && companionFromStudy.current;
     companionFromStudy.current = openingCompanion;
@@ -451,11 +396,12 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
     content = renderSection(page, goTo, view?.dataset_id, () => {
       reviewExclusion.current = true;
     });
-  } else if (state.analysis && renderAnalysis) {
-    content = renderAnalysis(state.analysis, state.issue, () => {
-      cancelLichessLaunch();
-      return controller.current.closeAnalysis().catch(() => {});
-    }, lichessLaunch?.visit === state.analysis ? lichessLaunch : null);
+  } else if (state.analysis) {
+    // Legacy visits keep their saved return address after the analysis screen is retired.
+    content = <main className="tempo-core">
+      <h1>Return to Study</h1>
+      <Button onClick={() => void controller.current.closeAnalysis().catch(() => {})}>Back to Study</Button>
+    </main>;
   } else {
     content = (
       <StudyPage
@@ -469,7 +415,6 @@ function StudyApp({ initialPage = "study", renderSection, renderAnalysis, render
         stopped={stopped}
         boardContinuation={boardContinuation}
         reviewMark={reviewMark}
-        onOpenCardDetails={() => { pausedAdvance.current = view; }}
         reviewAddresses={reviewAddresses}
         showOriginalGameLink={showOriginalGameLink}
         boardRef={board}

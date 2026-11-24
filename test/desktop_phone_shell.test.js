@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { JSDOM } from "jsdom";
 import { Chess } from "chess.js";
-import { ready } from "../view_fixtures.js";
+import { complete, ready } from "../view_fixtures.js";
 
 const bundle = await build({
   stdin: {
@@ -150,45 +150,51 @@ const practice = ready({
   prompt: { fen: position.fen(), instruction: "Practice", decision_index: 0, decision_count: 1 },
 });
 
-test("desktop forwards an explicit Lichess launch through the analysis shell", async t => {
-  const lineBoard = new Chess();
-  lineBoard.move("e4");
-  const { window, calls } = await shell(t, false, { hash: "", responses: {
-    "/api/study": practice,
-    "/api/study/analysis-context": {
-      datasetId: practice.dataset_id, attemptId: practice.attempt_id,
-      contentVersion: practice.content_version, revision: practice.revision,
-      fen: practice.display_fen, color: "white", repertoireId: null, name: null,
-      prescribedUci: "e2e4", playedUci: null,
-    },
-    "/api/study/analysis-line": { scope: "full_line", line: {
-      start_fen: practice.display_fen, moves: [{ notation: "1. e4", fen: lineBoard.fen() }],
-    } },
-  } });
-  const destinations = [];
-  const reserved = { closed: false, location: { href: "about:blank" },
-    close() { this.closed = true; },
-    document: { body: { append() {} }, createElement() {
-      return { click() { destinations.push(this.href); reserved.location.href = this.href; } };
-    } },
-  };
-  window.open = (url, target) => {
-    assert.equal(url, "about:blank");
-    assert.equal(target, "_blank");
-    return reserved;
-  };
-  assert.equal(calls.some(call => call.path === "/api/study/analysis-line"), false);
-  const launch = window.document.querySelector('button[aria-label="Analyze in Lichess"]');
-  assert(launch);
-  await window.runShell(async () => launch.click());
-  assert.equal(window.document.querySelector("h1").textContent, "Analysis board");
-  assert.equal(calls.filter(call => call.path === "/api/study/analysis-line").length, 1);
-  assert.equal(calls.some(call => call.path.startsWith("/api/analysis/")), false);
-  assert.equal(destinations.length, 1);
-  assert.match(destinations[0], /^https:\/\/lichess\.org\/analysis\/pgn\//);
-  assert.equal(reserved.opener, null);
-  assert.equal(reserved.closed, false);
+test("desktop Study keeps the exercise usable without optional analysis or card details", async t => {
+  const { window, calls } = await shell(t, false, { hash: "", responses: { "/api/study": practice } });
+  assert.equal(window.document.querySelector("h1").textContent, "Practice");
+  assert(window.document.querySelector('[aria-label="Study chessboard"]'));
+  for (const label of ["Analyze", "Analyze in Lichess", "Card details"]) {
+    assert.equal(window.document.querySelector(`[aria-label="${label}"]`), null);
+    assert(![...window.document.querySelectorAll("button")].some(button => button.textContent === label));
+  }
+  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command), [{ command: "next" }]);
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/relevance"].includes(call.path)));
 });
+
+for (const pending of [true, false]) {
+  test(`desktop can return to Study after ${pending ? "replaying a pending" : "restoring an accepted"} legacy concession`, async t => {
+    const key = "tempo-study-recovery-v4";
+    const accepted = complete({
+      status: "abandoned", assessment: "again", dataset_id: practice.dataset_id,
+      display_fen: position.fen(), revision: 1,
+    });
+    const { dataset_id, attempt_id, content_version } = accepted;
+    const concession = {
+      command: "concede", dataset_id, attempt_id, expected_revision: 0, submission_id: "old-concession",
+    };
+    const address = { dataset_id, attempt_id, content_version, returnTo: "next" };
+    const analysis = pending ? { ...address, phase: "accept", revision: 0, submission_id: concession.submission_id }
+      : { ...address, phase: "open", revision: 1, savedResult: accepted };
+    let replies = 0;
+    const { window, calls } = await shell(t, false, { hash: "", stored: {
+      [key]: { pending: pending ? concession : null, analysis },
+    }, responses: {
+      "/api/study": () => ({
+        ok: true, status: 200, json: async () => pending && replies++ === 0 ? accepted : practice,
+      }),
+    } });
+    const studyBytes = () => calls.filter(call => call.path === "/api/study").map(call => call.raw);
+    assert.equal(window.document.querySelector("h1").textContent, "Return to Study");
+    const replay = pending ? [JSON.stringify(concession)] : [];
+    assert.deepEqual(studyBytes(), replay);
+    const back = [...window.document.querySelectorAll("button")].find(button => button.textContent === "Back to Study");
+    await window.runShell(() => back.click());
+    assert.equal(window.document.querySelector("h1").textContent, "Practice");
+    assert.deepEqual(studyBytes(), [...replay, JSON.stringify({ command: "next" })]);
+    assert.deepEqual(JSON.parse(window.sessionStorage.getItem(key)), { pending: null });
+  });
+}
 
 test("phone keeps an active exercise free of desktop analysis and Lichess controls", async t => {
   const { window, calls } = await shell(t, true, { responses: { "/api/study": practice } });
