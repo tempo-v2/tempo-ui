@@ -18,15 +18,13 @@ assert.ok(process.env.TEMPO_PREVIOUS_RELEASE, "Set TEMPO_PREVIOUS_RELEASE to the
 const previous = resolve(process.env.TEMPO_PREVIOUS_RELEASE);
 const candidate = resolve(process.env.TEMPO_BINARY || "target/debug/tempo");
 const candidateUi = resolve("tempo-ui/dist");
-async function verifyUpgrade(acceptedUsesExternal) {
+async function verifyUpgrade(acceptedUsesExternal, historical = false) {
   const temporary = mkdtempSync(join(tmpdir(), "tempo-games-upgrade-"));
   const database = join(temporary, "practice.sqlite");
   const pendingKey = "tempo.games.pending.v1";
   const externalKey = pendingKey + "-external";
   const providerCalls = [];
   const connected = new Set();
-  let releaseB;
-  const heldB = new Promise(resolve => { releaseB = resolve; });
   let provider, proxy, host, browser;
 
   async function listen(server) {
@@ -48,8 +46,8 @@ async function verifyUpgrade(acceptedUsesExternal) {
         response.writeHead(404).end();
         return;
       }
-      if (providerCalls.push(request.url) === 2) await heldB;
-      response.writeHead(200, { "Content-Type": "application/x-ndjson" }).end();
+      providerCalls.push(request.url);
+      response.writeHead(historical ? 503 : 200, { "Content-Type": "application/x-ndjson" }).end();
     });
     proxy = httpServer();
     proxy.on("connect", (request, client, head) => {
@@ -193,6 +191,118 @@ async function verifyUpgrade(acceptedUsesExternal) {
     assert.fail("Candidate did not remove the detached IndexedDB blob.");
   }
 
+  async function verifyHistorical(base, context, env) {
+    const startRoute = "/api/games/backfill";
+    const retryRoute = startRoute + "/retry";
+    const pending = [];
+    const post = async (path, payload) => fetch(base + path, {
+      method: "POST", headers: { "Content-Type": "application/json", origin: base },
+      body: JSON.stringify(payload),
+    });
+    function archived() {
+      const db = new DatabaseSync(database, { readOnly: true });
+      try {
+        return {
+          jobs: db.prepare("SELECT * FROM game_backfill_jobs ORDER BY id").all(),
+          accounts: db.prepare("SELECT * FROM game_learner_accounts ORDER BY source, learner").all(),
+          receipts: db.prepare("SELECT * FROM game_receipts ORDER BY id").all(),
+        };
+      } finally { db.close(); }
+    }
+    async function oldPage() {
+      const page = await context.newPage();
+      page.setDefaultTimeout(10000);
+      await page.goto(base);
+      await showGames(page);
+      await page.getByText(/^Historical backfill(?: ·.*)?$/).click();
+      return page;
+    }
+    async function capture(page, path, label, accepted, external) {
+      if (external) await forceIndexedDb(page);
+      let exact;
+      await page.route("**" + path, async route => {
+        if (route.request().method() !== "POST") return route.continue();
+        exact = route.request().postData();
+        if (accepted) assert.equal((await route.fetch()).status(), 202);
+        await route.abort();
+      });
+      await button(page, label).click();
+      await button(page, "Retry same request").waitFor();
+      const saved = await readSaved(page, external);
+      assert.equal(JSON.stringify(saved.command.payload), exact);
+      pending.push({ page, path, exact, saved, accepted });
+    }
+    async function waitForIncomplete() {
+      for (let iteration = 0; iteration < 150; iteration++) {
+        const response = await fetch(base + startRoute);
+        assert.equal(response.status, 200);
+        const value = await response.json();
+        if (value.status === "incomplete") return value;
+        await sleep(50);
+      }
+      assert.fail("The prior job did not settle as incomplete after a fixture provider error.");
+    }
+    for (const accepted of [true, false]) {
+      const page = await oldPage();
+      await page.getByLabel("Lichess account").fill("learner");
+      const form = page.locator("form").filter({ has: button(page, "Start historical backfill") });
+      await form.getByLabel("First day (UTC)").fill("2026-11-09");
+      await form.getByLabel("Last day (UTC)").fill("2026-11-09");
+      await capture(page, startRoute, "Start historical backfill", accepted, accepted);
+      if (accepted) await waitForIncomplete();
+    }
+    // Capture accepted Retry last, then stop the old runtime without requiring completed windows.
+    for (const accepted of [false, true]) {
+      const page = await oldPage();
+      await button(page, "Retry remaining windows").waitFor();
+      await capture(page, retryRoute, "Retry remaining windows", accepted, accepted);
+    }
+    await stop();
+    const saved = archived();
+    assert.equal(saved.jobs.length, 1);
+    assert.equal(saved.accounts.length, 1);
+    const job = JSON.parse(saved.jobs[0].state);
+    const acceptedRetry = JSON.parse(pending.find(item => item.path === retryRoute && item.accepted).exact);
+    assert.deepEqual(job.retries, [acceptedRetry.command_id]);
+    const baselineProviderCalls = providerCalls.length;
+    assert.ok(baselineProviderCalls > 0);
+    assert.equal(await start(candidate, candidateUi, env, new URL(base).port), base);
+    assert.equal((await fetch(base + startRoute)).status, 410);
+    const acceptedStart = JSON.parse(pending.find(item => item.path === startRoute && item.accepted).exact);
+    assert.equal((await post(startRoute, { ...acceptedStart, lichess: "other" })).status, 400);
+
+    for (const entry of pending) {
+      const { page, path, exact, saved, accepted } = entry;
+      const calls = [];
+      page.on("request", request => calls.push([request.method(), new URL(request.url()).pathname]));
+      await page.unroute("**" + path);
+      await page.reload();
+      await showGames(page);
+      const replay = page.waitForRequest(request => new URL(request.url()).pathname === path);
+      await button(page, "Retry same request").click();
+      assert.equal((await replay).postData(), exact);
+      const message = accepted ? "Historical Games request was accepted and is archived."
+        : "This request was not accepted. Historical Games backfill has been retired.";
+      await page.getByText(message, { exact: !accepted }).waitFor();
+      await confirmRemoved(page, saved);
+      assert.equal(await button(page, "Start historical backfill").count(), 0);
+      assert.equal(await button(page, "Retry remaining windows").count(), 0);
+      assert(!calls.some(([method, url]) => method === "GET" && url === startRoute));
+    }
+    assert.deepEqual(archived(), saved);
+    assert.equal(providerCalls.length, baselineProviderCalls);
+    const page = pending.at(-1).page;
+    await page.getByLabel("Learner name").fill("learner");
+    await page.getByLabel("Or paste PGN").fill('[White "learner"]\n[Black "opponent"]\n\n1. e4 e5 1-0');
+    await button(page, "Import games").click();
+    await page.getByRole("heading", { name: "Import results" }).waitFor();
+    await button(page, "Review game").click();
+    await page.getByRole("heading", { name: "learner vs opponent" }).waitFor();
+    assert.deepEqual(archived().jobs, saved.jobs);
+    assert.deepEqual(archived().accounts, saved.accounts);
+    console.log("Previous browser captured accepted-lost and never-delivered Start and Retry. Candidate replayed exact commands and retained job/accounts/receipts without provider calls. Manual PGN import and plain replay passed.");
+  }
+
   try {
     const env = await fixtureEnvironment();
     const oldBinary = join(previous, "tempo");
@@ -200,6 +310,7 @@ async function verifyUpgrade(acceptedUsesExternal) {
     const base = await start(oldBinary, join(previous, "ui"), env);
     browser = await chromium.launch({ channel: "chrome", headless: true });
     const context = await browser.newContext();
+    if (historical) return await verifyHistorical(base, context, env);
     const accepted = await context.newPage();
     const unaccepted = await context.newPage();
     for (const page of [accepted, unaccepted]) {
@@ -245,12 +356,18 @@ async function verifyUpgrade(acceptedUsesExternal) {
 
     await stop();
     assert.equal(await start(candidate, candidateUi, env, new URL(base).port), base);
-    const { dataset_id } = acceptedCommand;
-    const laterId = "refresh-b";
-    const later = await refresh(base, { ...acceptedCommand, command_id: laterId });
-    assert.equal(later.status, 202);
-    assert.deepEqual(await later.json(), { dataset_id, command_id: laterId, status: "running" });
-    const running = await job(base, laterId, "running");
+    const retiredStatus = await fetch(base + "/api/games/job");
+    assert.equal(retiredStatus.status, 410);
+    assert.equal((await retiredStatus.json()).code, "retired_feature");
+    const changed = await refresh(base, { ...acceptedCommand, account: "different" });
+    assert.equal(changed.status, 400);
+    assert.equal((await changed.json()).code, "store_conflict");
+    const wrongDataset = await refresh(base, { ...acceptedCommand, dataset_id: "another-dataset" });
+    assert.equal(wrongDataset.status, 400);
+    assert.equal((await wrongDataset.json()).code, "stale_dataset");
+    const candidatePaths = [];
+    for (const page of [accepted, unaccepted])
+      page.on("request", request => candidatePaths.push(new URL(request.url()).pathname));
 
     await accepted.unroute(jobRoute);
     await accepted.unroute(commandRoute);
@@ -263,15 +380,7 @@ async function verifyUpgrade(acceptedUsesExternal) {
     assert.equal((await retryA).postData(), oldAccepted);
     await accepted.getByRole("heading", { name: "Recovered refresh results" }).waitFor();
     await confirmRemoved(accepted, savedAccepted);
-    await accepted.getByText("Refreshing games. You can return to Study while this runs.").waitFor();
-    assert.deepEqual(await job(base, laterId, "running"), running);
     assert.deepEqual(receipts(), acceptedRows);
-    await accepted.getByRole("tab", { name: "Library" }).click();
-    releaseB();
-    await job(base, laterId, "complete");
-    await accepted.getByRole("tab", { name: "Import" }).click();
-    await accepted.getByText("Latest refresh", { exact: true }).first().waitFor();
-    assert.equal(providerCalls.length, 2);
 
     await unaccepted.unroute(commandRoute);
     await unaccepted.reload();
@@ -279,16 +388,26 @@ async function verifyUpgrade(acceptedUsesExternal) {
     const retryC = unaccepted.waitForRequest(request => request.url().endsWith("/api/games/refresh"));
     await button(unaccepted, "Retry same request").click();
     assert.equal((await retryC).postData(), oldUnaccepted);
-    await job(base, unacceptedCommand.command_id, "complete");
+    await unaccepted.getByText("This refresh was not accepted. Remote game refresh has been retired.").waitFor();
     await confirmRemoved(unaccepted, savedUnaccepted);
-    await unaccepted.waitForFunction(() => !document.body.textContent.includes("Refreshing games."));
-    assert.deepEqual(receipts().map(row => row.id).sort(), [laterId, acceptedCommand.command_id, unacceptedCommand.command_id].sort());
-    assert.equal(providerCalls.length, 3);
+    assert.equal(await unaccepted.getByRole("heading", { name: "Recovered refresh results" }).count(), 0);
+    assert.deepEqual(receipts(), acceptedRows);
+    assert.equal(providerCalls.length, 1);
+    assert(!candidatePaths.includes("/api/games/job"));
+    await unaccepted.getByLabel("Learner name").fill("learner");
+    await unaccepted.getByLabel("Or paste PGN").fill('[White "learner"]\n[Black "opponent"]\n\n1. e4 e5 1-0');
+    await button(unaccepted, "Import games").click();
+    await unaccepted.getByRole("heading", { name: "Import results" }).waitFor();
+    await button(unaccepted, "Review game").click();
+    await unaccepted.getByRole("heading", { name: "learner vs opponent" }).waitFor();
+    assert.deepEqual(receipts().find(row => row.id === acceptedCommand.command_id), acceptedRows[0]);
+    assert(!receipts().some(row => row.id === unacceptedCommand.command_id));
+    assert.equal(providerCalls.length, 1);
+    assert(!candidatePaths.includes("/api/games/job"));
     const acceptedStorage = acceptedUsesExternal ? "IndexedDB" : "inline";
     const unacceptedStorage = acceptedUsesExternal ? "inline" : "IndexedDB";
-    console.log(`Previous client stored accepted-lost Refresh in ${acceptedStorage} and unaccepted Refresh in ${unacceptedStorage}. Candidate bytes matched, B stayed current, and each command committed once.`);
+    console.log(`Previous client stored accepted-lost Refresh in ${acceptedStorage} and unaccepted Refresh in ${unacceptedStorage}. Candidate bytes matched. The saved receipt replayed and the undelivered refresh stopped without a new receipt or provider call.`);
   } finally {
-    releaseB();
     await browser?.close();
     await stop();
     for (const socket of connected) socket.destroy();
@@ -299,6 +418,10 @@ async function verifyUpgrade(acceptedUsesExternal) {
 }
 
 const started = performance.now();
-await verifyUpgrade(false);
-await verifyUpgrade(true);
+if (process.argv.includes("--historical")) {
+  await verifyUpgrade(false, true);
+} else {
+  await verifyUpgrade(false);
+  await verifyUpgrade(true);
+}
 console.log(`Verified all four previous Games recovery cases in ${((performance.now() - started) / 1000).toFixed(2)}s.`);

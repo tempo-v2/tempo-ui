@@ -197,7 +197,7 @@ try {
     assert.deepEqual(await layout(), prior);
     return control;
   };
-  await page.goto(`http://127.0.0.1:${proxy.address().port}`);
+  await page.goto(`http://127.0.0.1:${proxy.address().port}/#build`);
   await button("Show move").waitFor();
   const { before_fen, uci } = issued[0].opponent_move;
   assert.ok(tactics.some(tactic => tactic.opponent_lead_ins[0].before_fen === before_fen));
@@ -207,6 +207,7 @@ try {
   assert.equal(await page.title(), "Tempo Study");
   assert.equal(await page.locator(".tempo-board-resize-handle").count(), 0);
   assert.equal(await page.getByRole("navigation", { name: "Tempo sections" }).count(), 0);
+  assert.equal(await button("Build").count(), 0);
   assert.equal(await button("Analyze").count(), 0);
   assert.equal(await button("Card details").count(), 0);
   assert.equal(await page.locator("#study-tactic-clue").count(), 0);
@@ -292,10 +293,6 @@ try {
   await page.waitForFunction(from =>
     [...document.querySelectorAll(".study-board svg.cg-shapes g[cgHash]")].some(shape =>
       shape.getAttribute("cgHash").includes(`,${from},${from === "g7" ? "h8" : "a8"},green`)), answer.slice(2));
-  await button("Card details").tap();
-  await page.getByText(/Tactic · /).waitFor();
-  assert.equal(await page.getByText(/recorded reason/).count(), 0);
-  await button("Card details").tap();
   await page.evaluate(() => window.scrollTo(0, 0));
   await tapMove(page, answer);
   await button("Continue").waitFor();
@@ -303,7 +300,7 @@ try {
   for (const width of [320, 375]) {
     await page.setViewportSize({ width, height: 600 });
     await checkToolRow("Replay controls", ["Beginning", "Previous", "Next move", "End"]);
-    await checkToolRow("Study actions", ["Card details", "Review later", "Stop"]);
+    await checkToolRow("Study actions", ["Review later", "Stop"]);
     await checkToolRow("Board controls", ["Flip board", "Board sounds", "Board preferences", "Keyboard shortcuts"]);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   }
@@ -317,16 +314,6 @@ try {
   assert.equal(commands.length, completedCommands);
   assert.equal(await page.getByRole("tooltip").count(), 0);
 
-  const completedAttempts = rows("attempts");
-  const completedAssessmentCount = rows("assessments");
-  await button("Build").tap();
-  await page.getByRole("heading", { name: "Build repertoire" }).waitFor();
-  await button("Study").tap();
-  await button("Continue").waitFor();
-  assert.equal(commands.length, completedCommands);
-  assert.equal(rows("attempts"), completedAttempts);
-  assert.equal(rows("assessments"), completedAssessmentCount);
-
   const sounds = button("Board sounds");
   const wasPressed = await sounds.getAttribute("aria-pressed");
   await sounds.tap();
@@ -337,15 +324,6 @@ try {
   await preferences.getByRole("button", { name: "Close", exact: true }).tap();
   await preferences.waitFor({ state: "hidden" });
 
-  await button("Card details").tap();
-  await page.getByText(/Tempo has no recorded reason/).waitFor();
-  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-  await page.getByText(/Tempo has no recorded reason/).waitFor({ state: "detached" });
-  await button("Card details").tap();
-  await page.getByText(/Tempo has no recorded reason/).waitFor();
-  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-  await page.getByText(/Tempo has no recorded reason/).waitFor({ state: "detached" });
-  assert.equal(await button("Card details").getAttribute("aria-expanded"), "false");
   await page.evaluate(() => window.scrollTo(0, 0));
   const continueStudy = await checkContinuation("Continue", secondLayout);
   await continueStudy.tap();

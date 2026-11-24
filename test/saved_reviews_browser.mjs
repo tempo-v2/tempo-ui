@@ -78,7 +78,7 @@ try {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
     });
-    assert(response.ok || (path === "/api/study/card-details" && response.status === 400));
+    assert(response.ok);
     return response.json();
   };
   const nextResponse = page.waitForResponse(reply => reply.url().endsWith("/api/study"));
@@ -104,12 +104,6 @@ try {
   await orientation.waitFor();
   assert.deepEqual(studyCommands, ["next"]);
   assert.equal(firstMark, undefined);
-  const cardAddress = view => ({
-    dataset_id: view.dataset_id, attempt_id: view.attempt_id,
-    content_version: view.content_version, revision: view.revision,
-  });
-  const details = view => post("/api/study/card-details", cardAddress(view));
-  assert.equal((await details(issued)).code, "card_details_unavailable");
   const before = studyData();
   for (const exerciseName of ["First label", "Renamed label", null]) {
     const tab = await browser.newPage();
@@ -381,9 +375,6 @@ try {
     }
     const miss = await study({ ...commandFor(startView, "answer", "miss"), answer: { uci: "d2d4" } });
     assert.equal(miss.assessment, "again");
-    const afterMiss = await details(miss);
-    assert.deepEqual(afterMiss.details, { kind: "tactic", sources: ["Personal capture"] });
-    assert.equal((await details(startView)).code, "stale_revision");
     const corrected = await study({ ...commandFor(miss, "answer", "correct"), answer: { uci: "e2e4" } });
     assert.equal(corrected.prompt.decision_index, 1);
     const targetAddress = { dataset_id: corrected.dataset_id, attempt_id: corrected.attempt_id,
@@ -398,11 +389,9 @@ try {
     if (leave === "skip") {
       assert.deepEqual(saved, { status: "study_required", id: marked.id });
     } else {
-      const immediate = await post("/api/study/analysis-context", { ...targetAddress, revision: closed.revision });
       assert.equal(saved.origin.prescribedUci, "g1f3");
-      assert.equal(saved.origin.fen, immediate.fen);
-      assert.equal(saved.origin.prescribedUci, immediate.prescribedUci);
-      assert.notEqual(saved.origin.attemptId, immediate.attemptId);
+      assert.equal(saved.origin.fen, corrected.display_fen);
+      assert.notEqual(saved.origin.attemptId, corrected.attempt_id);
       const receiptFixture = new DatabaseSync(database);
       try {
         receiptFixture.prepare("UPDATE receipts SET command=? WHERE id=?")

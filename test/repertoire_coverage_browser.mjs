@@ -13,12 +13,17 @@ const { chromium } = await import(process.env.TEMPO_PLAYWRIGHT || "playwright");
 const root = await mkdtemp(join(tmpdir(), "tempo-coverage-"));
 const database = join(root, "study.sqlite");
 const binary = resolve(process.env.TEMPO_BINARY || "target/debug/tempo");
+const ui = resolve("tempo-ui/dist");
+assert(process.env.TEMPO_PREVIOUS_BINARY && process.env.TEMPO_PREVIOUS_UI && process.env.TEMPO_MAIA,
+  "Set the previous installed binary, assets and local engine directory.");
+const previous = resolve(process.env.TEMPO_PREVIOUS_BINARY);
+const previousUi = resolve(process.env.TEMPO_PREVIOUS_UI);
 let server;
 let browser;
 let origin;
 
-async function serve() {
-  server = spawn(binary, ["serve", database, resolve("tempo-ui/dist"), "0"], { stdio: ["ignore", "pipe", "inherit"] });
+async function serve(executable = previous, assets = previousUi, port = "0") {
+  server = spawn(executable, ["serve", database, assets, port], { stdio: ["ignore", "pipe", "inherit"] });
   const lines = createInterface({ input: server.stdout });
   origin = await Promise.race([
     once(lines, "line").then(([line]) => line.replace("Tempo study at ", "")),
@@ -43,7 +48,7 @@ async function stop() {
 }
 
 try {
-  execFileSync(binary, ["init", database]);
+  execFileSync(previous, ["init", database]);
   await serve();
   const { dataset_id } = await post("repertoires", { command: "list" });
   const input = {
@@ -277,16 +282,19 @@ try {
     assert.deepEqual(facts(), beforeLine);
     const saves = [];
     let dropSave = true;
+    let priorReply;
     let failNext = true;
     await page.route("**/api/repertoires", async route => {
       if (route.request().postDataJSON().command !== "save") return route.continue();
       saves.push(route.request().postData());
       if (!dropSave) return route.continue();
       dropSave = false;
-      assert.equal((await route.fetch()).status(), 200);
+      const accepted = await route.fetch();
+      assert.equal(accepted.status(), 200);
+      priorReply = await accepted.text();
       return route.abort();
     });
-    await page.route("**/api/games/gaps", async route => {
+    await page.route("**/api/games/gap-draft", async route => {
       if (saves.length === 2 && failNext) {
         failNext = false;
         return route.abort();
@@ -294,13 +302,29 @@ try {
       return route.continue();
     });
     await button("Save line").click();
-    await button("Retry save").click();
+    await button("Retry save").waitFor();
+    const previousOrigin = origin;
+    const retiredCalls = [];
+    page.on("request", request => {
+      if (/\/api\/games\/(?:gap-line(?:\/status)?|coverage(?:\/status)?|gap-explorer)$/.test(request.url())) retiredCalls.push(request.url());
+    });
+    await stop();
+    await serve(binary, ui, new URL(previousOrigin).port);
+    assert.equal(origin, previousOrigin);
+    const recovered = page.waitForResponse(response => response.url().endsWith("/api/repertoires") &&
+      response.request().postDataJSON().command === "save");
+    await page.reload();
+    const reply = await recovered;
+    assert.equal(reply.status(), 200);
+    assert.equal(await reply.text(), priorReply);
     await button("Retry loading next gap").waitFor();
     await page.getByText("Saved line through your move 3.", { exact: true }).waitFor();
     await button("Retry loading next gap").click();
     await page.getByRole("heading", { name: "Respond to 2…Nc6" }).waitFor();
     assert.equal(saves.length, 2);
     assert.equal(saves[0], saves[1]);
+    assert.match(JSON.parse(saves[0]).token, /^desktop-forecast-v2:/);
+    assert.equal(await button("Save line").count(), 0);
     const afterLine = facts();
     assert.deepEqual(afterLine[0].filter(row => beforeLine[0].some(old => old.target_id === row.target_id)), beforeLine[0]);
     assert.deepEqual(afterLine.slice(1, 3), beforeLine.slice(1, 3));
@@ -308,57 +332,8 @@ try {
     const { document } = await post("repertoires", { command: "read_document", ...address });
     assert.match(document.pgn, /e4 d5 exd5 Qxd5 [^ ]+ \*/);
 
-    // The move-3 forecast follows a legal transposition to the saved g3.
-    // Its first authored occurrence is a move later in the imported PGN.
-    const transposeInput = {
-      dataset_id, name: "Transposed coverage book", learner_color: "white",
-      pgn: "1.Nf3 Nf6 2.Nd4 d5 3.Nf3 Ng8 4.g3 *",
-    };
-    const draftTranspose = await post("repertoires", { command: "preview", ...transposeInput });
-    const transposed = await post("repertoires", { command: "save", token: draftTranspose.token, ...transposeInput });
-    const transposedId = transposed.repertoires.find(book => book.name === transposeInput.name).id;
-    seedForecastMoves([
-      [["Nf3"], { d7d5: 1 }],
-      [["Nf3", "d5", "g3"], { e7e5: 1 }],
-    ]);
-    await openCoverage(transposedId);
-    await panel.getByLabel("Through your move").fill("3");
-    await target.fill("100");
-    await button("Scan repertoire").click();
-    await page.getByText(/estimated coverage through your move 3/).waitFor();
-    await button("This scan").click();
-    await page.getByText(/e5 · 100% estimated/).locator("..").getByRole("button", { name: "Fix response" }).click();
-    await page.getByRole("heading", { name: "Respond to 2…e5", exact: true }).waitFor();
-    const { gaps } = await post("games/gaps", { offset: 0, forecast_repertoire: transposedId });
-    const { position, actual_move, document_revision, gap_kind } = gaps[0];
-    const addressed = { dataset_id, repertoire_id: transposedId, position, actual_move, document_revision, gap_kind };
-    const opened = await post("games/gap-draft", addressed);
-    const marked = await post("repertoires", {
-      command: "marked_preview", dataset_id, repertoire_id: transposedId,
-      base_revision: opened.content_revision, name: transposeInput.name, learner_color: "white",
-      anchor_fen: opened.draft.fen, anchor_route: opened.anchor_route, lines: [["f1g2"]],
-    });
-    assert.match(marked.save_command.pgn, /1\. Nf3 d5 2\. g3 e5 3\. Bg2 \*/);
-    const transposedBoard = page.getByLabel("Repertoire response board", { exact: true });
-    await transposedBoard.scrollIntoViewIfNeeded();
-    const bb = await transposedBoard.locator("cg-board").boundingBox();
-    const centerOf = (file, rank) => [bb.x + bb.width * (file + 0.5) / 8,
-      bb.y + bb.height * (8.5 - rank) / 8];
-    await page.mouse.move(...centerOf(5, 1));
-    await page.mouse.down();
-    await page.mouse.move(...centerOf(6, 2), { steps: 8 });
-    await page.mouse.up();
-    await page.getByRole("button", { name: "3.Bg2 · New reply", exact: true }).click();
-    const transposeLink = new URL(await page.getByRole("link", { name: "Analyze line in Lichess" }).getAttribute("href"));
-    assert.match(decodeURIComponent(transposeLink.pathname), /1\. Nf3 d5 2\. g3 e5 3\. Bg2 \*/);
-    const receiptsBeforeReply = facts()[3].length;
-    await button("Save response only").click();
-    await page.getByText("Saved Bg2.", { exact: true }).waitFor();
-    const savedTranspose = await post("repertoires", {
-      command: "read_document", dataset_id, repertoire_id: transposedId,
-    });
-    assert.match(savedTranspose.document.pgn, /Nf3 d5 g3 e5 Bg2 \*\s*$/);
-    assert.equal(facts()[3].length, receiptsBeforeReply + 1);
+    assert.equal(await button("Scan repertoire").count(), 0);
+    assert.deepEqual(retiredCalls, []);
 
   }
   assert.deepEqual(errors, []);

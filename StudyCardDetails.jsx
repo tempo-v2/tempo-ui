@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useId, useState } from "react";
 import { Button, IconButton, StatusNotice } from "@tempo-v2/core-components";
 import { InfoIcon } from "./ControlIcons.jsx";
-import { CARD_DISCLOSURE_RECHECK_MS, validateCardDetails } from "./card_details.js";
+import { validateCardDetails } from "./card_details.js";
 import { studyChangeKey, studyChangeStamp } from "./study_presence.js";
 import { readReviewCommand, savedReviewsPath } from "./saved_review_commands.js";
 
@@ -37,20 +37,6 @@ function CardDetailsContent({ details }) {
   </div>;
 }
 
-export function StudyCardDetails({ view, onOpen, renderActions }) {
-  const { dataset_id, attempt_id, revision, content_version } = view;
-  const load = useCallback(async signal => {
-    const address = { dataset_id, attempt_id, revision, content_version };
-    const reply = await readReviewCommand("/api/study/card-details", address, signal);
-    if (reply?.status !== "card_details" ||
-        !Object.entries(address).every(([field, value]) => reply[field] === value)) {
-      throw new Error("Tempo could not verify the card details.");
-    }
-    return validateCardDetails(reply.details);
-  }, [dataset_id, attempt_id, revision, content_version]);
-  return <CardDetailsPanel load={load} onOpen={onOpen} recheckExplanation renderActions={renderActions} />;
-}
-
 export function SavedReviewCardDetails({ datasetId, id, onDisclosureChanged }) {
   const load = useCallback(async signal => {
     const reply = await readReviewCommand(savedReviewsPath, {
@@ -68,7 +54,7 @@ export function SavedReviewCardDetails({ datasetId, id, onDisclosureChanged }) {
   return <CardDetailsPanel load={load} />;
 }
 
-function CardDetailsPanel({ load, onOpen, recheckExplanation, renderActions }) {
+function CardDetailsPanel({ load }) {
   const detailsId = useId();
   const [open, setOpen] = useState(false);
   const [read, setRead] = useState(null);
@@ -77,10 +63,8 @@ function CardDetailsPanel({ load, onOpen, recheckExplanation, renderActions }) {
     if (!open) return;
     const owner = new AbortController();
     const stamp = studyChangeStamp();
-    let timer;
     function closeDetails() {
       owner.abort();
-      clearTimeout(timer);
       setRead(null);
       setOpen(false);
     }
@@ -96,9 +80,6 @@ function CardDetailsPanel({ load, onOpen, recheckExplanation, renderActions }) {
           return;
         }
         setRead({ details });
-        if (recheckExplanation && details.explanation) {
-          timer = setTimeout(readDetails, CARD_DISCLOSURE_RECHECK_MS);
-        }
       } catch (error) {
         if (!owner.signal.aborted) setRead({ error: error.message });
       }
@@ -111,25 +92,21 @@ function CardDetailsPanel({ load, onOpen, recheckExplanation, renderActions }) {
     void readDetails();
     return () => {
       owner.abort();
-      clearTimeout(timer);
       window.removeEventListener("storage", closeOnStudyChange);
       window.removeEventListener("pageshow", closeDetails);
       window.removeEventListener("blur", closeDetails);
       window.removeEventListener("focus", closeDetails);
       document.removeEventListener("visibilitychange", closeDetails);
     };
-  }, [load, open, recheckExplanation, retry]);
+  }, [load, open, retry]);
   const trigger = (
     <IconButton label="Card details" aria-controls={detailsId} aria-expanded={open} onClick={() => {
-      if (!open) {
-        setRead(null);
-        onOpen?.();
-      }
+      if (!open) setRead(null);
       setOpen(!open);
     }}><InfoIcon /></IconButton>
   );
   return <>
-    {renderActions ? renderActions(trigger) : trigger}
+    {trigger}
     <div id={detailsId} hidden={!open}>
       {open && (read?.details ? <CardDetailsContent details={read.details} /> : read?.error
         ? <><StatusNotice kind="error">{read.error}</StatusNotice>

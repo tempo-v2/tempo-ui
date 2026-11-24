@@ -2,7 +2,6 @@ import React from "react";
 import { App } from "./App.jsx";
 import { DesktopBoardLayout } from "./MainBoard.jsx";
 import { DesktopNavigation } from "./DesktopNavigation.jsx";
-import { StudyAnalysisEntry } from "./StudyAnalysisEntry.jsx";
 import { GamesPage } from "./GamesPage.jsx";
 import { SavedReviewsPage } from "./SavedReviewsPage.jsx";
 import { RepertoiresPage } from "./RepertoiresPage.jsx";
@@ -50,8 +49,7 @@ function renderSection(page, goTo, datasetId, onTacticExcluded) {
   const onStudy = () => goTo("study");
   if (page === "saved-reviews") return <SavedReviewsPage datasetId={datasetId} onStudy={onStudy}
     onTacticExcluded={onTacticExcluded} />;
-  if (page === "games") return <GamesPage onStudy={onStudy}
-    onRepertoires={() => goTo("repertoires")} />;
+  if (page === "games") return <GamesPage onStudy={onStudy} />;
   if (page === "coverage-settings") return <CoverageSettingsPage onStudy={onStudy} />;
   if (page === "repertoires") return <RepertoiresPage onStudy={onStudy} />;
   if (page === "tactics") return <TacticsCollectionPage onStudy={onStudy}
@@ -61,10 +59,6 @@ function renderSection(page, goTo, datasetId, onTacticExcluded) {
     onTactics={() => goTo("tactics")} />;
 }
 
-function renderAnalysis(visit, issue, onClose, launch) {
-  return <StudyAnalysisEntry visit={visit} issue={issue} onClose={onClose} launch={launch} />;
-}
-
 function renderNavigation(page, onNavigate, navigationLocked) {
   return <DesktopNavigation page={page} onNavigate={onNavigate} navigationLocked={navigationLocked} />;
 }
@@ -72,7 +66,7 @@ function renderNavigation(page, onNavigate, navigationLocked) {
 export function DesktopApp() {
   return <div className="tempo-desktop">
     <DesktopBoardLayout>
-      <App studyPresenceSurface="desktop" initialPage={initialPage} renderSection={renderSection} renderAnalysis={renderAnalysis}
+      <App initialPage={initialPage} renderSection={renderSection}
         navigateSection={navigateSection} subscribeNavigation={subscribeNavigation} renderNavigation={renderNavigation}
         studyCompanionSection="saved-reviews" showOriginalGameLink />
     </DesktopBoardLayout>

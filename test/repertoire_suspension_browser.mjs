@@ -127,7 +127,6 @@ try {
   await importGame("game-gap", "GapLearner", "1. d4 Nf6 2. Bf4", "02");
   await button("Study").click();
   await page.getByRole("link", { name: "Games", exact: true }).click();
-  await page.getByText("Compare the game again to refresh these corrective choices.").waitFor({state: "attached"});
   assert.equal(await page.getByText("Corrective target for half-move 1").count(), 0);
 
   await page.getByRole("tab", { name: "Coverage" }).click();

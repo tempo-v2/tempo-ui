@@ -1,7 +1,6 @@
 export const gamesTabs = [
   ["library", "Library"],
   ["import", "Import"],
-  ["analysis", "Analysis"],
   ["coverage", "Coverage"],
 ];
 
@@ -10,6 +9,7 @@ export function gamesTabUrl(tab) {
 }
 
 export function requestedGamesTab() {
+  if (window.location.hash === "#games?tab=analysis") return "library";
   return gamesTabs.find(([id]) => window.location.hash === gamesTabUrl(id))?.[0];
 }
 

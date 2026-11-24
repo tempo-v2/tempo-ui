@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { JSDOM } from "jsdom";
 import { Chess } from "chess.js";
-import { ready } from "../view_fixtures.js";
+import { complete, ready } from "../view_fixtures.js";
 
 const bundle = await build({
   stdin: {
@@ -60,7 +60,6 @@ async function shell(t, phone, { hash = "#games", responses: overrides = {}, sto
     "/api/study": { schema_version: 5, status: "empty", dataset_id: dataset, done: true,
       outstanding: 0, repertoire_remaining: 0, tactics_remaining: 0 },
     "/api/study-progress": { status: "error", message: "No progress fixture" },
-    "/api/study/presence": { status: "accepted" },
     "/api/study/relevance": { reason: "Practice fixture" },
     ...overrides,
   };
@@ -127,7 +126,6 @@ test("desktop opens a game link and browser Back returns to Study through the sh
 test("desktop opens Saved for review from Games without issuing a Study command", async t => {
   const { window, calls } = await shell(t, false, { responses: {
     "/api/study/saved-reviews": { status: "saved_reviews", rows: [], next: null },
-    "/api/study/presence": { status: "accepted" },
   } });
   const navigation = window.document.querySelector(".tempo-nav-sections");
   await window.runShell(() => navigation.querySelector('[aria-label="Study shortcuts"]').click());
@@ -152,69 +150,104 @@ const practice = ready({
   prompt: { fen: position.fen(), instruction: "Practice", decision_index: 0, decision_count: 1 },
 });
 
-test("desktop forwards an explicit Lichess launch through the analysis shell", async t => {
-  const lineBoard = new Chess();
-  lineBoard.move("e4");
-  const { window, calls } = await shell(t, false, { hash: "", responses: {
-    "/api/study": practice,
-    "/api/study/analysis-context": {
-      datasetId: practice.dataset_id, attemptId: practice.attempt_id,
-      contentVersion: practice.content_version, revision: practice.revision,
-      fen: practice.display_fen, color: "white", repertoireId: null, name: null,
-      prescribedUci: "e2e4", playedUci: null,
-    },
-    "/api/study/analysis-line": { scope: "full_line", line: {
-      start_fen: practice.display_fen, moves: [{ notation: "1. e4", fen: lineBoard.fen() }],
-    } },
-  } });
-  const destinations = [];
-  const reserved = { closed: false, location: { href: "about:blank" },
-    close() { this.closed = true; },
-    document: { body: { append() {} }, createElement() {
-      return { click() { destinations.push(this.href); reserved.location.href = this.href; } };
-    } },
-  };
-  window.open = (url, target) => {
-    assert.equal(url, "about:blank");
-    assert.equal(target, "_blank");
-    return reserved;
-  };
-  assert.equal(calls.some(call => call.path === "/api/study/analysis-line"), false);
-  const launch = window.document.querySelector('button[aria-label="Analyze in Lichess"]');
-  assert(launch);
-  await window.runShell(async () => launch.click());
-  assert.equal(window.document.querySelector("h1").textContent, "Analysis board");
-  assert.equal(calls.filter(call => call.path === "/api/study/analysis-line").length, 1);
-  assert.equal(calls.some(call => call.path.startsWith("/api/analysis/")), false);
-  assert.equal(destinations.length, 1);
-  assert.match(destinations[0], /^https:\/\/lichess\.org\/analysis\/pgn\//);
-  assert.equal(reserved.opener, null);
-  assert.equal(reserved.closed, false);
+test("desktop Study keeps the exercise usable without optional analysis or card details", async t => {
+  const { window, calls } = await shell(t, false, { hash: "", responses: { "/api/study": practice } });
+  assert.equal(window.document.querySelector("h1").textContent, "Practice");
+  assert(window.document.querySelector('[aria-label="Study chessboard"]'));
+  for (const label of ["Analyze", "Analyze in Lichess", "Card details"]) {
+    assert.equal(window.document.querySelector(`[aria-label="${label}"]`), null);
+    assert(![...window.document.querySelectorAll("button")].some(button => button.textContent === label));
+  }
+  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command), [{ command: "next" }]);
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/relevance"].includes(call.path)));
 });
+
+for (const pending of [true, false]) {
+  test(`desktop can return to Study after ${pending ? "replaying a pending" : "restoring an accepted"} legacy concession`, async t => {
+    const key = "tempo-study-recovery-v4";
+    const accepted = complete({
+      status: "abandoned", assessment: "again", dataset_id: practice.dataset_id,
+      display_fen: position.fen(), revision: 1,
+    });
+    const { dataset_id, attempt_id, content_version } = accepted;
+    const concession = {
+      command: "concede", dataset_id, attempt_id, expected_revision: 0, submission_id: "old-concession",
+    };
+    const address = { dataset_id, attempt_id, content_version, returnTo: "next" };
+    const analysis = pending ? { ...address, phase: "accept", revision: 0, submission_id: concession.submission_id }
+      : { ...address, phase: "open", revision: 1, savedResult: accepted };
+    let replies = 0;
+    const { window, calls } = await shell(t, false, { hash: "", stored: {
+      [key]: { pending: pending ? concession : null, analysis },
+    }, responses: {
+      "/api/study": () => ({
+        ok: true, status: 200, json: async () => pending && replies++ === 0 ? accepted : practice,
+      }),
+    } });
+    const studyBytes = () => calls.filter(call => call.path === "/api/study").map(call => call.raw);
+    assert.equal(window.document.querySelector("h1").textContent, "Return to Study");
+    const replay = pending ? [JSON.stringify(concession)] : [];
+    assert.deepEqual(studyBytes(), replay);
+    const back = [...window.document.querySelectorAll("button")].find(button => button.textContent === "Back to Study");
+    await window.runShell(() => back.click());
+    assert.equal(window.document.querySelector("h1").textContent, "Practice");
+    assert.deepEqual(studyBytes(), [...replay, JSON.stringify({ command: "next" })]);
+    assert.deepEqual(JSON.parse(window.sessionStorage.getItem(key)), { pending: null });
+  });
+}
 
 test("phone keeps an active exercise free of desktop analysis and Lichess controls", async t => {
   const { window, calls } = await shell(t, true, { responses: { "/api/study": practice } });
   assert.equal(window.document.querySelector("h1").textContent, "Practice");
   assert.equal(window.document.querySelector('button[aria-label="Analyze in Lichess"]'), null);
   assert.equal([...window.document.querySelectorAll("button")].some(button => button.textContent === "Analyze"), false);
-  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/presence", "/api/study/relevance"].includes(call.path)));
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/relevance"].includes(call.path)));
 });
 
-test("phone ignores desktop game links and loads Build without issuing a Study command", async t => {
-  const { window, calls } = await shell(t, true);
-  assert.equal(window.document.querySelector("h1").textContent, "Study");
-  assert.equal(window.document.querySelector('nav[aria-label="Tempo sections"]'), null);
-  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/presence"].includes(call.path)));
-  await window.runShell(() => window.dispatchEvent(new window.PopStateEvent("popstate")));
-  assert.equal(window.document.querySelector("h1").textContent, "Study");
-  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
-  const nav = window.document.querySelector('nav[aria-label="Tempo phone sections"]');
-  const build = [...nav.querySelectorAll("button")].find(button => button.textContent === "Build");
-  await window.runShell(() => build.click());
-  assert.equal(window.document.querySelector("h1").textContent, "Build repertoire");
-  assert.equal(window.location.hash, "#build");
-  assert.deepEqual(calls.filter(call => call.path === "/api/repertoires").map(call => call.command.command), ["list"]);
-  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
+const gapRecoveryKey = "tempo-gap-save-continuation-v1";
+const savedGap = {
+  token: "old-gap",
+  gap: {
+    address: { dataset_id: "shell-fixture", repertoire_id: "old-book" },
+    details: { draft: { legal_moves: ["e2e4"] } },
+    offset: 0,
+  },
+  response: "e2e4",
+  accepted: true,
+};
+
+for (const hash of ["#games", "#build"]) {
+  test(`phone opens Study at ${hash} with an old Build continuation`, async t => {
+    const { window, calls } = await shell(t, true, {
+      hash, stored: { [gapRecoveryKey]: savedGap },
+    });
+    assert.equal(window.document.querySelector("h1").textContent, "Study");
+    assert.equal(window.document.querySelector("nav"), null);
+    assert(![...window.document.querySelectorAll("button")].some(button => button.textContent === "Build"));
+    await window.runShell(() => window.dispatchEvent(new window.PopStateEvent("popstate")));
+    assert.equal(window.document.querySelector("h1").textContent, "Study");
+    assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
+    assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress"].includes(call.path)));
+    assert.equal(window.sessionStorage.getItem(gapRecoveryKey), JSON.stringify(savedGap));
+  });
+}
+
+test("phone opens Study and replays its pending answer at the old Build link", async t => {
+  const key = "tempo-study-recovery-v4";
+  const pending = {
+    command: "answer", dataset_id: practice.dataset_id, attempt_id: practice.attempt_id,
+    submission_id: "original-phone-answer", expected_revision: practice.revision - 1,
+    answer: { uci: "e2e3" },
+  };
+  const { window, calls } = await shell(t, true, {
+    hash: "#build", stored: { [key]: { pending }, [gapRecoveryKey]: savedGap },
+    responses: { "/api/study": practice },
+  });
+  assert.equal(window.document.querySelector("h1").textContent, "Practice");
+  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.raw), [JSON.stringify(pending)]);
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/relevance"].includes(call.path)));
+  assert.deepEqual(JSON.parse(window.sessionStorage.getItem(key)), { pending: null });
+  assert.equal(window.sessionStorage.getItem(gapRecoveryKey), JSON.stringify(savedGap));
 });
 
 async function submitCapturePreview(window, pgn) {
@@ -299,14 +332,40 @@ test("An uncertain Capture delivery keeps the original save through context fail
   assert.equal(calls.filter(({ path }) => path === "/api/context").length, 1);
 });
 
-test("a pending Games import keeps its original address through Study navigation", async t => {
+test("a pending Games import recovers exact bytes, shows counts, and reloads raw replay", async t => {
   const key = "tempo.games.pending.v1";
   const pending = { kind: "import", payload: {
     command_id: "old-game-import", dataset_id: "shell-fixture", learner: "learner", pgn: "1. e4 1-0",
   }};
+  let imported = false;
+  const game = {
+    source: "pgn", game_id: "new-game", learner: "learner", white: "Learner", black: "Opponent",
+    color: "white", moves: ["e4"], played_ms: null, opening: null, eco: null, repertoires: [],
+  };
+  const board = new Chess();
+  const startFen = board.fen();
+  board.move("e4");
+  const position = (fen, played_uci) => ({
+    fen, played_uci, book_state: "unavailable", prepared_uci: [], introduced: null, other_route: null,
+  });
   const { window, calls } = await shell(t, false, { stored: { [key]: pending }, responses: {
-    "/api/games/import": {
-      fetched: 1, new_games: 1, duplicates: 0, matches: 0, deviations: 0, errors: [], results: [],
+    "/api/games/import": () => {
+      imported = true;
+      return { ok: true, status: 200, json: async () => ({
+        fetched: 3, new_games: 1, duplicates: 1, matches: 0, deviations: 0,
+        errors: ["One record could not be read."], results: [],
+      }) };
+    },
+    "/api/games/library": () => ({
+      ok: true, status: 200, json: async () => ({
+        dataset_id: "shell-fixture", through: 1, next_before: null, entries: imported ? [game] : [],
+      }),
+    }),
+    "/api/games/review": {
+      status: "review", dataset_id: "shell-fixture", source: game.source, game_id: game.game_id,
+      learner: game.learner, repertoire_id: null, comparison: null, document_id: null, revision: null,
+      white: game.white, black: game.black, result: "1-0", learner_color: game.color,
+      positions: [position(startFen, "e2e4"), position(board.fen(), null)], line: [],
     },
   } });
   const button = label => [...window.document.querySelectorAll("button")].find(item => item.textContent === label);
@@ -329,4 +388,66 @@ test("a pending Games import keeps its original address through Study navigation
   assert.equal(window.sessionStorage.getItem(key), null);
   assert.equal(calls.filter(call => call.path === "/api/context").length, 1);
   assert.equal(calls.filter(call => call.path === "/api/repertoires").length, 0);
+  const result = window.document.querySelector("details.game-import");
+  assert.deepEqual([...result.querySelectorAll("dt, dd")].map(item => item.textContent),
+    ["Games read", "3", "New games", "1", "Duplicates", "1"]);
+  assert.match(result.textContent, /1 problem reported.*One record could not be read/);
+  assert.equal(result.querySelector(".game-results"), null);
+  assert.equal(calls.slice(start).filter(call => call.path === "/api/games/library").length, 1);
+
+  await window.runShell(() => window.document.querySelector("#games-tab-library").click());
+  await window.runShell(() => button("Review game").click());
+  assert(calls.some(call => call.path === "/api/games/review"));
+  assert.match(window.location.hash, /new-game/);
+  assert(window.document.querySelector('[aria-label="Game review board"]'));
+  const nextMove = window.document.querySelector('button[aria-label="Next move"]');
+  assert.equal(nextMove.disabled, false);
+  await window.runShell(() => nextMove.click());
+  assert.equal(nextMove.disabled, true);
+  assert.equal(calls.filter(call => call.path === "/api/games/review").length, 1);
 });
+
+test("Games shows historical choices without offering a new corrective choice", async t => {
+  const { window, calls } = await shell(t, false, { responses: {
+    "/api/games": { results: [{
+      comparison_id: "historical-comparison", source: "pgn", game_id: "old-game", url: null,
+      repertoire_id: "", learner: "learner", matches: 0, deviations: 1, first_deviation_ply: 1,
+      coverage_gaps: 0, opponent_deviations: 0, effect: "choice_required",
+      choices: [{ ply: 1, candidates: [{ repertoire_id: "first-book", target_id: "first-target" }] }],
+    }] },
+  } });
+  assert.match(window.document.body.textContent, /Multiple corrective targets/);
+  assert.doesNotMatch(window.document.body.textContent, /Corrective target for half-move|Compare the game again/);
+  assert(![...window.document.querySelectorAll("button")].some(button => button.textContent === "first-book"));
+  assert.equal(calls.some(call => call.path === "/api/games/choose"), false);
+});
+
+for (const retired of [false, true]) {
+  test(`Games recovers a pending Choose with exact bytes and handles ${retired ? "retirement" : "the saved report"}`, async t => {
+    const key = "tempo.games.pending.v1";
+    const payload = {
+      command_id: "old-choice", dataset_id: "shell-fixture", learner: "learner", source: "pgn",
+      game_id: "old-game", comparison_id: "historical-comparison", ply: 1, target_id: "old-target",
+    };
+    const pending = { kind: "choose", payload };
+    const { window, calls } = await shell(t, false, { stored: { [key]: pending }, responses: {
+      "/api/games/choose": () => retired
+        ? { ok: false, status: 410, json: async () => ({
+          status: "error", code: "retired_feature", message: "Choose was retired.", retryable: false,
+          dataset_id: payload.dataset_id, command_id: payload.command_id,
+        }) }
+        : { ok: true, status: 200, json: async () => ({
+          fetched: 1, new_games: 0, duplicates: 1, matches: 0, deviations: 1, errors: [], results: [],
+        }) },
+    } });
+    const button = label => [...window.document.querySelectorAll("button")].find(item => item.textContent === label);
+    const choices = () => calls.filter(call => call.path === "/api/games/choose").map(call => call.raw);
+    assert.deepEqual(choices(), []);
+    await window.runShell(() => button("Review Games request").click());
+    await window.runShell(() => button("Retry same request").click());
+    assert.deepEqual(choices(), [JSON.stringify(payload)]);
+    assert.equal(window.sessionStorage.getItem(key), null);
+    assert.match(window.document.body.textContent, retired ? /Choose was retired/ : /Corrective choice results/);
+    if (!retired) assert.match(window.document.body.textContent, /Learner deviations1/);
+  });
+}

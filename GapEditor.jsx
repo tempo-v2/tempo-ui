@@ -5,8 +5,6 @@ import { Button, Dialog, IconButton, StatusNotice } from "@tempo-v2/core-compone
 import { CloseIcon } from "./ControlIcons.jsx";
 import { closeDialogShortcut } from "./shortcuts.js";
 import { playBoardMove } from "./board_move.js";
-import { GapLine, useGapLine } from "./GapLine.jsx";
-import { GapExplorer } from "./GapAnalysis.jsx";
 import { previewGapResponse, repertoireError, staleGapCodes, writeGapContinuation } from "./gap_save.js";
 import { PromotionChooser } from "./PromotionChooser.jsx";
 import { LichessControl } from "./LichessControl.jsx";
@@ -23,13 +21,7 @@ const shape = (uci, brush) => ({ orig: uci.slice(0, 2), dest: uci.slice(2, 4), b
 export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyze, suspended, previousSave, phoneBuild }) {
   const { draft, learner_color: color, actual_san, response_move_labels: labels } = gap.details;
   const [selected, setSelected] = useState(recovery?.response ?? "");
-  const [line, retryLine] = useGapLine(gap, recovery ? "" : selected);
-  const [view, setView] = useState(null);
-  const viewing = view?.line === line ? view?.index : null;
-  const viewedFen = viewing != null ? line?.positions?.[viewing] : null;
   const savedLabel = useRef(recovery?.savedLabel);
-  const [hover, setHover] = useState("");
-  const [focus, setFocus] = useState("");
   const [promotion, setPromotion] = useState(null);
   const [issue, setIssue] = useState("");
   const [stale, setStale] = useState(false);
@@ -54,45 +46,31 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
       }
       bySquare.get(id).push(move);
     }
-    return { bySquare, destinations, legal: new Set(draft.legal_moves) };
+    return { bySquare, destinations };
   }, [draft.legal_moves]);
   const selectedLabel = labels[selected] ?? "response";
-  const preview = hover || focus;
   const stagedBoard = useMemo(() => {
     if (!selected) return null;
     const current = new Chess(draft.fen);
     playBoardMove(current, selected);
     return current;
   }, [draft.fen, selected]);
-  const compare = preview && preview !== selected;
-  const fen = viewedFen ?? (!compare && stagedBoard ? stagedBoard.fen() : draft.fen);
+  const fen = stagedBoard ? stagedBoard.fen() : draft.fen;
   const exportLine = useMemo(() => {
     if (phoneBuild) return null;
-    if (viewedFen) {
-      const previewBoard = boardWithLeadIn(line.anchor_fen, line.anchor_route);
-      for (const step of line.steps.slice(0, viewing + 1)) playBoardMove(previewBoard, step.uci);
-      return lineFromBoard(previewBoard);
-    }
     const anchored = boardWithLeadIn(draft.fen, gap.details.anchor_route);
-    if (!compare && stagedBoard) playBoardMove(anchored, selected);
+    if (stagedBoard) playBoardMove(anchored, selected);
     return lineFromBoard(anchored);
-  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, compare, viewedFen, line, viewing, phoneBuild]);
+  }, [draft.fen, gap.details.anchor_route, selected, stagedBoard, phoneBuild]);
   const turn = fen.split(" ")[1] === "w" ? "white" : "black";
   const check = useMemo(() => new Chess(fen).isCheck() ? turn : false, [fen, turn]);
-  const shapes = [
-    ...(selected && !viewedFen ? [shape(selected, "green")] : []),
-    ...(compare && !viewedFen ? [shape(preview, "blue")] : []),
-  ];
+  const shapes = selected ? [shape(selected, "green")] : [];
   const locked = busy || !!pending || !!loadPending || !!settled || stale;
-  const staleLine = !locked && line?.status === "error" && staleGapCodes.has(line.code);
   usePageExitGuard(!!phoneBuild && (busy || !!pending || !!loadPending));
   const moveNumber = Number(draft.fen.split(" ")[5]) - (color === "white" ? 1 : 0);
   const opponentLabel = `${moveNumber}${color === "white" ? "…" : "."}${actual_san}`;
 
   function select(move) {
-    setView(null);
-    setHover("");
-    setFocus("");
     setPromotion(null);
     setSelected(move);
     setIssue("");
@@ -105,17 +83,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     if (!options?.length) return;
     if (options.length > 1) setPromotion({ moves: options.map(move => move[4]), base });
     else select(options[0]);
-  }
-
-  function moveButton(move, description) {
-    if (!moveOptions.legal.has(move)) return null;
-    return (
-      <button className="gap-move" type="button" aria-pressed={selected === move} disabled={locked}
-        onPointerEnter={() => setHover(move)} onPointerLeave={() => setHover("")}
-        onFocus={() => setFocus(move)} onBlur={() => setFocus("")} onClick={() => select(move)}>
-        <strong>{labels[move] ?? "Legal move"}</strong><span>{description}</span>
-      </button>
-    );
   }
 
   function remember(token, accepted = false) {
@@ -148,13 +115,11 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
     }
   }
 
-  async function save(useLine = false) {
+  async function save() {
     if (inFlight.current || stale || !selected) return;
     inFlight.current = true;
     setBusy(true);
     setIssue("");
-    setHover("");
-    setFocus("");
     try {
       if (settled) {
         await finish(settled, !!pending || !!loadPending);
@@ -169,15 +134,8 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
       if (!command) {
         if (hasPendingRepertoireCommand()) throw new Error("A repertoire save is still pending. Reload Tempo to recover it.");
         try {
-          if (useLine) {
-            command = line?.save_command;
-            if (!command) return;
-            const lastReply = line.steps.findLast(step => step.learner);
-            savedLabel.current = `line through your move ${lastReply.move_number}`;
-          } else {
-            command = await previewGapResponse(gap, selected, AbortSignal.timeout(10_000));
-            savedLabel.current = selectedLabel;
-          }
+          command = await previewGapResponse(gap, selected, AbortSignal.timeout(10_000));
+          savedLabel.current = selectedLabel;
         } catch (error) {
           setStale(staleGapCodes.has(error.code));
           throw error;
@@ -206,8 +164,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
 
 
   if (suspended) return null;
-  const linePanel = line && <GapLine line={line} depth={gap.forecast.through_move} locked={locked}
-    viewing={viewing} onView={index => setView({ line, index })} onRetry={retryLine} />;
   const closeButton = (
     <IconButton label="Close" shortcut={closeDialogShortcut}
       disabled={busy || !!pending || !!loadPending} onClick={close}><CloseIcon /></IconButton>
@@ -220,8 +176,8 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
         {settled && settled.status !== "error" && (
           <p role="status">Saved {savedLabel.current ?? selectedLabel}.</p>
         )}
-        {(issue || staleLine) && <StatusNotice kind="error">{issue || line.message}</StatusNotice>}
-        {stale || staleLine ? (
+        {issue && <StatusNotice kind="error">{issue}</StatusNotice>}
+        {stale ? (
           <div className="actions">
             <Button onClick={onStale}>Refresh gaps</Button>
             <IconButton label="Close" shortcut={closeDialogShortcut} onClick={close}><CloseIcon /></IconButton>
@@ -240,15 +196,12 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
                 <MainBoard ref={board} fen={fen} orientation={color} turn={turn} check={check}
                   mode="legal" destinations={moveOptions.destinations}
                   positionIdentity={position} positionRevision={revision}
-                  locked={locked || !!selected || !!promotion || !!viewedFen}
-                  lastMove={viewedFen
-                    ? [line.steps[viewing].uci.slice(0, 2), line.steps[viewing].uci.slice(2, 4)]
-                    : [gap.address.actual_move.slice(0, 2), gap.address.actual_move.slice(2, 4)]}
+                  locked={locked || !!selected || !!promotion}
+                  lastMove={[gap.address.actual_move.slice(0, 2), gap.address.actual_move.slice(2, 4)]}
                   coordinates="edges" onMove={onMove} shapes={shapes} ariaLabel="Repertoire response board" />
               </div>
               {!phoneBuild && <div className="gap-statistics">
                 <h3>Your response</h3>
-                <GapExplorer gap={gap} color={color} moveButton={moveButton} />
                 <details>
                   <summary>Before the opponent’s move</summary>
                   <p>{gap.details.profile} · Local coverage {percent(gap.details.local_coverage)}</p>
@@ -259,7 +212,6 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
                 </details>
               </div>}
             </div>
-            {linePanel}
             <div className="actions gap-editor-actions">
               <div className="gap-selection" role="status">
                 <span>{selected ? `Selected ${selectedLabel}` : "Play a move on the board."}</span>
@@ -271,11 +223,8 @@ export function GapEditor({ gap, recovery, onClose, onStale, onAdvance, onAnalyz
               })}>Analyze lines</Button>}
               {!phoneBuild && <LichessControl fen={fen} line={exportLine} orientation={color} />}
               {selected && <Button disabled={locked} onClick={() => select("")}>Clear response</Button>}
-              {line?.save_command && !pending && !loadPending && (
-                <Button variant="primary" disabled={locked} onClick={() => void save(true)}>Save line</Button>
-              )}
-              <Button variant={line?.save_command ? undefined : "primary"} disabled={busy || !selected} onClick={() => void save()}>
-                {busy ? "Saving response…" : pending || loadPending ? "Retry save" : gap.forecast?.report_id ? "Save response only" : "Save response"}
+              <Button variant="primary" disabled={busy || !selected} onClick={() => void save()}>
+                {busy ? "Saving response…" : pending || loadPending ? "Retry save" : "Save response"}
               </Button>
               {closeButton}
             </div>

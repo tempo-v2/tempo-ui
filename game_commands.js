@@ -4,7 +4,6 @@ import { requestJson } from "./content_transport.js";
 import { string } from "./wire_values.js";
 
 const endpoint = "/api/games";
-export const utcDayMs = 86_400_000;
 
 export const sourceNames = Object.freeze({
   lichess: "Lichess",
@@ -14,7 +13,7 @@ export const sourceNames = Object.freeze({
 
 export const gameEffects = Object.freeze({
   again_applied: "Game Again recorded. Repair is ready in Study.",
-  choice_required: "Choose a repertoire for the correction",
+  choice_required: "Multiple corrective targets",
   recorded_only: "Recorded only",
   requested_review: "Study Test requested",
   already_addressed: "Already addressed in Study",
@@ -168,100 +167,85 @@ export async function readGameHistory(signal) {
   const reply = await read("", signal);
   return {
     results: gameResults(reply.results),
-    lastSuccessfulRefresh: reply.last_successful_refresh_ms === null
-      ? null : count(reply.last_successful_refresh_ms, "last_successful_refresh_ms"),
   };
 }
 
-export async function readGameJob(signal) {
-  const reply = await read("/job", signal);
-  switch (reply.status) {
-    case "idle":
-      return { status: "idle" };
-    case "running":
-      return { status: "running", ...jobAddress(reply) };
-    case "complete":
-      return { status: "complete", ...jobAddress(reply), report: gameReport(reply.report) };
-    case "failed":
-      return {
-        status: "failed",
-        ...jobAddress(reply),
-        error: string(reply.error, "refresh error", true),
-        report: reply.report ? gameReport(reply.report) : null,
-      };
-    default:
-      throw new TypeError("Invalid game refresh status");
+export async function recoverGameRefresh(payload, signal) {
+  let reply;
+  try {
+    reply = await request("/refresh", payload, signal, {
+      expectedStatus: 202, timeoutMs: SHORT_ACK_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (error.status === 410 && error.code === "retired_feature" && error.retryable === false &&
+        error.details.dataset_id === payload.dataset_id && error.details.command_id === payload.command_id)
+      return { status: "retired", message: error.message };
+    throw error;
   }
-}
-
-export async function refreshGames(payload, signal) {
-  const reply = await request("/refresh", payload, signal, {
-    expectedStatus: 202, timeoutMs: SHORT_ACK_TIMEOUT_MS,
-  });
   const address = jobAddress(reply);
   if (address.commandId !== payload.command_id || address.datasetId !== payload.dataset_id)
     throw new Error("The Refresh reply belongs to a different request or dataset.");
-  if (reply.status === "running") return { status: "running", ...address };
   if (reply.status === "complete") return { status: "complete", ...address, report: gameReport(reply.report) };
-  throw new TypeError("Invalid Refresh acknowledgement.");
+  throw new TypeError("Invalid Refresh receipt.");
 }
 
 export async function importGamePgn(payload, signal) {
   return gameReport(await request("/import", payload, signal));
 }
 
-export async function chooseGameCorrection(payload, signal) {
-  return gameReport(await request("/choose", payload, signal));
+export async function recoverGameChoice(payload, signal) {
+  try {
+    return { status: "complete", report: gameReport(await request("/choose", payload, signal)) };
+  } catch (error) {
+    if (error.status === 410 && error.code === "retired_feature" && error.retryable === false &&
+        error.details?.dataset_id === payload.dataset_id && error.details?.command_id === payload.command_id)
+      return { status: "retired", message: error.message };
+    throw error;
+  }
 }
 
-export async function reprocessGames(payload, signal) {
-  return gameReport(await request("/reprocess", payload, signal));
+export async function recoverReprocessGames(payload, signal) {
+  let reply;
+  try {
+    reply = await request("/reprocess", payload, signal);
+  } catch (error) {
+    if (error.status === 410 && error.code === "retired_feature" && error.retryable === false &&
+        error.details.dataset_id === payload.dataset_id && error.details.command_id === payload.command_id)
+      return { status: "retired", message: error.message };
+    throw error;
+  }
+  return { status: "complete", report: gameReport(reply) };
 }
 
-export const historicalStatus = signal => read("/backfill", signal);
-
-async function acknowledgeHistorical(path, payload, jobId, signal) {
-  const reply = await request(path, payload, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS });
-  if (!jobId || !payload.dataset_id || reply?.job_id !== jobId || reply?.request?.dataset_id !== payload.dataset_id)
-    throw new Error("The historical reply belongs to a different job or dataset.");
-  if (!["running", "incomplete", "complete"].includes(reply.status))
-    throw new Error("Tempo did not acknowledge the historical request.");
-  return reply;
-}
-
-export const startHistorical = (payload, signal) =>
-  acknowledgeHistorical("/backfill", payload, payload.command_id, signal);
-export const retryHistorical = (payload, signal) =>
-  acknowledgeHistorical("/backfill/retry", payload, payload.job_id, signal);
-
-function modelReply(reply) {
-  if (!["idle", "running", "complete", "incomplete"].includes(reply?.status))
-    throw new TypeError("Invalid Maia status.");
-  if (reply.status !== "idle") string(reply.dataset_id, "model dataset", true);
-  if (reply.projection == null) return reply;
-  const projection = reply.projection;
+export async function recoverHistorical(payload, retry, signal) {
+  const jobId = retry ? payload.job_id : payload.command_id;
+  function matches({ dataset_id, job_id, command_id }) {
+    return jobId && job_id === jobId && dataset_id === payload.dataset_id &&
+      command_id === payload.command_id;
+  }
+  let reply;
+  try {
+    reply = await request(retry ? "/backfill/retry" : "/backfill", payload, signal, {
+      expectedStatus: 200, timeoutMs: SHORT_ACK_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (error.status === 410 && error.code === "retired_feature" && error.retryable === false &&
+        matches(error.details)) return { status: "retired", message: error.message };
+    throw error;
+  }
+  if (!matches({ ...reply, dataset_id: reply?.request?.dataset_id })) {
+    throw new Error("The historical reply belongs to a different request, job, or dataset.");
+  }
+  if (reply.execution !== "retired" || !["complete", "incomplete"].includes(reply.status)) {
+    throw new Error("Tempo did not confirm the archived historical request.");
+  }
   return {
-    ...reply,
-    projection: {
-      dataset_id: string(projection.dataset_id, "projection dataset", true),
-      complete_current: count(projection.complete_current, "complete projections"),
-      partial_current: count(projection.partial_current, "partial projections"),
-      unavailable: count(projection.unavailable, "unavailable projections"),
-      pending: count(projection.pending, "pending projections"),
-    },
+    status: reply.status, datasetId: payload.dataset_id,
+    pendingWindows: count(reply.pending_windows, "stopped windows"),
+    incompleteWindows: count(reply.incomplete_windows, "incomplete windows"),
   };
 }
 
-export async function modelStatus(signal) {
-  return modelReply(await read("/model", signal));
-}
-
-export async function startModel(payload, signal) {
-  const reply = modelReply(await request("/model", payload, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS }));
-  if (reply.dataset_id !== payload.dataset_id)
-    throw new Error("The Maia acknowledgement belongs to a different dataset.");
-  return reply;
-}
 export async function readGaps(signal, offset = 0, forecastRepertoire = null) {
   const reply = await read("/gaps", signal, offset || forecastRepertoire
     ? { offset, ...(forecastRepertoire ? { forecast_repertoire: forecastRepertoire } : {}) }
@@ -299,52 +283,10 @@ function coverageLineReply(reply) {
   return reply;
 }
 
-function coverageReply(reply, address) {
-  if (reply.dataset_id !== address.dataset_id || reply.repertoire_id !== address.repertoire_id)
-    throw new Error("Coverage status belongs to a different repertoire.");
-  if (!["idle", "running", "complete", "failed"].includes(reply.status) || typeof reply.busy !== "boolean")
-    throw new Error("Invalid coverage status.");
-  if (reply.starting_line !== undefined && !validCoverageLine(reply.starting_line))
-    throw new Error("Invalid coverage starting line.");
-  const report = reply.report;
-  if (report && (!Number.isFinite(report.covered) || !Number.isFinite(report.unresolved) ||
-      report.covered < 0 || report.unresolved < 0 || report.covered + report.unresolved > 1.000000001))
-    throw new Error("Invalid coverage estimate.");
-  return reply;
-}
-
-export async function readCoverage(address, signal) {
-  return coverageReply(await read("/coverage/status", signal, address), address);
-}
-
-export async function startCoverage(payload, signal) {
-  const { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id, starting_line } = payload;
-  const command = { request_id, dataset_id, repertoire_id, target_percent, through_move, prior_report_id, starting_line };
-  return coverageReply(await request("/coverage", command, signal, { timeoutMs: SHORT_ACK_TIMEOUT_MS }), command);
-}
 export const gapDraft = (payload, signal) => request("/gap-draft", payload, signal);
-export const startGapExplorer = (payload, signal) => request("/gap-explorer", payload, signal);
-export const readGapExplorer = signal => request("/gap-explorer", undefined, signal);
-
-export function utcDateRange(first, last, limit = 31) {
-  const day = value => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN;
-    const time = Date.parse(`${value}T00:00:00Z`);
-    return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value
-      ? time : NaN;
-  };
-  const from_ms = day(first);
-  const to_ms = day(last) + utcDayMs;
-  if (!(from_ms >= 0 && to_ms > from_ms)) throw new Error("Enter a valid date range.");
-  if (to_ms - from_ms > limit * utcDayMs) throw new Error(`Choose a range of up to ${limit} UTC days.`);
-  return { from_ms, to_ms };
-}
 
 export async function readGameReview(address, signal) {
   const reply = await read("/review", signal, address);
   if (reply.status === "error") throw new Error(reply.message);
   return validateGameReview(reply, address);
 }
-
-export const startGapLine = (payload, signal) => request("/gap-line", payload, signal);
-export const readGapLine = (payload, signal) => read("/gap-line/status", signal, payload);

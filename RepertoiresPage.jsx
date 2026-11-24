@@ -58,7 +58,6 @@ export function RepertoiresPage({ onStudy }) {
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState("");
   const [rename, setRename] = useState(null);
-  const [reset, setReset] = useState(null);
   const [activityChange, setActivityChange] = useState(null);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(true);
@@ -219,7 +218,8 @@ export function RepertoiresPage({ onStudy }) {
         if (editor && ["stale_draft", "stale_preview", "stale_dataset"].includes(reply.code))
           setEditor({ ...editor, stale: true });
         setIssue(reply.message);
-        if (reply.code === "stale_dataset" && !reply.retryable && !editor) {
+        if (!reply.retryable && !editor &&
+            (reply.code === "stale_dataset" || command.command === "reset_progress")) {
           setDestination("");
           const current = await sendRepertoireCommand({ command: "list" });
           if (current.status !== "error") setCatalog(current);
@@ -398,9 +398,6 @@ export function RepertoiresPage({ onStudy }) {
                           Suspend<span className="visually-hidden"> {item.name}</span>
                         </Button>
                       )}
-                      <Button disabled={locked || !!editor} onClick={() => setReset(item)}>
-                        Reset progress<span className="visually-hidden"> for {item.name}</span>
-                      </Button>
                     </div>
                     {!editor && (rename?.id === item.id ? (
                       <form className="actions" onSubmit={(event) => {
@@ -559,23 +556,6 @@ export function RepertoiresPage({ onStudy }) {
           <Button variant="primary" disabled={locked} onClick={() => setRepertoireActivity(activityChange, "suspended")}>
             Suspend repertoire
           </Button>
-        </div>
-      </Dialog>
-      <Dialog open={!!reset} title={`Reset progress for ${reset?.name ?? "this repertoire"}?`}
-        onClose={() => setReset(null)}>
-        <p>This erases the repertoire’s Study history and review schedule.
-          Its positions become new again. The PGN and imported games are kept.</p>
-        <div className="actions">
-          <Button onClick={() => setReset(null)}>Cancel</Button>
-          <Button variant="danger" disabled={locked} onClick={() => {
-            const address = documentAddress(catalog.dataset_id, reset.id);
-            setReset(null);
-            request({
-              command: "reset_progress",
-              ...address,
-              command_id: crypto.randomUUID(),
-            }, { durable: true });
-          }}>Reset progress</Button>
         </div>
       </Dialog>
     </main>

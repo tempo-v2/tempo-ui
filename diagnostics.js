@@ -6,14 +6,13 @@ let discarded = 0;
 let sequence = 0;
 
 const routes = new Set([
-  "/api/study", "/api/study/presence", "/api/study-progress", "/api/study/relevance", "/api/study/game-context",
+  "/api/study", "/api/study-progress", "/api/study/relevance", "/api/study/game-context",
   "/api/study/analysis-context", "/api/study/analysis-line", "/api/study/review-mark",
   "/api/study/card-details", "/api/study/saved-reviews", "/api/repertoires", "/api/tactics", "/api/tactic-settings",
   "/api/tactics-collection", "/api/games", "/api/games/library", "/api/games/review",
-  "/api/games/job", "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
-  "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry", "/api/games/model",
-  "/api/games/gaps", "/api/games/gap-draft", "/api/games/gap-line", "/api/games/gap-line/status",
-  "/api/games/gap-explorer", "/api/games/tactics", "/api/games/tactics/command",
+  "/api/games/refresh", "/api/games/import", "/api/games/reprocess",
+  "/api/games/choose", "/api/games/backfill", "/api/games/backfill/retry",
+  "/api/games/gaps", "/api/games/gap-draft",
 ]);
 const choices = {
   event: new Set(["request_start", "response_headers", "request_end", "late_response", "late_body"]),
