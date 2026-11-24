@@ -197,7 +197,7 @@ try {
     assert.deepEqual(await layout(), prior);
     return control;
   };
-  await page.goto(`http://127.0.0.1:${proxy.address().port}`);
+  await page.goto(`http://127.0.0.1:${proxy.address().port}/#build`);
   await button("Show move").waitFor();
   const { before_fen, uci } = issued[0].opponent_move;
   assert.ok(tactics.some(tactic => tactic.opponent_lead_ins[0].before_fen === before_fen));
@@ -207,6 +207,7 @@ try {
   assert.equal(await page.title(), "Tempo Study");
   assert.equal(await page.locator(".tempo-board-resize-handle").count(), 0);
   assert.equal(await page.getByRole("navigation", { name: "Tempo sections" }).count(), 0);
+  assert.equal(await button("Build").count(), 0);
   assert.equal(await button("Analyze").count(), 0);
   assert.equal(await button("Card details").count(), 0);
   assert.equal(await page.locator("#study-tactic-clue").count(), 0);
@@ -316,16 +317,6 @@ try {
   await button("Continue").waitFor();
   assert.equal(commands.length, completedCommands);
   assert.equal(await page.getByRole("tooltip").count(), 0);
-
-  const completedAttempts = rows("attempts");
-  const completedAssessmentCount = rows("assessments");
-  await button("Build").tap();
-  await page.getByRole("heading", { name: "Build repertoire" }).waitFor();
-  await button("Study").tap();
-  await button("Continue").waitFor();
-  assert.equal(commands.length, completedCommands);
-  assert.equal(rows("attempts"), completedAttempts);
-  assert.equal(rows("assessments"), completedAssessmentCount);
 
   const sounds = button("Board sounds");
   const wasPressed = await sounds.getAttribute("aria-pressed");

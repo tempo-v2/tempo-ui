@@ -3,6 +3,5 @@ import { createRoot } from "react-dom/client";
 import { PhoneApp } from "./PhoneApp.jsx";
 import "@tempo-v2/core-components/styles.css";
 import "./style.css";
-import "./phone.css";
 
 createRoot(document.getElementById("root")).render(<PhoneApp />);

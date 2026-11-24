@@ -65,17 +65,13 @@ Run the repertoire editor browser check from the assembled workspace with
 disposable SQLite database through the guarded Make launcher. Make Playwright
 available to Node or set `TEMPO_PLAYWRIGHT` to its installed module path.
 
-## Phone Study and Build
+## Phone Study
 
 The build also emits the standalone phone Study bundle under `dist/phone`.
 The desktop and phone bundles share the Study session and use the same API.
 Both use the bounded Study transport and immutable command recovery. Phone
-connection hints preserve structured server errors. Build opens on the phone
-at `#build`. Choose a repertoire to see saved coverage gaps and save a
-reviewed reply. A pending signed Save is recovered on reload.
+connection hints preserve structured server errors. Old links ending in
+`#build` open Study.
 After building the matching Tempo binary and UI, run
 `node tempo-ui/test/phone_study_browser.mjs` from the assembled workspace
 with Playwright WebKit installed. The test uses a disposable database.
-Run `node tempo-ui/test/phone_build_browser.mjs` with the same setup,
-the installed release's binary and assets, and `TEMPO_MAIA` pointing to
-the local Maia directory to check recovery across an upgrade.

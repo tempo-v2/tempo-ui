@@ -198,21 +198,50 @@ test("phone keeps an active exercise free of desktop analysis and Lichess contro
   assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/relevance"].includes(call.path)));
 });
 
-test("phone ignores desktop game links and loads Build without issuing a Study command", async t => {
-  const { window, calls } = await shell(t, true);
-  assert.equal(window.document.querySelector("h1").textContent, "Study");
-  assert.equal(window.document.querySelector('nav[aria-label="Tempo sections"]'), null);
-  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress"].includes(call.path)));
-  await window.runShell(() => window.dispatchEvent(new window.PopStateEvent("popstate")));
-  assert.equal(window.document.querySelector("h1").textContent, "Study");
-  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
-  const nav = window.document.querySelector('nav[aria-label="Tempo phone sections"]');
-  const build = [...nav.querySelectorAll("button")].find(button => button.textContent === "Build");
-  await window.runShell(() => build.click());
-  assert.equal(window.document.querySelector("h1").textContent, "Build repertoire");
-  assert.equal(window.location.hash, "#build");
-  assert.deepEqual(calls.filter(call => call.path === "/api/repertoires").map(call => call.command.command), ["list"]);
-  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
+const gapRecoveryKey = "tempo-gap-save-continuation-v1";
+const savedGap = {
+  token: "old-gap",
+  gap: {
+    address: { dataset_id: "shell-fixture", repertoire_id: "old-book" },
+    details: { draft: { legal_moves: ["e2e4"] } },
+    offset: 0,
+  },
+  response: "e2e4",
+  accepted: true,
+};
+
+for (const hash of ["#games", "#build"]) {
+  test(`phone opens Study at ${hash} with an old Build continuation`, async t => {
+    const { window, calls } = await shell(t, true, {
+      hash, stored: { [gapRecoveryKey]: savedGap },
+    });
+    assert.equal(window.document.querySelector("h1").textContent, "Study");
+    assert.equal(window.document.querySelector("nav"), null);
+    assert(![...window.document.querySelectorAll("button")].some(button => button.textContent === "Build"));
+    await window.runShell(() => window.dispatchEvent(new window.PopStateEvent("popstate")));
+    assert.equal(window.document.querySelector("h1").textContent, "Study");
+    assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.command.command), ["next"]);
+    assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress"].includes(call.path)));
+    assert.equal(window.sessionStorage.getItem(gapRecoveryKey), JSON.stringify(savedGap));
+  });
+}
+
+test("phone opens Study and replays its pending answer at the old Build link", async t => {
+  const key = "tempo-study-recovery-v4";
+  const pending = {
+    command: "answer", dataset_id: practice.dataset_id, attempt_id: practice.attempt_id,
+    submission_id: "original-phone-answer", expected_revision: practice.revision - 1,
+    answer: { uci: "e2e3" },
+  };
+  const { window, calls } = await shell(t, true, {
+    hash: "#build", stored: { [key]: { pending }, [gapRecoveryKey]: savedGap },
+    responses: { "/api/study": practice },
+  });
+  assert.equal(window.document.querySelector("h1").textContent, "Practice");
+  assert.deepEqual(calls.filter(call => call.path === "/api/study").map(call => call.raw), [JSON.stringify(pending)]);
+  assert(calls.every(call => ["/api/context", "/api/study", "/api/study-progress", "/api/study/relevance"].includes(call.path)));
+  assert.deepEqual(JSON.parse(window.sessionStorage.getItem(key)), { pending: null });
+  assert.equal(window.sessionStorage.getItem(gapRecoveryKey), JSON.stringify(savedGap));
 });
 
 async function submitCapturePreview(window, pgn) {
