@@ -332,14 +332,40 @@ test("An uncertain Capture delivery keeps the original save through context fail
   assert.equal(calls.filter(({ path }) => path === "/api/context").length, 1);
 });
 
-test("a pending Games import keeps its original address through Study navigation", async t => {
+test("a pending Games import recovers exact bytes, shows counts, and reloads raw replay", async t => {
   const key = "tempo.games.pending.v1";
   const pending = { kind: "import", payload: {
     command_id: "old-game-import", dataset_id: "shell-fixture", learner: "learner", pgn: "1. e4 1-0",
   }};
+  let imported = false;
+  const game = {
+    source: "pgn", game_id: "new-game", learner: "learner", white: "Learner", black: "Opponent",
+    color: "white", moves: ["e4"], played_ms: null, opening: null, eco: null, repertoires: [],
+  };
+  const board = new Chess();
+  const startFen = board.fen();
+  board.move("e4");
+  const position = (fen, played_uci) => ({
+    fen, played_uci, book_state: "unavailable", prepared_uci: [], introduced: null, other_route: null,
+  });
   const { window, calls } = await shell(t, false, { stored: { [key]: pending }, responses: {
-    "/api/games/import": {
-      fetched: 1, new_games: 1, duplicates: 0, matches: 0, deviations: 0, errors: [], results: [],
+    "/api/games/import": () => {
+      imported = true;
+      return { ok: true, status: 200, json: async () => ({
+        fetched: 3, new_games: 1, duplicates: 1, matches: 0, deviations: 0,
+        errors: ["One record could not be read."], results: [],
+      }) };
+    },
+    "/api/games/library": () => ({
+      ok: true, status: 200, json: async () => ({
+        dataset_id: "shell-fixture", through: 1, next_before: null, entries: imported ? [game] : [],
+      }),
+    }),
+    "/api/games/review": {
+      status: "review", dataset_id: "shell-fixture", source: game.source, game_id: game.game_id,
+      learner: game.learner, repertoire_id: null, comparison: null, document_id: null, revision: null,
+      white: game.white, black: game.black, result: "1-0", learner_color: game.color,
+      positions: [position(startFen, "e2e4"), position(board.fen(), null)], line: [],
     },
   } });
   const button = label => [...window.document.querySelectorAll("button")].find(item => item.textContent === label);
@@ -362,6 +388,23 @@ test("a pending Games import keeps its original address through Study navigation
   assert.equal(window.sessionStorage.getItem(key), null);
   assert.equal(calls.filter(call => call.path === "/api/context").length, 1);
   assert.equal(calls.filter(call => call.path === "/api/repertoires").length, 0);
+  const result = window.document.querySelector("details.game-import");
+  assert.deepEqual([...result.querySelectorAll("dt, dd")].map(item => item.textContent),
+    ["Games read", "3", "New games", "1", "Duplicates", "1"]);
+  assert.match(result.textContent, /1 problem reported.*One record could not be read/);
+  assert.equal(result.querySelector(".game-results"), null);
+  assert.equal(calls.slice(start).filter(call => call.path === "/api/games/library").length, 1);
+
+  await window.runShell(() => window.document.querySelector("#games-tab-library").click());
+  await window.runShell(() => button("Review game").click());
+  assert(calls.some(call => call.path === "/api/games/review"));
+  assert.match(window.location.hash, /new-game/);
+  assert(window.document.querySelector('[aria-label="Game review board"]'));
+  const nextMove = window.document.querySelector('button[aria-label="Next move"]');
+  assert.equal(nextMove.disabled, false);
+  await window.runShell(() => nextMove.click());
+  assert.equal(nextMove.disabled, true);
+  assert.equal(calls.filter(call => call.path === "/api/games/review").length, 1);
 });
 
 test("Games shows historical choices without offering a new corrective choice", async t => {
@@ -405,5 +448,6 @@ for (const retired of [false, true]) {
     assert.deepEqual(choices(), [JSON.stringify(payload)]);
     assert.equal(window.sessionStorage.getItem(key), null);
     assert.match(window.document.body.textContent, retired ? /Choose was retired/ : /Corrective choice results/);
+    if (!retired) assert.match(window.document.body.textContent, /Learner deviations1/);
   });
 }

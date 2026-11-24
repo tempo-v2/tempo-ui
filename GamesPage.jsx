@@ -123,18 +123,20 @@ const departureLabels = {
   outside_context: "Outside authored context",
 };
 
-function GameReport({ report, importing, repertoires, dataset, onOpen, history }) {
+function GameReport({ report, importing, showComparison = true, repertoires, dataset, onOpen, history }) {
   return (
     <>
       <dl className="content-preview">
         <dt>{importing ? "Games read" : "Games fetched"}</dt><dd>{report.fetched}</dd>
         <dt>New games</dt><dd>{report.new_games}</dd>
         <dt>Duplicates</dt><dd>{report.duplicates}</dd>
-        {report.opposite_color_skipped > 0 && (
-          <><dt>Skipped for opposite color</dt><dd>{report.opposite_color_skipped}</dd></>
-        )}
-        <dt>Matched positions</dt><dd>{report.matches}</dd>
-        <dt>Learner deviations</dt><dd>{report.deviations}</dd>
+        {showComparison && <>
+          {report.opposite_color_skipped > 0 && (
+            <><dt>Skipped for opposite color</dt><dd>{report.opposite_color_skipped}</dd></>
+          )}
+          <dt>Matched positions</dt><dd>{report.matches}</dd>
+          <dt>Learner deviations</dt><dd>{report.deviations}</dd>
+        </>}
       </dl>
       {report.errors.length > 0 && (
         <StatusNotice kind="error">
@@ -142,10 +144,10 @@ function GameReport({ report, importing, repertoires, dataset, onOpen, history }
           <ul>{report.errors.map((error, index) => <li key={index}>{error}</li>)}</ul>
         </StatusNotice>
       )}
-      <GameResults results={report.results.map(row => {
+      {showComparison && <GameResults results={report.results.map(row => {
         const match = history?.results.find(candidate => sameGame(candidate,row));
         return match ? { ...row, players: match.players } : row;
-      })} repertoires={repertoires} dataset={dataset} onOpen={onOpen} />
+      })} repertoires={repertoires} dataset={dataset} onOpen={onOpen} />}
     </>
   );
 }
@@ -709,7 +711,8 @@ export function GamesPage({ onStudy }) {
         {importReport && (
           <details className="game-import" open><summary>{importReportTitle}</summary><Surface>
             <h2>{importReportTitle}</h2>
-            <GameReport report={importReport} importing={currentReport.kind === "import"} dataset={dataset} onOpen={openReview}
+            <GameReport report={importReport} importing={currentReport.kind === "import"}
+              showComparison={currentReport.kind === "reprocess"} dataset={dataset} onOpen={openReview}
               history={history} repertoires={repertoires ?? []} />
           </Surface></details>
         )}
@@ -744,7 +747,7 @@ export function GamesPage({ onStudy }) {
               repertoires={repertoires ?? []} />}
             renderResults={groups=><GameResults groups={groups} dataset={dataset} history onOpen={openReview}
               repertoires={repertoires ?? []} />}
-            empty={<div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves. You can add a repertoire whenever you’re ready to compare your opening.</p></div>} />}
+            empty={<div className="empty-games"><h3>No games recorded yet.</h3><p>Import a completed PGN to replay its moves.</p></div>} />}
         </Surface>
       </GamesPanel>
       <GamesPanel id="coverage" tab={tab}>
